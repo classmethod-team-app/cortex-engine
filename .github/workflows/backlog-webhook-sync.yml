@@ -14,11 +14,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -38,10 +33,10 @@ jobs:
           # 直前に変わった課題/Wikiを拾える。scope絞りで無関係な取得を避ける。
           if [ "$KIND" = "issue" ]; then
             echo "課題を増分同期（契機: ${ISSUE_KEY:-?}）"
-            pnpm dlx backlog-exporter@latest update --issuesOnly --force
+            npx --yes backlog-exporter@latest update --issuesOnly --force
           elif [ "$KIND" = "wiki" ]; then
             echo "Wikiを増分同期（契機: wiki ${WIKI_ID:-?}）"
-            pnpm dlx backlog-exporter@latest update --wikisOnly --force
+            npx --yes backlog-exporter@latest update --wikisOnly --force
           else
             echo "::warning::未対応の client_payload（kind=$KIND）。スキップ"
             exit 0

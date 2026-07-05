@@ -39,18 +39,13 @@ jobs:
       - name: エンジンをGit管理対象外にする
         run: echo ".cortex-engine/" >> .git/info/exclude
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
       - name: Backlog同期
-        run: pnpm dlx backlog-exporter@latest update --force
+        run: npx --yes backlog-exporter@latest update --force
         env:
           BACKLOG_API_KEY: ${{ secrets.BACKLOG_API_KEY }}
           DOMAIN: ${{ secrets.BACKLOG_DOMAIN }}

@@ -14,11 +14,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -44,7 +39,7 @@ jobs:
           # 課題一覧fetchの失敗は致命的(即終了)になるため、ジョブ全体の軽いリトライを保険として被せる。
           # update --force は冪等なので再実行しても安全。
           for attempt in 1 2 3; do
-            if pnpm dlx backlog-exporter@latest update --force; then
+            if npx --yes backlog-exporter@latest update --force; then
               exit 0
             fi
             echo "同期に失敗しました（試行 ${attempt}/3）。${attempt}分待って再試行します..." >&2
