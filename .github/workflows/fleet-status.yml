@@ -30,6 +30,10 @@ jobs:
             exit 1
           fi
           echo "ENGINE_REPO_TOKEN: 届いています（長さ ${#T}）"
+          # 重要: checkout済みリポの中で実行すると actions/checkout が仕込んだ extraheader
+          # （GITHUB_TOKEN。cortex-engineは見えない）がURL認証より優先され、正しいトークンでも404になる。
+          # リポ外（一時ディレクトリ）で実行して汚染を避ける。
+          cd "$(mktemp -d)"
           if git ls-remote "https://x-access-token:${T}@github.com/classmethod-team-app/cortex-engine" HEAD >/dev/null 2>&1; then
             echo "cortex-engine へのアクセス: OK"
           else
