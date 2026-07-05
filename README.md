@@ -67,6 +67,10 @@ cortex-engine/
 - `/setup-status`・`scripts/fleet-status.mjs`: チェック項目を新構成に更新（rulesync 生成物チェック→プラグイン/スタブ/ENGINE_REPO_TOKEN/engine.channel チェックへ。engineVersion・schema_version の報告は fleet-status.yml で環境変数まで配線済み・スクリプト側の出力対応が未了）
 - `/customize-tooling`: リポ内スキル書き換え方式→eject（能力単位のローカル上書き）方式へ改修
 
+**Home.md（Viewer 表面）の記入原則を setup-project・シードに明文化**
+- `Cortex/Home.md` は AIS Viewer の入口（顧客・部外者が読む面）。**エンジン・ハーネス・スタブ等「仕組み」への参照を書かない**。使用ツール欄に載せるのは読者の判断材料になるもの（課題管理・ドキュメント・デザイン等の実ツール）だけ
+- 仕組みの参照（cortex-engine・プラグイン・ワークフロー）は CLAUDE.md（AI・メンバー向け）と README が持つ
+
 **README / USAGE（scaffold 同梱のシード文書）の全面書き換え**
 - 「テンプレートから複製」→「scaffold から展開」への前提変更
 - コマンド一覧をプラグイン配布前提に（`.rulesync/` 関連の記述を全廃）
