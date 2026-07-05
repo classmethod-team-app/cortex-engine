@@ -66,6 +66,7 @@ jobs:
           HAS_BACKLOG_DOMAIN: ${{ secrets.BACKLOG_DOMAIN != '' }}
           HAS_BACKLOG_PROJECT_KEY: ${{ secrets.BACKLOG_PROJECT_KEY != '' }}
           HAS_FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN != '' }}
+          HAS_ENGINE_REPO_TOKEN: ${{ secrets.ENGINE_REPO_TOKEN != '' }}
           # エンジンのバージョン（本ワークフローのコミットSHA）を報告に含める
           ENGINE_VERSION: ${{ github.job_workflow_sha }}
         run: node .cortex-engine/scripts/fleet-status.mjs

@@ -68,7 +68,8 @@ const runStatus = (r) => (r == null ? "unknown" : r === "success" ? "ok" : "miss
 
 // ---------- 信号収集（カレント＝リポ直下） ----------
 const home = readText("Cortex/Home.md");
-const overview = readText(".rulesync/rules/overview.md");
+// 旧テンプレ複製方式は .rulesync/rules/overview.md、エンジン分離後は薄い CLAUDE.md が概要を持つ
+const overview = readText(".rulesync/rules/overview.md") ?? readText("CLAUDE.md");
 const readme = readText("README.md");
 const channels = readText("チャット/channels.json");
 const gitmodules = readText(".gitmodules");
@@ -95,6 +96,21 @@ const projectName = (() => {
   return m ? m[1].trim() : REPO;
 })();
 
+// ---------- エンジン分離の状態 ----------
+// 移行済みか＝engine-migrate スタブの有無で判定する
+const engineMigrated = readText(".github/workflows/engine-migrate.yml") != null;
+// エンジンのバージョン: ワークフローが渡す ENGINE_VERSION（job_workflow_sha）を優先し、
+// 空なら CI 上のエンジン checkout（.cortex-engine）の SHA にフォールバック
+const engineVersion = (() => {
+  if (process.env.ENGINE_VERSION) return process.env.ENGINE_VERSION;
+  try {
+    return execFileSync("git", ["-C", ".cortex-engine", "rev-parse", "HEAD"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || null;
+  } catch { return null; }
+})();
+const engineChannel = (() => { const m = home && home.match(/^\s*channel:\s*(\w+)/m); return m ? m[1] : null; })();
+const schemaVersion = (() => { const m = home && home.match(/^\s*schema_version:\s*(\d+)/m); return m ? Number(m[1]) : null; })();
+
 // ---------- チェック定義 ----------
 const CHECKS = [
   // ---- 常に対象（基盤） ----
@@ -108,6 +124,12 @@ const CHECKS = [
     status: overview == null ? "missing" : (hasPlaceholder(overview) ? "missing" : "ok") },
   { id: "readme_project", label: "README案件化", cat: "基盤",
     status: readme == null ? "unknown" : (hasPlaceholder(readme) ? "missing" : "ok") },
+  { id: "engine_migrated", label: "エンジン分離 移行", cat: "基盤",
+    status: engineMigrated ? "ok" : "missing",
+    action: "エンジン分離構成へ移行（cortex-engine scaffold のスタブ・settings.json を配置）" },
+  { id: "engine_token", label: "ENGINE_REPO_TOKEN", cat: "シークレット", applies: engineMigrated,
+    status: okFromBool(secret("ENGINE_REPO_TOKEN")),
+    action: "cortex-engine への read 専用 PAT を repo secret に登録（org secret は Free プランでは private リポに届かない）" },
   { id: "role_secret", label: "AWS_ROLE_TO_ASSUME", cat: "シークレット",
     status: okFromBool(secret("AWS_ROLE_TO_ASSUME")), action: "案件リポに RoleArn を登録" },
   { id: "decisions_content", label: "Cortex/Decisions 実データ", cat: "Cortex",
@@ -120,7 +142,7 @@ const CHECKS = [
       if (vals.some((v) => v === null)) return "unknown"; return vals.every(Boolean) ? "ok" : "missing"; })(),
     action: "案件の Backlog 値を Secret 登録" },
   { id: "backlog_synced", label: "課題管理 同期データ", cat: "課題管理", applies: usesTool("課題管理", "backlog", true),
-    status: issuesCount > 0 ? "ok" : "missing", detail: `${issuesCount}件`, action: "/backlog-pull で同期" },
+    status: issuesCount > 0 ? "ok" : "missing", detail: `${issuesCount}件`, action: "sync-backlog を workflow_dispatch で実行（初回全量同期）" },
   { id: "nightly_backlog", label: "夜間 Backlog同期 run", cat: "自動化", applies: usesTool("課題管理", "backlog", true),
     status: runStatus(runBacklog), detail: runBacklog || "" },
   // ---- チャット == slack ----
@@ -155,7 +177,12 @@ const checks = CHECKS.map((c) => {
 const score = denW > 0 ? Math.round((okW / denW) * 100) : null;
 const nextActions = checks.filter((c) => c.status === "missing" && c.action).map((c) => c.action);
 
-const out = { generatedAt: NOW, repository: REPO, project: projectName, tools: tools || undefined, score, checks, nextActions };
+const out = {
+  generatedAt: NOW, repository: REPO, project: projectName, tools: tools || undefined,
+  // エンジン分離の状態（巡回エージェントがフリートのバージョン分布・移行状況を見る）
+  engine: { migrated: engineMigrated, version: engineVersion, channel: engineChannel, schemaVersion },
+  score, checks, nextActions,
+};
 writeFileSync("fleet-status.json", JSON.stringify(out, null, 2) + "\n");
 
 const ICON = { ok: "✅", missing: "⬜", na: "➖", unknown: "❔" };
