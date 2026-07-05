@@ -1,0 +1,25 @@
+name: Decision Log自動更新
+# 実体はエンジン。※ファイル名を変えないこと（増分起点SINCEの算出が gh run list --workflow=このファイル名 に依存）
+on:
+  schedule:
+    # 毎日 夜22:00 JST（UTC 13:00）。平日昼のBacklog同期とは時間が被らない
+    - cron: "0 13 * * *"
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "増分起点をISO8601で上書き（バックフィル用。空なら前回成功以降）"
+        required: false
+        default: ""
+concurrency:
+  group: update-decision-log
+  cancel-in-progress: false
+permissions:
+  contents: write
+  id-token: write # AWS OIDC 認証に必須
+  actions: read   # SINCE算出（gh run list）に必要
+jobs:
+  update:
+    uses: classmethod-team-app/cortex-engine/.github/workflows/update-decision-log.yml@v1
+    secrets: inherit
+    with:
+      since: ${{ github.event.inputs.since || '' }}

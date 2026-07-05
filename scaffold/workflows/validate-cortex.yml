@@ -1,0 +1,14 @@
+name: Cortex検証
+# 実体はエンジン
+on:
+  pull_request:
+    paths:
+      - "Cortex/**"
+  push:
+    branches: [main]
+    paths:
+      - "Cortex/**"
+jobs:
+  lint:
+    uses: classmethod-team-app/cortex-engine/.github/workflows/validate-cortex.yml@v1
+    secrets: inherit

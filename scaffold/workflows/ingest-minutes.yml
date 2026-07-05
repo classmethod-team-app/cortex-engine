@@ -1,0 +1,19 @@
+name: 議事録 自動生成（文字起こし→議事録）
+# 実体はエンジン。cortex-notetaker からの repository_dispatch と夜間cron（取りこぼし保険）で起動
+on:
+  schedule:
+    # 毎日 夜21:00 JST（UTC 12:00）。取りこぼしの保険（通常は下の repository_dispatch で即時起動）
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+  repository_dispatch:
+    types: [transcript-ingested]
+concurrency:
+  group: ingest-minutes
+  cancel-in-progress: false
+permissions:
+  contents: write
+  id-token: write
+jobs:
+  ingest:
+    uses: classmethod-team-app/cortex-engine/.github/workflows/ingest-minutes.yml@v1
+    secrets: inherit

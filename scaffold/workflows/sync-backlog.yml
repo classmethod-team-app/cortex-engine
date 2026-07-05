@@ -1,0 +1,13 @@
+name: Backlog同期
+# 実体はエンジン（cortex-engine）。トリガー・cron時刻はこのスタブで案件ごとに調整可
+on:
+  schedule:
+    # 平日（月〜金）の日本時間 9:00〜19:00 に1時間ごと（UTC: 0:00〜10:00）
+    - cron: "0 0-10 * * 1-5"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  sync:
+    uses: classmethod-team-app/cortex-engine/.github/workflows/sync-backlog.yml@v1
+    secrets: inherit

@@ -1,0 +1,25 @@
+name: 週次レポート生成
+# 実体はエンジン。※ファイル名を変えないこと（増分起点SINCEの算出が gh run list --workflow=このファイル名 に依存）
+on:
+  schedule:
+    # 毎週金曜 21:00 JST（UTC 金 12:00）。その週のまとめを週末前に生成する
+    - cron: "0 12 * * 5"
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "増分起点をISO8601で上書き（バックフィル用。空なら前回成功以降）"
+        required: false
+        default: ""
+concurrency:
+  group: weekly-report
+  cancel-in-progress: false
+permissions:
+  contents: write
+  id-token: write
+  actions: read
+jobs:
+  report:
+    uses: classmethod-team-app/cortex-engine/.github/workflows/weekly-report.yml@v1
+    secrets: inherit
+    with:
+      since: ${{ github.event.inputs.since || '' }}

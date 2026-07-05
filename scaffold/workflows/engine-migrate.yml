@@ -1,0 +1,16 @@
+name: エンジンマイグレーション（データスキーマ更新）
+# 実体はエンジン。エンジン更新に伴うデータ側の追随を夜間に自動適用する
+on:
+  schedule:
+    # 毎日 夜20:30 JST（UTC 11:30）。精製系cron（21:00〜）より前にスキーマを揃える
+    - cron: "30 11 * * *"
+  workflow_dispatch:
+concurrency:
+  group: engine-migrate
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  migrate:
+    uses: classmethod-team-app/cortex-engine/.github/workflows/engine-migrate.yml@v1
+    secrets: inherit

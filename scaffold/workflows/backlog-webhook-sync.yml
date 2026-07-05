@@ -1,0 +1,14 @@
+name: Backlogリアルタイム同期（webhook受信）
+# cortex-tools の Backlog Webhook Lambda から repository_dispatch で起動。実体はエンジン
+on:
+  repository_dispatch:
+    types: [backlog-updated]
+concurrency:
+  group: backlog-realtime-sync
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  sync:
+    uses: classmethod-team-app/cortex-engine/.github/workflows/backlog-webhook-sync.yml@v1
+    secrets: inherit

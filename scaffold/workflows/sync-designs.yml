@@ -1,0 +1,16 @@
+name: デザイン同期
+# 実体はエンジン
+on:
+  schedule:
+    # 毎日 夜21:45 JST（UTC 12:45）。Decision Log自動更新（22:00）の前に最新化する
+    - cron: "45 12 * * *"
+  workflow_dispatch:
+concurrency:
+  group: sync-designs
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  sync:
+    uses: classmethod-team-app/cortex-engine/.github/workflows/sync-designs.yml@v1
+    secrets: inherit

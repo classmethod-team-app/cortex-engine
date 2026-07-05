@@ -1,0 +1,17 @@
+name: セットアップ状況の自己チェック
+# 実体はエンジン
+on:
+  schedule:
+    # 毎日 朝8:30 JST（UTC 23:30）。他の同期系cronより後にして直近の状態を反映する
+    - cron: "30 23 * * *"
+  workflow_dispatch:
+concurrency:
+  group: fleet-status
+  cancel-in-progress: false
+permissions:
+  contents: write
+  actions: read
+jobs:
+  status:
+    uses: classmethod-team-app/cortex-engine/.github/workflows/fleet-status.yml@v1
+    secrets: inherit
