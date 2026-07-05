@@ -1,0 +1,7 @@
+{
+  "name": "cortex",
+  "description": "Cortex エンジン: 案件コンテキストリポジトリの取り込み・精製・記録スキル一式（backlog-pull/push、議事録、Decision Log、用語集、週次レポート等）",
+  "author": {
+    "name": "Classmethod"
+  }
+}
