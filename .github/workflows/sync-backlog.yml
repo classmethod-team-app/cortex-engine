@@ -57,7 +57,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add 課題管理/
+          # 同期ミラーのルート（backlog-settings.json を持つディレクトリ）をステージする。
+          # ディレクトリ名は案件でカスタマイズされ得る（例: 課題管理/ ではなく Backlog/）ためハードコードしない。
+          for d in $(find . -name backlog-settings.json -not -path './node_modules/*' -not -path './.git/*' | xargs -n1 dirname | sort -u); do
+            git add "$d"
+          done
           if git diff --staged --quiet; then
             echo "変更なし"
           else

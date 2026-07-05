@@ -73,12 +73,31 @@ const overview = readText(".rulesync/rules/overview.md") ?? readText("CLAUDE.md"
 const readme = readText("README.md");
 const channels = readText("チャット/channels.json");
 const gitmodules = readText(".gitmodules");
-const figmaJson = readText("デザイン/figma.json");
+
+// ディレクトリ名は案件でカスタマイズされ得る（例: 課題管理/→Backlog/、デザイン/→Figma/、会議/→MTG/）。
+// マーカーファイル（backlog-settings.json / figma.json / ingest-config.json）の場所から導出する。
+function findDirByMarker(marker, fallback) {
+  try {
+    for (const d of readdirSync(".", { withFileTypes: true })) {
+      if (!d.isDirectory() || d.name === "node_modules" || d.name.startsWith(".")) continue;
+      try { readFileSync(`${d.name}/${marker}`); return d.name; } catch {}
+      // backlog-settings.json は issues/ 等の1階層下に置かれる
+      for (const sub of (listDir(d.name) || [])) {
+        try { readFileSync(`${d.name}/${sub}/${marker}`); return d.name; } catch {}
+      }
+    }
+  } catch {}
+  return fallback;
+}
+const issuesDir = findDirByMarker("backlog-settings.json", "課題管理");
+const designDir = findDirByMarker("figma.json", "デザイン");
+const meetingDir = findDirByMarker("ingest-config.json", "会議");
+const figmaJson = readText(`${designDir}/figma.json`);
 
 const decisionsCount = (listDir("Cortex/Decisions/records") || []).filter((n) => n.endsWith(".md") && !n.includes("{{")).length;
-const issuesCount = (listDir("課題管理/issues") || []).length;
-const inventoryCount = (listDir("デザイン/inventory") || []).length;
-const meetingCount = (listDir("会議") || []).length;
+const issuesCount = (listDir(`${issuesDir}/issues`) || []).length;
+const inventoryCount = (listDir(`${designDir}/inventory`) || []).length;
+const meetingCount = (listDir(meetingDir) || []).length;
 
 // 案件の利用ツール宣言（Cortex/Home.md の `tools`: 能力→ツール）。
 // 宣言があればそれで applicability を決め、無ければ推測にフォールバックする（未移行案件のため）。

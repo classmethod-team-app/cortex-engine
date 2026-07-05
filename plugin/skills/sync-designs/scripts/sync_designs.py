@@ -18,7 +18,15 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-DESIGN_DIR = Path("デザイン")
+# デザインディレクトリ名は案件でカスタマイズされ得る（例: デザイン/ ではなく Figma/）ため、
+# figma.json の場所から導出する（見つからなければ既定の デザイン/）
+def _find_design_dir() -> Path:
+    for p in sorted(Path(".").glob("*/figma.json")):
+        if "node_modules" not in p.parts:
+            return p.parent
+    return Path("デザイン")
+
+DESIGN_DIR = _find_design_dir()
 CONF_PATH = DESIGN_DIR / "figma.json"
 INVENTORY_DIR = DESIGN_DIR / "inventory"
 RESOURCES_DIR = DESIGN_DIR / "resources"
