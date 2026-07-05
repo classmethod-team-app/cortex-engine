@@ -4,7 +4,12 @@ name: 議事録 自動生成（文字起こし→議事録）
 # cortex-notetaker(Apps Script) が文字起こしを追加すると案件リポへ repository_dispatch → スタブが本ワークフローを呼ぶ。
 on:
   workflow_call:
-
+    inputs:
+      engine_ref:
+        description: "エンジン（スクリプト等）のcheckout ref。スタブのチャンネルと揃える（stable=v1 / canary=main）"
+        required: false
+        type: string
+        default: "v1"
 jobs:
   ingest:
     runs-on: ubuntu-latest
@@ -22,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: classmethod-team-app/cortex-engine
-          ref: ${{ github.job_workflow_sha }}
+          ref: ${{ github.job_workflow_sha || inputs.engine_ref }}
           path: .cortex-engine
           token: ${{ secrets.ENGINE_REPO_TOKEN || github.token }}
 

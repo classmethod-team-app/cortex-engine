@@ -13,7 +13,7 @@
 
 - `update-decision-log.yml`・`update-glossary.yml`・`weekly-report.yml` は**ファイル名を変えない**こと（増分起点 SINCE の算出が `gh run list --workflow=<ファイル名>` に依存）
 - private エンジンの checkout に org secret `ENGINE_REPO_TOKEN`（cortex-engine への read 権限）が必要
-- カナリア運用（cortex-context）ではスタブの `@v1` を `@main` に、settings.json のマーケットプレイスを `cortex-canary`（cortex-engine 直接参照）に差し替える
+- カナリア運用（cortex-context）ではスタブの `@v1` を `@main` にし、`with: engine_ref: main` を渡し（エンジンcheckoutを伴う8本）、settings.json のマーケットプレイスを `cortex-canary`（cortex-engine 直接参照）に差し替える
 
 ## TODO（Phase 3）
 
