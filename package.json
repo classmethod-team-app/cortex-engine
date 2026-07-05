@@ -1,0 +1,11 @@
+{
+  "name": "cortex-engine",
+  "version": "0.0.0",
+  "description": "Cortex エンジン: 案件コンテキストリポジトリを動かす仕組み（プラグイン・reusable workflows・スクリプト・マイグレーション）の中央リポジトリ",
+  "private": true,
+  "packageManager": "pnpm@10.14.0",
+  "scripts": {
+    "lint:cortex": "node plugin/scripts/validate-cortex.mjs",
+    "fleet:status": "node scripts/fleet-status.mjs"
+  }
+}
