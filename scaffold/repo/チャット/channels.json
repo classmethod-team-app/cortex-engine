@@ -1,0 +1,14 @@
+{
+  "channels": [
+    {
+      "name": "社内議論",
+      "url": "https://your-workspace.slack.com/archives/CHANNEL_ID",
+      "description": "このチャンネルの用途・性質を一言で（どんな話題がここに来るか）。read-chat が複数チャンネルから見る先を選ぶ手がかりになる"
+    },
+    {
+      "name": "顧客共有",
+      "url": "https://your-workspace.slack.com/archives/CHANNEL_ID",
+      "description": "顧客が閲覧・書き込みする場（社内専用ではない。投稿時は社外公開前提で注意）。性質が異なるチャンネルは description で明示する"
+    }
+  ]
+}

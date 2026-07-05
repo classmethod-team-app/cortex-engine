@@ -1,0 +1,6 @@
+{
+  "_doc": "顧客会議の文字起こしを Cortex へ自動取り込みする際の、この案件への『ルーティング設定』。中央 Apps Script（cortex-notetaker bot 権限）は、bot に共有された文字起こしを“すべて”取り込み対象とし（取り込むか否かは bot を招待したかどうかで決まる＝フィルタは持たない）、その文字起こしを『どの案件リポへ入れるか』だけを判定する。判定の優先順は ①案件キー（cortex-tools/infra/config.ts の key。運用規約: 会議名の頭に付ける、例『【KC】定例』）→ ②Cortex/Home.md の client 名 → ③この meetingNamePatterns。①②が会議名に入らない場合のみ③に固有の会議名を足す（『定例』のような汎用語は他案件を誤って引き込むため入れない）。複数案件に一致した場合と未一致は中央 inbox（未仕分け）へ入り、データは失われない。詳細: cortex-tools/apps-script/",
+  "enabled": false,
+  "meetingNamePatterns": [],
+  "transcriptDir": "会議"
+}

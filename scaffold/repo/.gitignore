@@ -1,0 +1,11 @@
+.env
+node_modules/
+.DS_Store
+.tmp.driveupload/*
+credentials/
+__pycache__/
+
+# 個人のローカル設定はコミットしない
+.claude/settings.local.json
+
+tmp/参考資料/
