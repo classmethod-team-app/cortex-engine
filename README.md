@@ -52,13 +52,10 @@ cortex-engine/
 
 ### Phase 3: セットアップ・ドキュメントの全面見直し（エンジン分離前提への書き換え）
 
-**残り**
-
-- `/setup-status`: チェック項目を新構成に更新（rulesync 生成物チェック→プラグイン/スタブ/ENGINE_REPO_TOKEN/engine.channel チェックへ。fleet-status.mjs は対応済みなので定義を揃える）
-- `/customize-tooling`: リポ内スキル書き換え方式→eject（能力単位のローカル上書き）方式へ改修
+**残り**: なし（下記完了済みに移動）
 
 
-**完了済み（2026-07-06）**: 既存案件の移行手順のスキル化（/migrate-to-engine。cortex-context の移行実績 PR #8 を雛形化）／setup-project の scaffold 展開方式化（repo secret 前提・初回同期の Actions 化・notetaker 登録導線・Home.md 記入原則を含む。職能ハーネスの選択は部署側の運用としスキルでは扱わない）／backlog-pull の非常口化／onboard-member の新体験化／fleet-status.mjs のエンジン状態報告／scaffold（repo 一式＋シード README・USAGE・CLAUDE.md）のプラグイン同梱
+**完了済み（2026-07-06）**: setup-status のエンジン分離チェック対応／customize-tooling の eject 方式化／既存案件の移行手順のスキル化（/migrate-to-engine。cortex-context の移行実績 PR #8 を雛形化）／setup-project の scaffold 展開方式化（repo secret 前提・初回同期の Actions 化・notetaker 登録導線・Home.md 記入原則を含む。職能ハーネスの選択は部署側の運用としスキルでは扱わない）／backlog-pull の非常口化／onboard-member の新体験化／fleet-status.mjs のエンジン状態報告／scaffold（repo 一式＋シード README・USAGE・CLAUDE.md）のプラグイン同梱
 
 ### その他
 
