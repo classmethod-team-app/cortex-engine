@@ -20,7 +20,7 @@
  *
  * このスクリプトは setup-project スキルに同梱されている。スキルからは
  * `<SKILL_DIR>/scripts/setup-fill.mjs`、手動セットアップではリポジトリ直下の
- * `.rulesync/skills/setup-project/scripts/setup-fill.mjs` を指定して実行する。
+ * プラグインの `<SKILL_DIR>/scripts/setup-fill.mjs` を指定して実行する。
  * いずれもカレントディレクトリ（=リポジトリルート）を走査対象とする。
  *
  * 使い方:

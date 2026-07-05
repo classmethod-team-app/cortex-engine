@@ -27,9 +27,10 @@ cortex-engine/
 │   └── release.yml                   # stable ブランチ＋v1 タグを同一コミットに前進（リリースは必ずこれ経由）
 ├── scripts/                          # GHA 用（fleet-status.mjs / engine-migrate.mjs）
 ├── migrations/                       # データスキーマのマイグレーション（migrations/README.md 参照）
-├── docs/                             # 規約の正本（ontology.md / credentials.md）
-└── scaffold/                         # 案件リポの初期骨格（スタブ・settings.json）
+└── docs/                             # 規約の正本（ontology.md / credentials.md）
 ```
+
+> 案件リポの初期骨格（scaffold）は `plugin/scaffold/` にあり、**プラグインに同梱**される（`/setup-project` が手元で展開できるようにするため）。
 
 ## 配布とチャンネル
 
@@ -43,8 +44,8 @@ cortex-engine/
 ## 案件リポに必要なもの
 
 - `.github/workflows/` に scaffold のスタブ（cron 時刻は案件で調整可）
-- `.claude/settings.json`（scaffold/claude-settings.json 参照）
-- Secrets（従来どおり案件リポ側）: `BACKLOG_*` / `AWS_ROLE_TO_ASSUME` / `FIGMA_TOKEN` ＋ **`ENGINE_REPO_TOKEN`**（本リポ read 権限。org secret 推奨。private エンジンの checkout 用）
+- `.claude/settings.json`（plugin/scaffold/repo/.claude/settings.json 参照）
+- Secrets（案件リポ側の **repo secret**。org secret は Free プランでは private リポに届かない）: `BACKLOG_*` / `AWS_ROLE_TO_ASSUME` / `FIGMA_TOKEN` ＋ **`ENGINE_REPO_TOKEN`**（本リポ read 権限。private エンジンの checkout 用）
 - メンバーの手元: リポをトラスト → プラグインインストールの自動案内に「はい」（1人1回）。private マーケットプレイスの自動更新用トークンは `/onboard-member` が案内
 
 ## 既知の残作業
