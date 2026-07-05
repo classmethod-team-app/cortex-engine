@@ -2,7 +2,7 @@
 
 案件コンテキストリポジトリ（[Cortex](https://github.com/classmethod-internal/aidd-project-cortex)）を動かす**仕組みの正本**。案件リポには「データ＋薄い設定」だけを置き、スキル・ワークフロー・スクリプト・マイグレーションはここで一元的に版管理して全案件に配布する。
 
-> 設計の全体像は設計書（aidd-project-cortex の `tmp/Cortex-エンジン分離-設計書.md`）を参照。
+> 設計の全体像は設計書（cortex-context の `tmp/Cortex-エンジン分離-設計書.md`）を参照。
 
 ## 原則
 
@@ -17,7 +17,7 @@ cortex-engine/
 ├── .claude-plugin/marketplace.json   # カナリア/開発用マーケットプレイス（cortexのみ掲載）
 ├── plugin/                           # Claude Code プラグイン「cortex」
 │   ├── .claude-plugin/plugin.json    # version は意図的に未設定（コミットSHA＝バージョン。bump忘れ事故を排除）
-│   ├── skills/                       # スキル23本（旧テンプレの .rulesync/skills から移設。rulesync-generate / update-from-template は廃止）
+│   ├── skills/                       # スキル24本（旧テンプレから移設＋migrate-to-engine 追加。rulesync-generate / update-from-template は廃止）
 │   ├── agents/  hooks/  .mcp.json
 │   └── scripts/validate-cortex.mjs   # オントロジー検証（js-yaml は vendor 同梱・インストール不要）
 ├── .github/workflows/                # reusable workflows（案件リポのスタブから workflow_call で呼ばれる）
