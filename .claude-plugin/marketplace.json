@@ -1,5 +1,8 @@
 {
   "name": "cortex-canary",
+  "metadata": {
+    "description": "Cortex エンジンのカナリア/開発用マーケットプレイス（main追従）。安定配布は部カタログ（retail-app-harnesses 等）を使うこと"
+  },
   "owner": {
     "name": "Classmethod"
   },
