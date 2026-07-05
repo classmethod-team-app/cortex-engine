@@ -6,7 +6,7 @@
     ]
   },
   "extraKnownMarketplaces": {
-    "retail-app": {
+    "retail-app-harnesses": {
       "source": {
         "source": "github",
         "repo": "classmethod-team-app/retail-app-harnesses"
@@ -14,6 +14,6 @@
     }
   },
   "enabledPlugins": {
-    "cortex@retail-app": true
+    "cortex@retail-app-harnesses": true
   }
 }
