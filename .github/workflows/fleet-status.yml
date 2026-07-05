@@ -20,6 +20,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 失敗時の原因切り分け用（トークン未達か・トークンのアクセス権不足かを明確にする）
+      - name: エンジン取得の事前確認（トークン診断）
+        env:
+          T: ${{ secrets.ENGINE_REPO_TOKEN }}
+        run: |
+          if [ -z "$T" ]; then
+            echo "::error::ENGINE_REPO_TOKEN がワークフローに届いていません（org secret の可視性、スタブの secrets: inherit を確認）"
+            exit 1
+          fi
+          echo "ENGINE_REPO_TOKEN: 届いています（長さ ${#T}）"
+          if git ls-remote "https://x-access-token:${T}@github.com/classmethod-team-app/cortex-engine" HEAD >/dev/null 2>&1; then
+            echo "cortex-engine へのアクセス: OK"
+          else
+            echo "::error::トークンで cortex-engine にアクセスできません。PAT の Resource owner（classmethod-team-app）／Repository access（cortex-engine を選択）／Permissions（Contents: Read-only）／org の承認状態（Pending になっていないか）を確認してください"
+            exit 1
+          fi
+
       - name: エンジンをチェックアウト（このワークフローと同一バージョン）
         uses: actions/checkout@v4
         with:
