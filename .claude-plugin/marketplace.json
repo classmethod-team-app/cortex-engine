@@ -1,0 +1,13 @@
+{
+  "name": "cortex-canary",
+  "owner": {
+    "name": "Classmethod"
+  },
+  "plugins": [
+    {
+      "name": "cortex",
+      "source": "./plugin",
+      "description": "Cortex エンジン（カナリア/開発用マーケットプレイス経由）。安定配布は部カタログ（retail-app-harnesses 等）から行い、このマーケットプレイスは cortex-context と開発者だけが main 追従で使う。"
+    }
+  ]
+}
