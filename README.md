@@ -62,6 +62,7 @@ cortex-engine/
 
 ### その他
 
+- scaffold の `settings.json` の既定カタログは retail-app-harnesses を指している（現在の利用部署が1つのための暫定）。他部署展開時は `{{部カタログ}}` プレースホルダ化して setup-fill で埋める方式に変える
 - 精製系ワークフローの schema_version 要求チェック（古いスキーマならスキップ）は未配線
 - `autoApply: false` マイグレーションの PR 自動起票は将来拡張
 - Team プラン承認後: secrets を org secret へ一元化（ENGINE_REPO_TOKEN・BACKLOG_API_KEY・FIGMA_TOKEN）
