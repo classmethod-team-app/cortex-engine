@@ -194,10 +194,22 @@ const SCHEMAS = {
       "domains",
       "platforms",
       "tools",
+      // エンジン設定（schema_version はマイグレーションが管理・channel は配布チャンネルの表示）
+      "engine",
     ],
     validate(fm, _fileName, errors) {
       if (fm.id !== "overview:home")
         errors.push(`Homeのidはoverview:home固定（実際: ${fm.id}）`);
+      if (fm.engine != null) {
+        if (typeof fm.engine !== "object" || Array.isArray(fm.engine))
+          errors.push("engineはマップで書く（schema_version / channel）");
+        else {
+          if (fm.engine.schema_version != null && !Number.isInteger(fm.engine.schema_version))
+            errors.push(`engine.schema_versionは整数（実際: ${fm.engine.schema_version}）`);
+          if (fm.engine.channel && !["stable", "canary"].includes(fm.engine.channel))
+            errors.push(`engine.channelはstable|canary（実際: ${fm.engine.channel}）`);
+        }
+      }
       if (fm.kind && !["案件", "社内プロジェクト"].includes(fm.kind))
         errors.push(`kindは案件|社内プロジェクト（実際: ${fm.kind}）`);
       if (fm.lifecycle && !["active", "archived"].includes(fm.lifecycle))
