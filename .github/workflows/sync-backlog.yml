@@ -1,0 +1,66 @@
+name: Backlog同期
+
+# 案件リポのスタブから workflow_call で呼ばれる（トリガー・concurrency・permissions はスタブ側が持つ）
+on:
+  workflow_call:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # ジッター最大10分 + 同期 + リトライを考慮して引き上げ
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: ジッター待機（同時刻バースト回避）
+        if: github.event_name == 'schedule'
+        run: |
+          # BACKLOG_API_KEY を中央化（org secret）すると、同一Backlogスペースに同居する
+          # 複数案件が同じキーで毎時:00に同時発火し、スペースのレート上限に同時に当たりうる。
+          # 0〜600秒のrandom待機でバーストを分散する。手動実行(workflow_dispatch)では待たない。
+          wait=$((RANDOM % 601))
+          echo "同時刻バースト回避のため ${wait} 秒待機します"
+          sleep "$wait"
+
+      - name: Backlog同期
+        env:
+          BACKLOG_API_KEY: ${{ secrets.BACKLOG_API_KEY }}
+          DOMAIN: ${{ secrets.BACKLOG_DOMAIN }}
+          PROJECT_KEY: ${{ secrets.BACKLOG_PROJECT_KEY }}
+        run: |
+          # backlog-exporter自身も100req/15秒スロットルとky既定の429リトライ(Retry-After尊重)を持つが、
+          # 課題一覧fetchの失敗は致命的(即終了)になるため、ジョブ全体の軽いリトライを保険として被せる。
+          # update --force は冪等なので再実行しても安全。
+          for attempt in 1 2 3; do
+            if pnpm dlx backlog-exporter@latest update --force; then
+              exit 0
+            fi
+            echo "同期に失敗しました（試行 ${attempt}/3）。${attempt}分待って再試行します..." >&2
+            sleep $((attempt * 60))
+          done
+          echo "3回試行しても同期に失敗しました" >&2
+          exit 1
+
+      - name: 変更をコミット・プッシュ
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add 課題管理/
+          if git diff --staged --quiet; then
+            echo "変更なし"
+          else
+            git commit -m "Backlogデータを同期"
+            git push
+          fi

@@ -1,0 +1,134 @@
+name: 週次レポート生成
+
+# 案件リポのスタブから workflow_call で呼ばれる（トリガー・concurrency・permissions はスタブ側が持つ）
+on:
+  workflow_call:
+    inputs:
+      since:
+        description: "増分起点をISO8601で上書き（バックフィル用。空なら前回成功以降）"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AWS_REGION: ap-northeast-1 # Claude を有効化したリージョン（東京）
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 「直近7日」の差分判定に履歴が必要
+
+      - name: エンジンをチェックアウト（このワークフローと同一バージョン）
+        uses: actions/checkout@v4
+        with:
+          repository: classmethod-team-app/cortex-engine
+          ref: ${{ github.job_workflow_sha }}
+          path: .cortex-engine
+          token: ${{ secrets.ENGINE_REPO_TOKEN || github.token }}
+
+      - name: エンジンをGit管理対象外にする
+        run: echo ".cortex-engine/" >> .git/info/exclude
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Git設定
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: AWS認証（OIDC）
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # cortex-tools/infra の GithubActionsOidc が作成したロール（decision-logと共用）
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Claude Code をインストール
+        run: npm i -g @anthropic-ai/claude-code
+
+      # 増分起点(SINCE)＝このワークフローの直近成功run。週次が失敗した週も、次の成功時にSINCEが遡るので
+      # 未生成の週をまとめて生成できる（巻き取り）。
+      # 注意: --workflow は案件リポ側スタブのファイル名。スタブは weekly-report.yml の名前を変えないこと。
+      - name: 増分窓の起点(SINCE)を算出（前回成功以降・14日キャップ）
+        id: win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OVERRIDE_SINCE: ${{ inputs.since }}
+        run: |
+          CAP=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          if [ -n "$OVERRIDE_SINCE" ]; then
+            SINCE="$OVERRIDE_SINCE"
+            echo "::notice::SINCE を手動上書き（バックフィル）: $SINCE"
+          else
+            LAST=$(gh run list --workflow=weekly-report.yml --status success --limit 1 --json createdAt --jq '.[0].createdAt // empty' 2>/dev/null || true)
+            if [ -z "$LAST" ]; then SINCE="$CAP"; else SINCE="$LAST"; fi
+          fi
+          if [[ "$SINCE" < "$CAP" ]]; then
+            echo "::warning::増分起点 $SINCE が14日上限より古いため $CAP に丸めます（未生成週はsince入力で個別バックフィルを）"
+            SINCE="$CAP"
+          fi
+          echo "since=$SINCE" >> "$GITHUB_OUTPUT"
+          echo "増分起点 SINCE=$SINCE"
+
+      - name: 週次レポート生成（Claude / Bedrock）
+        env:
+          CLAUDE_CODE_USE_BEDROCK: "1" # APIキーの代わりに Bedrock を使用
+          ANTHROPIC_MODEL: jp.anthropic.claude-sonnet-4-6 # 東京・日本国内推論（Bedrockで該当モデルのアクセス有効化が必要）
+          SINCE: ${{ steps.win.outputs.since }} # 増分起点（前回成功以降）。未生成週の判定に使う
+        run: |
+          PROMPT=$(cat <<'EOF'
+          .cortex-engine/plugin/skills/weekly-report/SKILL.md の指示に従い、
+          単一案件の週次レポートを標準フォーマットで Cortex/レポート/records/YYYYMMDD.md（YYYYMMDD=その週の期間末）に生成してください。
+
+          対象期間（失敗週の巻き取り対応）:
+          - 通常は実行日を期間末とする直近7日。
+          - さらに環境変数 SINCE 以降（前回成功以降）に、まだレポートファイルが無い週があれば、その未生成週もそれぞれ生成すること。各週は期間末日付のファイル名で1ファイルずつ。
+          - 既に同名ファイルがある週は再生成しない（上書きしない＝レビュー済みを壊さない）。未生成の週だけ作る。
+
+          注意:
+          - frontmatter と見出し構造は Cortex/レポート/template.md の雛形どおり固定すること（独自見出しを足さない）。
+          - 差分に根拠が無い項目は「なし」とし、推測で埋めないこと。
+          - .cortex-engine/ 配下（エンジン）は集計対象から除外し、変更・コミットもしないこと。
+          - 生成後、git commit までを行うこと（push は行わない）。
+          EOF
+          )
+          # 無人実行（ephemeralなCIランナー）のため権限確認はスキップする
+          claude -p "$PROMPT" --max-turns 60 --dangerously-skip-permissions
+
+      # 生成物がオントロジー規約に違反している場合、ここで止める（壊れたコミットをpushしない）
+      - name: Cortexのスキーマ検証
+        run: node .cortex-engine/plugin/scripts/validate-cortex.mjs
+
+      - name: Push（競合時はrebaseで再試行）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # スキルが未コミットで残した生成物があればコミット（スキルが既に commit 済みなら何もしない）
+          git add Cortex/レポート/ 2>/dev/null || true
+          if ! git diff --staged --quiet; then
+            git commit -m "週次レポートを自動生成"
+          fi
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # スキルが作ったコミットを含め「未pushのコミット」があるかで判定する。
+          if [ -z "$(git log origin/${GITHUB_REF_NAME}..HEAD 2>/dev/null)" ]; then
+            echo "コミットなし。pushをスキップ"
+            exit 0
+          fi
+          for i in 1 2 3; do
+            if git push origin HEAD:${GITHUB_REF_NAME}; then
+              echo "push成功"
+              exit 0
+            fi
+            echo "push失敗。rebaseして再試行（$i/3）"
+            git pull --rebase origin ${GITHUB_REF_NAME}
+          done
+          echo "pushに3回失敗しました"
+          exit 1

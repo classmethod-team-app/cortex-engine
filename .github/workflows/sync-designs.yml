@@ -1,0 +1,85 @@
+name: デザイン同期
+
+# 案件リポのスタブから workflow_call で呼ばれる（トリガー・concurrency・permissions はスタブ側が持つ）
+on:
+  workflow_call:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: エンジンをチェックアウト（このワークフローと同一バージョン）
+        uses: actions/checkout@v4
+        with:
+          repository: classmethod-team-app/cortex-engine
+          ref: ${{ github.job_workflow_sha }}
+          path: .cortex-engine
+          token: ${{ secrets.ENGINE_REPO_TOKEN || github.token }}
+
+      - name: エンジンをGit管理対象外にする
+        run: echo ".cortex-engine/" >> .git/info/exclude
+
+      - name: 設定の有無を確認
+        id: conf
+        run: |
+          if [ ! -f "デザイン/figma.json" ] || ! grep -q '"key"' "デザイン/figma.json"; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "figma.json が未設定のためスキップします"
+          elif [ -z "${{ secrets.FIGMA_TOKEN }}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "FIGMA_TOKEN が未設定のためスキップします"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: ジッター待機（同時刻バースト回避）
+        if: steps.conf.outputs.configured == 'true' && github.event_name == 'schedule'
+        run: |
+          # 全案件リポが同一cron時刻(12:45 UTC)に発火し、共有FIGMA_TOKENの
+          # Tier1レート制限(Dev/FullシートでもOrgで20回/分程度)に同時に当たるのを避ける。
+          # 共有トークンは1バケツ(per-token)なので、案件数が増えるほど同時刻バーストが効く。
+          # 0〜1800秒(30分)のランダム待機で広めに分散する（数十案件規模まで20回/分内に収める狙い）。
+          # 手動実行(workflow_dispatch)では待たない。
+          wait=$((RANDOM % 1801))
+          echo "同時刻バースト回避のため ${wait} 秒待機します"
+          sleep "$wait"
+
+      - name: 画面インベントリを同期
+        if: steps.conf.outputs.configured == 'true'
+        env:
+          FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN }}
+        run: python3 .cortex-engine/plugin/skills/sync-designs/scripts/sync_designs.py
+
+      - name: コミット
+        if: steps.conf.outputs.configured == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add デザイン/
+          if git diff --staged --quiet; then
+            echo "変更なし"
+          else
+            git commit -m "デザインの画面インベントリを自動同期"
+          fi
+
+      - name: Push（競合時はrebaseで再試行）
+        if: steps.conf.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if [ -z "$(git log origin/${GITHUB_REF_NAME}..HEAD --oneline 2>/dev/null)" ]; then
+            echo "push対象なし"
+            exit 0
+          fi
+          for i in 1 2 3; do
+            if git push origin HEAD:${GITHUB_REF_NAME}; then
+              exit 0
+            fi
+            git pull --rebase origin ${GITHUB_REF_NAME}
+          done
+          exit 1

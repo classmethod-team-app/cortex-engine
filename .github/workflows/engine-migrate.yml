@@ -1,0 +1,57 @@
+name: エンジンマイグレーション（データスキーマ更新）
+
+# エンジンの更新がデータ側（frontmatter・ディレクトリ構造・CLAUDE.md）の変更を要する場合に、
+# 案件リポのデータを追随させる。案件リポのスタブから workflow_call で呼ばれる（夜間cron＋手動）。
+#
+# 仕組み:
+#   - 案件リポの Cortex/Home.md frontmatter `engine.schema_version` と、
+#     エンジンの migrations/ にある最大 to 番号を比較し、未適用分を順に実行する。
+#   - autoApply: true のマイグレーションのみ自動実行して直コミットする。
+#     autoApply: false（非可逆・既存レコード書き換え）が残っている場合は警告を出して止める
+#     （PR起票による適用は将来拡張。現状は手動適用を案内する）。
+on:
+  workflow_call:
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: エンジンをチェックアウト（このワークフローと同一バージョン）
+        uses: actions/checkout@v4
+        with:
+          repository: classmethod-team-app/cortex-engine
+          ref: ${{ github.job_workflow_sha }}
+          path: .cortex-engine
+          token: ${{ secrets.ENGINE_REPO_TOKEN || github.token }}
+
+      - name: エンジンをGit管理対象外にする
+        run: echo ".cortex-engine/" >> .git/info/exclude
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 未適用マイグレーションを実行
+        run: node .cortex-engine/scripts/engine-migrate.mjs
+
+      - name: 変更があればコミット＆push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "変更なし。スキップ"
+            exit 0
+          fi
+          git commit -m "エンジンマイグレーションを適用（schema_version更新）"
+          for i in 1 2 3; do
+            if git push; then exit 0; fi
+            git pull --rebase
+          done
+          echo "pushに3回失敗しました"; exit 1

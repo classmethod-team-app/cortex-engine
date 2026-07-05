@@ -1,0 +1,47 @@
+name: リリース（stable / v1 を前進）
+
+# 安定チャンネルのリリース。以下2つの ref を同一コミットに進める:
+#   - stable ブランチ … プラグイン配布用（部カタログの marketplace.json が ref: stable でピン）
+#   - v1 タグ         … reusable workflows 用（案件リポのスタブが @v1 で参照する移動タグ）
+# 2つの ref がズレる事故を防ぐため、必ずこのワークフロー経由でリリースする。
+#
+# 運用: main で開発 → cortex-context（カナリア）で数日〜1週間検証 → 本ワークフローを実行
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "リリースするコミットSHA（空なら main の先端）"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: stable ブランチと v1 タグを同一コミットに前進
+        env:
+          TARGET_SHA: ${{ inputs.sha }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          TARGET="${TARGET_SHA:-$(git rev-parse origin/main)}"
+          # mainに含まれるコミットしかリリースできない（検証を経ていないコミットの誤リリース防止）
+          if ! git merge-base --is-ancestor "$TARGET" origin/main; then
+            echo "::error::指定SHA $TARGET は main に含まれていません"
+            exit 1
+          fi
+          echo "リリース対象: $TARGET"
+          git push origin "+${TARGET}:refs/heads/stable"
+          git tag -f v1 "$TARGET"
+          git push origin "+refs/tags/v1"
+          echo "::notice::stable / v1 を $TARGET に前進しました"

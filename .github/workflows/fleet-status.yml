@@ -1,0 +1,61 @@
+name: セットアップ状況の自己チェック
+
+# 案件リポ自身のセットアップ充足度を算出し、`fleet-status.json` に書き出してコミットする。
+# 巡回エージェント／フリート管理は各案件のこのファイルを読んで集約する。
+# 案件リポのスタブから workflow_call で呼ばれる。
+on:
+  workflow_call:
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: エンジンをチェックアウト（このワークフローと同一バージョン）
+        uses: actions/checkout@v4
+        with:
+          repository: classmethod-team-app/cortex-engine
+          ref: ${{ github.job_workflow_sha }}
+          path: .cortex-engine
+          token: ${{ secrets.ENGINE_REPO_TOKEN || github.token }}
+
+      - name: エンジンをGit管理対象外にする
+        run: echo ".cortex-engine/" >> .git/info/exclude
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: セットアップ状況を生成
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # gh run list 用
+          # シークレットの「有無」だけを渡す（値は渡さない・管理者権限も不要）
+          HAS_AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME != '' }}
+          HAS_BACKLOG_API_KEY: ${{ secrets.BACKLOG_API_KEY != '' }}
+          HAS_BACKLOG_DOMAIN: ${{ secrets.BACKLOG_DOMAIN != '' }}
+          HAS_BACKLOG_PROJECT_KEY: ${{ secrets.BACKLOG_PROJECT_KEY != '' }}
+          HAS_FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN != '' }}
+          # エンジンのバージョン（本ワークフローのコミットSHA）を報告に含める
+          ENGINE_VERSION: ${{ github.job_workflow_sha }}
+        run: node .cortex-engine/scripts/fleet-status.mjs
+
+      - name: 変更があればコミット＆push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- fleet-status.json; then
+            echo "変更なし。スキップ"
+            exit 0
+          fi
+          git add fleet-status.json
+          git commit -m "fleet-status: セットアップ状況を更新"
+          for i in 1 2 3; do
+            if git push; then exit 0; fi
+            git pull --rebase
+          done
+          echo "pushに3回失敗しました"; exit 1

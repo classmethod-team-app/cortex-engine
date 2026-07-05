@@ -1,0 +1,176 @@
+name: Decision Log自動更新
+
+# 案件リポのスタブから workflow_call で呼ばれる（トリガー・concurrency・permissions はスタブ側が持つ）
+on:
+  workflow_call:
+    inputs:
+      since:
+        description: "増分起点をISO8601で上書き（バックフィル用。空なら前回成功以降）"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AWS_REGION: ap-northeast-1 # Claude を有効化したリージョン（東京）
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 増分判定（git log --since）に履歴が必要
+
+      - name: エンジンをチェックアウト（このワークフローと同一バージョン）
+        uses: actions/checkout@v4
+        with:
+          repository: classmethod-team-app/cortex-engine
+          ref: ${{ github.job_workflow_sha }}
+          path: .cortex-engine
+          # private エンジンの checkout には読み取りトークンが必要（org secret）。
+          # エンジンが public/内部公開なら github.token でも通るためフォールバックする。
+          token: ${{ secrets.ENGINE_REPO_TOKEN || github.token }}
+
+      - name: エンジンをGit管理対象外にする
+        run: echo ".cortex-engine/" >> .git/info/exclude
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 必要なシークレットの有無を判定する。
+      # - AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）なら Decision Log 更新自体をスキップ（セットアップ途中の案件で毎晩failしない）
+      # - Backlog のシークレットが揃っていなければ Backlog同期だけスキップし、git差分（議事録等）からは更新する
+      - name: 前提チェック（シークレットの有無）
+        id: pre
+        env:
+          ROLE: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          BK_KEY: ${{ secrets.BACKLOG_API_KEY }}
+          BK_DOM: ${{ secrets.BACKLOG_DOMAIN }}
+          BK_PRJ: ${{ secrets.BACKLOG_PROJECT_KEY }}
+        run: |
+          if [ -z "$ROLE" ]; then
+            echo "::notice::AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）。Decision Log 更新をスキップします。"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "$BK_KEY" ] && [ -n "$BK_DOM" ] && [ -n "$BK_PRJ" ]; then
+            echo "backlog=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Backlog シークレット未設定。Backlog同期をスキップし git差分からのみ更新します。"
+            echo "backlog=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Backlog同期
+        if: steps.pre.outputs.run == 'true' && steps.pre.outputs.backlog == 'true'
+        run: pnpm dlx backlog-exporter@latest update --force
+        env:
+          BACKLOG_API_KEY: ${{ secrets.BACKLOG_API_KEY }}
+          DOMAIN: ${{ secrets.BACKLOG_DOMAIN }}
+          PROJECT_KEY: ${{ secrets.BACKLOG_PROJECT_KEY }}
+
+      - name: Git設定
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: AWS認証（OIDC）
+        if: steps.pre.outputs.run == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # cortex-tools/infra の GithubActionsOidc が作成したロールARN
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Claude Code をインストール
+        if: steps.pre.outputs.run == 'true'
+        run: npm i -g @anthropic-ai/claude-code
+
+      # 増分の起点(SINCE)を「このワークフローの直近成功run」に置く。
+      # 失敗runは成功扱いされないので、連続失敗しても次の成功実行で失敗分まで窓が自動で遡る（取りこぼしの巻き取り）。
+      # 固定25h窓だと連続失敗で25hを超えた分が永久に漏れるため、その対策。
+      # 注意: --workflow は案件リポ側スタブのファイル名。スタブは update-decision-log.yml の名前を変えないこと。
+      - name: 増分窓の起点(SINCE)を算出（前回成功以降・14日キャップ）
+        id: win
+        if: steps.pre.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OVERRIDE_SINCE: ${{ inputs.since }}
+        run: |
+          CAP=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          if [ -n "$OVERRIDE_SINCE" ]; then
+            SINCE="$OVERRIDE_SINCE"
+            echo "::notice::SINCE を手動上書き（バックフィル）: $SINCE"
+          else
+            LAST=$(gh run list --workflow=update-decision-log.yml --status success --limit 1 --json createdAt --jq '.[0].createdAt // empty' 2>/dev/null || true)
+            if [ -z "$LAST" ]; then SINCE="$CAP"; else SINCE="$LAST"; fi
+          fi
+          # 14日より古い起点は丸める（巨大窓によるmax-turns暴走を防ぐ。丸めた場合は未処理が残りうるので警告）
+          if [[ "$SINCE" < "$CAP" ]]; then
+            echo "::warning::増分起点 $SINCE が14日上限より古いため $CAP に丸めます（未処理分はsince入力で個別バックフィルを）"
+            SINCE="$CAP"
+          fi
+          echo "since=$SINCE" >> "$GITHUB_OUTPUT"
+          echo "増分起点 SINCE=$SINCE"
+
+      - name: Decision Log自動更新（Claude / Bedrock）
+        if: steps.pre.outputs.run == 'true'
+        env:
+          CLAUDE_CODE_USE_BEDROCK: "1" # APIキーの代わりに Bedrock を使用
+          ANTHROPIC_MODEL: jp.anthropic.claude-sonnet-4-6 # 東京・日本国内推論（Bedrockで該当モデルのアクセス有効化が必要）
+          SINCE: ${{ steps.win.outputs.since }} # 増分起点（前回成功以降）。スキルの git log --since に渡す
+        run: |
+          PROMPT=$(cat <<'EOF'
+          .cortex-engine/plugin/skills/update-decision-log-auto/SKILL.md の指示に従い、
+          前回実行以降に追加・更新されたコンテキスト（その日の議事録・課題等）から
+          確定した意思決定を抽出し、Cortex/Decisions/records/ に 1決定1ファイル形式で重複なく追記してください。
+
+          注意:
+          - 増分方式です。フル走査せず、環境変数 SINCE 以降（前回成功以降）に追加・更新されたソースだけを対象にしてください。git log は --since="$SINCE" を使うこと（SINCEが空なら約25時間がデフォルト）。
+          - Backlog同期は既にワークフロー側で実行済みなのでスキップしてください。
+          - 既存の Decisionファイルとの署名照合を行い、新規の確定事項のみを追記してください。
+          - Cortex/Decisions/ 配下は抽出源から除外してください（自己参照防止）。
+          - .cortex-engine/ 配下（エンジン）は抽出源から除外し、変更・コミットもしないでください。
+          - 変更があれば git commit までを行ってください（push は行わない）。
+          - その日の新規決定が無ければ何もコミットせず終了してください（毎晩走るため、これは通常の状態です）。
+          EOF
+          )
+          # 無人実行（ephemeralなCIランナー）のため権限確認はスキップする
+          claude -p "$PROMPT" --max-turns 60 --dangerously-skip-permissions
+
+      # 生成物がオントロジー規約に違反している場合、ここで止める（壊れたコミットをpushしない）
+      # 増分窓が約25時間あるため、生成の揺らぎによる違反は翌晩のリトライで回復する
+      - name: Cortexのスキーマ検証
+        if: steps.pre.outputs.run == 'true'
+        run: node .cortex-engine/plugin/scripts/validate-cortex.mjs
+
+      - name: Push（競合時はrebaseで再試行）
+        if: steps.pre.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Claude のコミットを確実に push するため、明示的にトークンで認証する
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git diff --quiet HEAD origin/${GITHUB_REF_NAME} 2>/dev/null && [ -z "$(git log origin/${GITHUB_REF_NAME}..HEAD 2>/dev/null)" ]; then
+            echo "コミットなし。pushをスキップ"
+            exit 0
+          fi
+          for i in 1 2 3; do
+            if git push origin HEAD:${GITHUB_REF_NAME}; then
+              echo "push成功"
+              exit 0
+            fi
+            echo "push失敗。rebaseして再試行（$i/3）"
+            git pull --rebase origin ${GITHUB_REF_NAME}
+          done
+          echo "pushに3回失敗しました"
+          exit 1

@@ -1,0 +1,84 @@
+name: Backlogリアルタイム同期（webhook受信）
+
+# cortex-tools の Backlog Webhook Lambda から案件リポへ repository_dispatch → スタブが本ワークフローを呼ぶ。
+# github.event.client_payload は呼び出し元（案件リポ）のイベントがそのまま見える。
+# ドキュメントは Backlog webhook 非対応のため対象外（cron側で同期継続）。
+on:
+  workflow_call:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 対象（課題 or Wiki）を単体同期
+        env:
+          BACKLOG_API_KEY: ${{ secrets.BACKLOG_API_KEY }}
+          DOMAIN: ${{ secrets.BACKLOG_DOMAIN }}
+          PROJECT_KEY: ${{ secrets.BACKLOG_PROJECT_KEY }}
+          KIND: ${{ github.event.client_payload.kind }}
+          ISSUE_KEY: ${{ github.event.client_payload.issueKey }}
+          WIKI_ID: ${{ github.event.client_payload.wikiId }}
+        run: |
+          # backlog-exporter は単一キー指定に非対応（実機確認済み）。ただし update は増分
+          # （lastUpdated以降の差分取得）なので、webhook契機で該当スコープを増分同期すれば
+          # 直前に変わった課題/Wikiを拾える。scope絞りで無関係な取得を避ける。
+          if [ "$KIND" = "issue" ]; then
+            echo "課題を増分同期（契機: ${ISSUE_KEY:-?}）"
+            pnpm dlx backlog-exporter@latest update --issuesOnly --force
+          elif [ "$KIND" = "wiki" ]; then
+            echo "Wikiを増分同期（契機: wiki ${WIKI_ID:-?}）"
+            pnpm dlx backlog-exporter@latest update --wikisOnly --force
+          else
+            echo "::warning::未対応の client_payload（kind=$KIND）。スキップ"
+            exit 0
+          fi
+
+      - name: コミット・プッシュ（未pushコミット判定・rebase再試行）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # client_payload はシェルへ直接展開しない（スクリプトインジェクション対策）
+          KIND: ${{ github.event.client_payload.kind }}
+          ISSUE_KEY: ${{ github.event.client_payload.issueKey }}
+          WIKI_ID: ${{ github.event.client_payload.wikiId }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # 同期ミラーのルート（backlog-settings.json を持つディレクトリ）をステージする。
+          # ディレクトリ名は案件でカスタマイズされ得る（例: 課題管理/ ではなく Backlog/）ためハードコードしない。
+          for d in $(find . -name backlog-settings.json -not -path './node_modules/*' -not -path './.git/*' | xargs -n1 dirname | sort -u); do
+            git add "$d"
+          done
+          if git diff --staged --quiet; then
+            echo "変更なし。スキップ"
+            exit 0
+          fi
+          git commit -m "Backlogをリアルタイム同期（${KIND}: ${ISSUE_KEY}${WIKI_ID}）"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if [ -z "$(git log origin/${GITHUB_REF_NAME}..HEAD 2>/dev/null)" ]; then
+            echo "コミットなし。pushをスキップ"
+            exit 0
+          fi
+          for i in 1 2 3; do
+            if git push origin HEAD:${GITHUB_REF_NAME}; then
+              echo "push成功"
+              exit 0
+            fi
+            echo "push失敗。rebaseして再試行（$i/3）"
+            git pull --rebase origin ${GITHUB_REF_NAME}
+          done
+          echo "pushに3回失敗しました"
+          exit 1

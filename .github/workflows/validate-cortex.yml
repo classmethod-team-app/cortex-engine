@@ -1,0 +1,30 @@
+name: Cortex検証
+
+# 案件リポのスタブから workflow_call で呼ばれる（pull_request/push のトリガーとpathsフィルタはスタブ側が持つ）
+on:
+  workflow_call:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: エンジンをチェックアウト（このワークフローと同一バージョン）
+        uses: actions/checkout@v4
+        with:
+          repository: classmethod-team-app/cortex-engine
+          ref: ${{ github.job_workflow_sha }}
+          path: .cortex-engine
+          token: ${{ secrets.ENGINE_REPO_TOKEN || github.token }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: frontmatterをオントロジー規約で検証
+        run: node .cortex-engine/plugin/scripts/validate-cortex.mjs
