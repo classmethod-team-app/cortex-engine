@@ -75,11 +75,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- fleet-status.json; then
+          # 新規ファイル（未追跡）も検知するため、先にstageしてから差分判定する
+          git add fleet-status.json
+          if git diff --staged --quiet; then
             echo "変更なし。スキップ"
             exit 0
           fi
-          git add fleet-status.json
           git commit -m "fleet-status: セットアップ状況を更新"
           for i in 1 2 3; do
             if git push; then exit 0; fi
