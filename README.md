@@ -52,31 +52,13 @@ cortex-engine/
 
 ### Phase 3: セットアップ・ドキュメントの全面見直し（エンジン分離前提への書き換え）
 
-セットアップ導線・スキル・README/USAGE は旧テンプレ複製方式（rulesync・mise・pnpm・ローカル同期前提）の記述が残っている。scaffold 方式への改修時に以下をまとめて見直す。
+**残り**
 
-**setup-project の改修**
-- rulesync / mise / pnpm のセットアップ手順を全廃（Claude Code＋プラグインのみで完結させる）
-- scaffold 展開方式へ: データ骨格＋スタブ＋`.claude/settings.json` を空リポに展開
-- repo secrets の登録ガイドを組み込む: `BACKLOG_*`・`AWS_ROLE_TO_ASSUME`・`FIGMA_TOKEN`・`ENGINE_REPO_TOKEN`（org は Free プランのため **repo secret 必須**）
-- **初回の Backlog 全量同期はローカルで pull しない**: secrets 登録後に `gh workflow run sync-backlog.yml` で Actions 側に実行させる（API キーをメンバーのマシンに置かずに済む）
-- **ローカル BACKLOG_API_KEY は「/backlog-push を使う人だけのオプション」に格下げ**: 読みは自動同期＋/git-pull で足りる。閲覧中心のメンバーへのキー配布を廃止（クレデンシャル露出面の縮小）
-- **会議 bot（cortex-notetaker）のセットアップ手順を明記**: (a) cortex-tools の艦隊レジストリ（config.ts）へ案件（リポ＋案件キー）を登録、(b) `会議/ingest-config.json` に取り込みパターンを記入、(c) 運用ルール（会議名の頭に案件キー・bot を招待）の案内。(a) はリポ外の作業なので導線が特に重要
-
-**スキルの改修**
-- `/backlog-pull`: 説明を「普段は不要（Webhook＋cron で自動同期済み）。セットアップ初回・Webhook 未設定案件・Actions 障害時の非常口」に書き換え
-- `/onboard-member`: mise/pnpm 手順を削除。プラグインインストール（トラスト時 1 クリック）＋自動更新トークン設定（1Password）＋「push を使うか」ヒアリングによる Backlog キー配布の要否判定に変更
-- `/setup-status`・`scripts/fleet-status.mjs`: チェック項目を新構成に更新（rulesync 生成物チェック→プラグイン/スタブ/ENGINE_REPO_TOKEN/engine.channel チェックへ。engineVersion・schema_version の報告は fleet-status.yml で環境変数まで配線済み・スクリプト側の出力対応が未了）
+- `/setup-status`: チェック項目を新構成に更新（rulesync 生成物チェック→プラグイン/スタブ/ENGINE_REPO_TOKEN/engine.channel チェックへ。fleet-status.mjs は対応済みなので定義を揃える）
 - `/customize-tooling`: リポ内スキル書き換え方式→eject（能力単位のローカル上書き）方式へ改修
+- 既存案件の移行手順（Phase 2）のスキル化: scaffold の差し替え部品（スタブ・settings.json・薄い CLAUDE.md）適用＋旧機構撤去＋schema_version 付与＋ENGINE_REPO_TOKEN 登録を、cortex-context の移行実績（PR #8）を雛形に手順化する
 
-**Home.md（Viewer 表面）の記入原則を setup-project・シードに明文化**
-- `Cortex/Home.md` は AIS Viewer の入口（顧客・部外者が読む面）。**エンジン・ハーネス・スタブ等「仕組み」への参照を書かない**。使用ツール欄に載せるのは読者の判断材料になるもの（課題管理・ドキュメント・デザイン等の実ツール）だけ
-- 仕組みの参照（cortex-engine・プラグイン・ワークフロー）は CLAUDE.md（AI・メンバー向け）と README が持つ
-
-**README / USAGE（scaffold 同梱のシード文書）の全面書き換え**
-- 「テンプレートから複製」→「scaffold から展開」への前提変更
-- コマンド一覧をプラグイン配布前提に（`.rulesync/` 関連の記述を全廃）
-- セットアップ前提条件から mise / pnpm / Node を削除
-- コンテキストの流れ図を Webhook リアルタイム同期・エンジン分離後の姿に更新
+**完了済み（2026-07-06）**: setup-project の scaffold 展開方式化（repo secret 前提・初回同期の Actions 化・ハーネス選択・notetaker 登録導線・Home.md 記入原則を含む）／backlog-pull の非常口化／onboard-member の新体験化／fleet-status.mjs のエンジン状態報告／scaffold（repo 一式＋シード README・USAGE・CLAUDE.md）のプラグイン同梱
 
 ### その他
 
