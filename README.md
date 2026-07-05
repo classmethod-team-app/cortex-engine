@@ -47,8 +47,35 @@ cortex-engine/
 - Secrets（従来どおり案件リポ側）: `BACKLOG_*` / `AWS_ROLE_TO_ASSUME` / `FIGMA_TOKEN` ＋ **`ENGINE_REPO_TOKEN`**（本リポ read 権限。org secret 推奨。private エンジンの checkout 用）
 - メンバーの手元: リポをトラスト → プラグインインストールの自動案内に「はい」（1人1回）。private マーケットプレイスの自動更新用トークンは `/onboard-member` が案内
 
-## Phase 0 時点の既知の残作業
+## 既知の残作業
 
-- `setup-project` / `customize-tooling` スキルはテンプレ複製方式の記述が残る（Phase 3 で scaffold 方式に全面改修）
-- 精製系ワークフローの schema_version 要求チェック（古いスキーマならスキップ）は Phase 1 で配線
+### Phase 3: セットアップ・ドキュメントの全面見直し（エンジン分離前提への書き換え）
+
+セットアップ導線・スキル・README/USAGE は旧テンプレ複製方式（rulesync・mise・pnpm・ローカル同期前提）の記述が残っている。scaffold 方式への改修時に以下をまとめて見直す。
+
+**setup-project の改修**
+- rulesync / mise / pnpm のセットアップ手順を全廃（Claude Code＋プラグインのみで完結させる）
+- scaffold 展開方式へ: データ骨格＋スタブ＋`.claude/settings.json` を空リポに展開
+- repo secrets の登録ガイドを組み込む: `BACKLOG_*`・`AWS_ROLE_TO_ASSUME`・`FIGMA_TOKEN`・`ENGINE_REPO_TOKEN`（org は Free プランのため **repo secret 必須**）
+- **初回の Backlog 全量同期はローカルで pull しない**: secrets 登録後に `gh workflow run sync-backlog.yml` で Actions 側に実行させる（API キーをメンバーのマシンに置かずに済む）
+- **ローカル BACKLOG_API_KEY は「/backlog-push を使う人だけのオプション」に格下げ**: 読みは自動同期＋/git-pull で足りる。閲覧中心のメンバーへのキー配布を廃止（クレデンシャル露出面の縮小）
+- **会議 bot（cortex-notetaker）のセットアップ手順を明記**: (a) cortex-tools の艦隊レジストリ（config.ts）へ案件（リポ＋案件キー）を登録、(b) `会議/ingest-config.json` に取り込みパターンを記入、(c) 運用ルール（会議名の頭に案件キー・bot を招待）の案内。(a) はリポ外の作業なので導線が特に重要
+
+**スキルの改修**
+- `/backlog-pull`: 説明を「普段は不要（Webhook＋cron で自動同期済み）。セットアップ初回・Webhook 未設定案件・Actions 障害時の非常口」に書き換え
+- `/onboard-member`: mise/pnpm 手順を削除。プラグインインストール（トラスト時 1 クリック）＋自動更新トークン設定（1Password）＋「push を使うか」ヒアリングによる Backlog キー配布の要否判定に変更
+- `/setup-status`・`scripts/fleet-status.mjs`: チェック項目を新構成に更新（rulesync 生成物チェック→プラグイン/スタブ/ENGINE_REPO_TOKEN/engine.channel チェックへ。engineVersion・schema_version の報告は fleet-status.yml で環境変数まで配線済み・スクリプト側の出力対応が未了）
+- `/customize-tooling`: リポ内スキル書き換え方式→eject（能力単位のローカル上書き）方式へ改修
+
+**README / USAGE（scaffold 同梱のシード文書）の全面書き換え**
+- 「テンプレートから複製」→「scaffold から展開」への前提変更
+- コマンド一覧をプラグイン配布前提に（`.rulesync/` 関連の記述を全廃）
+- セットアップ前提条件から mise / pnpm / Node を削除
+- コンテキストの流れ図を Webhook リアルタイム同期・エンジン分離後の姿に更新
+
+### その他
+
+- 精製系ワークフローの schema_version 要求チェック（古いスキーマならスキップ）は未配線
 - `autoApply: false` マイグレーションの PR 自動起票は将来拡張
+- Team プラン承認後: secrets を org secret へ一元化（ENGINE_REPO_TOKEN・BACKLOG_API_KEY・FIGMA_TOKEN）
+- ENGINE_REPO_TOKEN の有効期限 2027-07-07。期限前にローテーション（fleet-status の期限チェック項目化も検討）
