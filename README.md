@@ -58,7 +58,7 @@ cortex-engine/
 - `/customize-tooling`: リポ内スキル書き換え方式→eject（能力単位のローカル上書き）方式へ改修
 - 既存案件の移行手順（Phase 2）のスキル化: scaffold の差し替え部品（スタブ・settings.json・薄い CLAUDE.md）適用＋旧機構撤去＋schema_version 付与＋ENGINE_REPO_TOKEN 登録を、cortex-context の移行実績（PR #8）を雛形に手順化する
 
-**完了済み（2026-07-06）**: setup-project の scaffold 展開方式化（repo secret 前提・初回同期の Actions 化・ハーネス選択・notetaker 登録導線・Home.md 記入原則を含む）／backlog-pull の非常口化／onboard-member の新体験化／fleet-status.mjs のエンジン状態報告／scaffold（repo 一式＋シード README・USAGE・CLAUDE.md）のプラグイン同梱
+**完了済み（2026-07-06）**: setup-project の scaffold 展開方式化（repo secret 前提・初回同期の Actions 化・notetaker 登録導線・Home.md 記入原則を含む。職能ハーネスの選択は部署側の運用としスキルでは扱わない）／backlog-pull の非常口化／onboard-member の新体験化／fleet-status.mjs のエンジン状態報告／scaffold（repo 一式＋シード README・USAGE・CLAUDE.md）のプラグイン同梱
 
 ### その他
 
