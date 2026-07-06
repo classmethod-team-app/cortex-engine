@@ -94,7 +94,7 @@ references:
 
 ## フィールド
 
-> エンティティ型・ID規則・関係型の全体定義は、オントロジー規約（`.rulesync/rules/ontology.md`）を参照。
+> エンティティ型・ID規則・関係型の全体定義は、オントロジー規約（cortex-engine の `docs/ontology.md`）を参照。
 
 ### 必須
 

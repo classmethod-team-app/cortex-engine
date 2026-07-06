@@ -81,22 +81,6 @@ def convert(file_path: Path) -> str:
     return f"<!-- converted: {now} -->\n\n{result.text_content}"
 
 
-def build_frontmatter(original_path: Path, md_path: Path) -> str:
-    """変換mdの先頭に付与するfrontmatterを生成する（オントロジー規約: type: material）。"""
-    jst = timezone(timedelta(hours=9))
-    today = datetime.now(jst).strftime("%Y-%m-%d")
-    # source は元ファイル名
-    return (
-        "---\n"
-        "type: material\n"
-        f'id: "material:{md_path.stem}"\n'
-        f'title: "{original_path.name}"\n'
-        f"date: {today}\n"
-        f'source: "{original_path.name}"\n'
-        "---\n\n"
-    )
-
-
 def generate_md(original_path: Path, md_path: Path) -> None:
     """元ファイルからmdを生成する。PDF・PPTXはClaudeに委譲し、TODOを出力するのみ。"""
     suffix = original_path.suffix.lower()
@@ -110,7 +94,7 @@ def generate_md(original_path: Path, md_path: Path) -> None:
             file=sys.stderr,
         )
         return
-    md_path.write_text(build_frontmatter(original_path, md_path) + convert(original_path), encoding="utf-8")
+    md_path.write_text(convert(original_path), encoding="utf-8")
     print(f"変換完了: {md_path}", file=sys.stderr)
 
 
@@ -213,7 +197,7 @@ if __name__ == "__main__":
             print("Error: -o の後に出力先パスを指定してください", file=sys.stderr)
             sys.exit(1)
         output_path = Path(sys.argv[idx + 1]).resolve()
-        content = build_frontmatter(target, output_path) + convert(target)
+        content = convert(target)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(content, encoding="utf-8")
         print(f"変換完了: {output_path}", file=sys.stderr)

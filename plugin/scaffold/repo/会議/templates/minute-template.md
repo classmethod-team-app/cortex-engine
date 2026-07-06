@@ -1,14 +1,3 @@
----
-type: minute
-id: "minute:{会議名}:{YYYYMMDD}"
-title: "【YYYY/MM/DD】{会議名} 議事録"
-date: YYYY-MM-DD
-source: "{文字起こしファイル名}"
-relations:
-  - rel: relates_to
-    target: "{対応する課題キー}"
----
-
 # 【YYYY/MM/DD】会議議事録
 
 ## 会議情報

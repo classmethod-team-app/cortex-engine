@@ -2,7 +2,8 @@
 """Figmaから画面インベントリを同期する（デザイン/inventory/ を機械生成）。
 
 - デザイン/figma.json の files[].key を対象に、各ページ直下のトップレベルフレームを「画面」として列挙する
-- 1画面1mdで frontmatter（type: design / 安定ID design:{fileKey}:{nodeId} / Figmaディープリンク）を付与する
+- 1画面1md（本文に画面名・参照ID design:{fileKey}:{nodeId}・Figmaディープリンク・更新日・サムネイル）。
+  frontmatterは付けない（frontmatterはGold層のみ。IDは規約ベースの参照名としてGold層から張られる）
 - サムネイルPNGを デザイン/resources/{fileKey}/ に保存する
 - inventory/ は同期ミラー（毎回全消し再生成・手編集禁止）。正本はFigma
 """
@@ -144,7 +145,6 @@ def main() -> int:
                 f"?node-id={safe_node}"
             )
             thumb_md = ""
-            thumb_fm = ""
             thumb_url = images.get(node_id)
             if thumb_url:
                 thumb_path = res_dir / f"{safe_node}.png"
@@ -153,24 +153,14 @@ def main() -> int:
                         thumb_path.write_bytes(r.read())
                     rel = os.path.relpath(thumb_path, out_dir).replace(os.sep, "/")
                     thumb_md = f"\n![{frame_name}]({rel})\n"
-                    repo_rel = thumb_path.as_posix()
-                    thumb_fm = f'thumbnail: "{repo_rel}"\n'
                 except OSError as e:
                     print(f"  サムネイル取得失敗 {frame_name}: {e}", file=sys.stderr)
 
             md = (
-                "---\n"
-                "type: design\n"
-                f'id: "{sid}"\n'
-                f'title: "{frame_name}"\n'
-                f'file: "{file_name}"\n'
-                f'page: "{page_name}"\n'
-                f"updated_at: {updated_at or 'unknown'}\n"
-                f'source: "{deep_link}"\n'
-                f"{thumb_fm}"
-                "---\n\n"
                 f"# {frame_name}\n\n"
                 f"- ファイル: {file_name} / ページ: {page_name}\n"
+                f"- 更新日: {updated_at or 'unknown'}\n"
+                f"- 参照ID: `{sid}`\n"
                 f"- [Figmaで開く]({deep_link})\n"
                 f"{thumb_md}"
             )
