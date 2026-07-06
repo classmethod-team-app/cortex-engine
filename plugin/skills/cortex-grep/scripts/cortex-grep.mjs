@@ -16,7 +16,7 @@
  * 設計メモ: Gold起点→関係を辿る（探索戦略）の決定的実行。巡回エージェントの
  * per-project 読みプリミティブでもある。意味検索はしない（部分一致のみ・最小実装）。
  */
-import { promises as fs } from "node:fs";
+import { promises as fs, readdirSync } from "node:fs";
 import path from "node:path";
 import yaml from "./vendor/js-yaml.mjs"; // vendor同梱（プラグインキャッシュ内で依存インストール不要にする）
 
@@ -113,6 +113,27 @@ function bronzeIdsFor(file, raw, data, root) {
     const dateDir = path.basename(path.dirname(file));
     const meetingDir = path.basename(path.dirname(path.dirname(file)));
     if (/^\d{8}$/.test(dateDir)) ids.push(`minute:${meetingDir}:${dateDir}`);
+  }
+  // デザイン画面: 本文の参照ID行（sync-designs出力）またはFigmaディープリンク → design:{fileKey}:{nodeId}
+  const dRef = raw.slice(0, 4000).match(/参照ID: `(design:[^`]+)`/);
+  if (dRef) ids.push(dRef[1]);
+  else {
+    const fl = raw.slice(0, 4000).match(/figma\.com\/design\/([A-Za-z0-9]+)\/\S*?node-id=(\d+)-(\d+)/);
+    if (fl) ids.push(`design:${fl[1]}:${fl[2]}:${fl[3]}`);
+  }
+  // 変換済み共有資料: 同じstemの元ファイル（.pdf/.pptx等）が隣にある変換md → material:{stem}
+  const stem = path.basename(file).replace(/\.md$/i, "");
+  try {
+    const sibs = readdirSync(path.dirname(file));
+    if (
+      sibs.some(
+        (n) => n !== path.basename(file) && !n.toLowerCase().endsWith(".md") && n.replace(/\.[^.]+$/, "") === stem,
+      )
+    ) {
+      ids.push(`material:${stem}`);
+    }
+  } catch {
+    /* ディレクトリが読めない場合はスキップ */
   }
   // リポジトリ相対パスでも引けるように（references が "README.md" 等のパス指定のcase）
   ids.push(rel);

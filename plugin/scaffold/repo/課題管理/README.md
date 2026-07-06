@@ -48,7 +48,7 @@ pnpm dlx backlog-exporter@latest all \
 /backlog-push
 ```
 
-スキルが「反映内容のプレビュー提示 → ユーザー承認 → MCP経由で反映 → 該当課題のみ再取得して同期」までを一気通貫で実行します。詳細は `.rulesync/skills/backlog-push/SKILL.md` を参照してください。
+スキルが「反映内容のプレビュー提示 → ユーザー承認 → MCP経由で反映 → 該当課題のみ再取得して同期」までを一気通貫で実行します。詳細は cortex プラグインの `backlog-push` スキルを参照してください。
 
 - 利用には `.mcp.json` の `backlog` MCPサーバーが有効であること（`.env` 設定済み）と、APIキーに課題の更新権限が必要です
 - 取得（Pull）は `/backlog-pull`、反映（Push）は `/backlog-push` という役割分担です

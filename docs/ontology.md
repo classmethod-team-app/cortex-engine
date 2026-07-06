@@ -1,33 +1,55 @@
-## コンテキストのオントロジー（v0）
+## コンテキストのオントロジー（v1）
 
-本リポジトリに蓄積されるコンテキストは、以下のオントロジーに従って機械可読なメタデータ（frontmatter）を持つ。AIエージェントはこの定義を前提にコンテキストを読み書きする。
+本リポジトリに蓄積されるコンテキストのうち、機械可読なメタデータ（frontmatter）を持つのは **Gold層（`Cortex/` 配下）だけ**である。Silver/Bronze（議事録・共有資料・デザインインベントリ・課題ミラー等）には frontmatter を付けず、Gold層から**規約ベースの安定ID文字列**で参照する。AIエージェントはこの定義を前提にコンテキストを読み書きする。
 
-### エンティティ型とID規則
+### Gold層エンティティ（frontmatter必須）
 
 | type | 実体 | ID規則 | 例 |
 | --- | --- | --- | --- |
 | `decision` | 意思決定レコード（`Cortex/Decisions/records/`） | `YYYYMMDD-NNN` | `20260610-001` |
-| `minute` | 議事録 | `minute:{定例名}:{YYYYMMDD}` | `minute:営業ハーネス定例:20260604` |
-| `issue` | 課題管理ツールの課題 | 課題キー | `PJ_CORTEX-13` |
-| `document` | 課題管理ツールのドキュメント | ツール側のドキュメントID | `019e686c77907a28...` |
-| `material` | 変換済み共有資料 | `material:{slug}` | `material:提案書-v2` |
-| `term` | 用語 | `term:{slug}` | `term:コンテキスト` |
-| `report` | 週次レポート | `report:{YYYYMMDD}-weekly` | `report:20260608-weekly` |
-| `design` | デザイン画面（Figmaのトップレベルフレーム） | `design:{fileKey}:{nodeId}` | `design:abc123XYZ:1023:456` |
+| `term` | 用語（`Cortex/用語集/records/`） | `term:{slug}` | `term:コンテキスト` |
+| `report` | 週次レポート（`Cortex/レポート/`） | `report:{YYYYMMDD}-weekly` | `report:20260608-weekly` |
 | `overview` | Cortexのホームページ（1案件1ファイル） | `overview:home`（固定） | `overview:home` |
+
+バリデーション（`validate-cortex`）はGold層のfrontmatterのみを検証し、`relations.target` の実在解決もGold型のID（上記4種）に限って行う。
+
+### Silver/Bronzeへの参照ID（frontmatterなし・ID命名規約のみ）
+
+Gold層の `source` / `relations.target` からSilver/Bronzeを参照するときは、以下の規約IDを使う。**参照先のファイルにfrontmatterは不要**で、実在のバリデーションも行わない。IDは「規約に従った名前」であり、`Cortex/Home.md` の `tools` 宣言とディレクトリ規約・正本ツールのURLから実体にたどり着ける。
+
+| 参照先 | ID規則 | 例 | 実体への解決方法 |
+| --- | --- | --- | --- |
+| 議事録（`minute`） | `minute:{定例名}:{YYYYMMDD}` | `minute:営業ハーネス定例:20260604` | 会議ディレクトリのパス規約 `…/{定例名}/{YYYYMMDD}/YYYYMMDD_minutes.md` |
+| 変換済み共有資料（`material`） | `material:{slug}` | `material:提案書-v2` | 共有資料ディレクトリの変換md（`{slug}.md`。元ファイルが同じstemで隣にある） |
+| デザイン画面（`design`） | `design:{fileKey}:{nodeId}` | `design:abc123XYZ:1023:456` | デザインinventoryのファイル名 `{画面名}-{nodeId}.md` と本文の参照ID行・Figmaディープリンク |
+| 課題（`issue`） | 課題管理ツールのネイティブ課題キー | `PJ_CORTEX-13` | 課題ミラー（`課題管理/issues/`）またはツールのURL |
+| ドキュメント（`document`) | ツール側のドキュメントID | `019e686c77907a28...` | 課題管理ツールのドキュメントURL・ミラー |
+
+### 参照IDの原則: 正本ツールのネイティブ識別子を使う
+
+リポジトリ内の**ファイルパスは `relations` / `source` に書かない**（パスはフェーズ替え・同期・改名で変わる）。それ以外は、その情報の**正本ツールが持つ安定識別子をそのまま使う**。外部URLは正本側が安定性を保証する参照なので使用してよい。
+
+| 正本ツール | IDの形 | 例 |
+| --- | --- | --- |
+| Backlog / Jira | 課題キー | `ACME_APP-48` / `PROJ-123` |
+| GitHub Issues / PR | `owner/repo#番号`（GitHub標準のクロスリポ参照記法） | `acme-inc/product-web#239` |
+| Slack | メッセージ・スレッドのpermalink URL | `https://….slack.com/archives/C…/p1234567890` |
+| Google Drive / Box | ドキュメントID または URL | `019e686c77907a28...` |
+| 会議（議事録・文字起こし） | `minute:{定例名}:{YYYYMMDD}`（文字起こしは同ディレクトリのファイル名） | `minute:合同定例:20251030` |
+| Figma | `design:{fileKey}:{nodeId}` | `design:abc123XYZ:1023:456` |
 
 ### リレーションシップ型
 
 | rel | 意味 | 主な使用例 |
 | --- | --- | --- |
 | `based_on` | 〜を根拠とする | decision → minute / issue |
-| `derived_from` | 〜から生成された | minute → 文字起こし、report → 集計元 |
+| `derived_from` | 〜から生成された | report → 集計元 |
 | `relates_to` | 〜に関連する | 汎用 |
 | `supersedes` | 〜を置き換える・無効化する | decision → decision（決定の変更履歴） |
 
 ### frontmatter共通フィールド
 
-自前で生成・編集するMarkdown（Decisions・議事録・レポート・用語集等）は、種別ごとの固有フィールドに加えて以下を持つ。
+Gold層のMarkdown（Decisions・用語集・レポート・Home）は、種別ごとの固有フィールドに加えて以下を持つ。
 
 ```yaml
 type: decision          # エンティティ型（必須）
@@ -57,6 +79,6 @@ relations:              # 他エンティティとの関係（任意）
 
 ### 運用原則
 
-- **frontmatterは生成者が付与する**: エクスポート等で上書きされる生データ（`課題管理/` `開発/` 等）に後からfrontmatterを書き足さない。生成スキル・変換スキルがテンプレートとして出力する
-- **関係は安定IDで張る**: `relations` の `target` にはファイルパスではなく上記の安定IDを使う。同期による上書き・ファイル名変更に耐えるため
+- **frontmatterはGold層の生成スキルだけが付与する**: Silver/Bronze（同期ミラー・議事録・変換資料・デザインinventory・`課題管理/` `開発/` 等）にはfrontmatterを付けない・後から書き足さない。Silver/Bronzeの参照IDはパス・ファイル名の規約から導出される
+- **関係は安定IDで張る**: `relations` の `target` にはファイルパスではなく上記の安定ID（Gold型ID・規約ID・正本ツールのネイティブ識別子）を使う。同期による上書き・ファイル名変更に耐えるため
 - **派生物は再生成可能にする**: 横断インデックス等はfrontmatterから機械生成し、手では編集しない

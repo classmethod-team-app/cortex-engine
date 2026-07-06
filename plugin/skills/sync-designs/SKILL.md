@@ -2,7 +2,7 @@
 name: sync-designs
 description: Figmaから画面インベントリ（全画面の一覧・安定ID・ディープリンク・サムネイル）を デザイン/inventory/ に同期する
 ---
-Figmaファイルの**画面インベントリ（目録）**を `デザイン/inventory/` に同期します。デザインの絵そのものではなく「どんな画面が存在し、どこにあり、何と関係しうるか」をAIが辿れる形（1画面1md＋frontmatter）にするのが目的です。
+Figmaファイルの**画面インベントリ（目録）**を `デザイン/inventory/` に同期します。デザインの絵そのものではなく「どんな画面が存在し、どこにあり、何と関係しうるか」をAIが辿れる形（1画面1md）にするのが目的です。
 
 ## 実行手順
 
@@ -27,7 +27,7 @@ python3 "<SKILL_DIR>/scripts/sync_designs.py"
 
 ## 生成されるもの
 
-- `デザイン/inventory/{ファイル名}/{画面名}-{nodeId}.md` — 1画面1ファイル。frontmatterに `type: design`・安定ID `design:{fileKey}:{nodeId}`・Figmaディープリンク（`source`）・更新日
+- `デザイン/inventory/{ファイル名}/{画面名}-{nodeId}.md` — 1画面1ファイル。本文に画面名・参照ID `design:{fileKey}:{nodeId}`・Figmaディープリンク・更新日・サムネイル（frontmatterは付けない。frontmatterを持つのはGold層のみ＝オントロジー規約）
 - `デザイン/resources/{fileKey}/{nodeId}.png` — サムネイル
 
 ## 注意事項

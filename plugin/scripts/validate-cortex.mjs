@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Cortex/（Gold層）のfrontmatterをオントロジー規約（.rulesync/rules/ontology.md）に
+ * Cortex/（Gold層）のfrontmatterをオントロジー規約（cortex-engine の docs/ontology.md）に
  * 照らして検証するリンター。
  *
  * 検証内容:
@@ -23,9 +23,11 @@ const META_FILES = new Set(["readme.md", "template.md"]);
 const RELS = new Set(["based_on", "derived_from", "relates_to", "supersedes"]);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-// relations.target のうち、frontmatterの安定IDとして実在を検証できる型のパターン。
-// issueキー（PJ-13）やドキュメントID等のBronze参照はfrontmatter idを持たないため対象外とする。
-const CHECKABLE_TARGET = /^(\d{8}-\d{3}$|minute:|term:|report:|overview:|design:)/;
+// relations.target のうち、実在を検証する型のパターン（= Gold層エンティティのみ）。
+// frontmatterを持つのはGold層（Cortex/配下）だけなので、実在検証できるのは decision / term / report / overview。
+// Silver/Bronzeへの参照（minute:・material:・design:・課題キー・ドキュメントID等）は
+// 「規約ベースのID文字列」であり、参照先にfrontmatterアンカーを要求しない＝実在検証しない（オントロジー規約参照）。
+const CHECKABLE_TARGET = /^(\d{8}-\d{3}$|term:|report:|overview:)/;
 
 /** ディレクトリ名 → 期待されるtype */
 const DIR_TYPE = { Decisions: "decision", 用語集: "term", レポート: "report" };
@@ -440,7 +442,7 @@ if (errorCount > 0) {
     `\n${targets.length}ファイル中、${errorCount}件の規約違反があります。`,
   );
   console.error(
-    "スキーマの定義は .rulesync/rules/ontology.md と各ディレクトリのREADME.mdを参照してください。",
+    "スキーマの定義は cortex-engine の docs/ontology.md と各ディレクトリのREADME.mdを参照してください。",
   );
   process.exit(1);
 }
