@@ -26,10 +26,10 @@
 
 ```bash
 # 差分更新（--prune でBacklog上で削除・移動されたドキュメントのローカルファイルも削除）
-pnpm dlx backlog-exporter@latest update --force --prune
+npx --yes backlog-exporter@latest update --force --prune
 
 # 初回の全件取得
-pnpm dlx backlog-exporter@latest all \
+npx --yes backlog-exporter@latest all \
   --domain $DOMAIN \
   --projectIdOrKey $PROJECT_KEY \
   --apiKey $BACKLOG_API_KEY \
