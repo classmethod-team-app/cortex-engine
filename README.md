@@ -1,8 +1,25 @@
-# cortex-engine — Cortex エンジン（フレームワーク中央リポジトリ）
+# cortex-engine — Cortex の仕組み（エンジン）中央リポジトリ
 
-案件コンテキストリポジトリ（[Cortex](https://github.com/classmethod-internal/aidd-project-cortex)）を動かす**仕組みの正本**。案件リポには「データ＋薄い設定」だけを置き、スキル・ワークフロー・スクリプト・マイグレーションはここで一元的に版管理して全案件に配布する。
+## Cortex とは
 
-> 設計の全体像は設計書（cortex-context の `tmp/Cortex-エンジン分離-設計書.md`）を参照。
+Cortex は、案件のコンテキスト（議事録・課題・共有資料・デザイン・意思決定・用語）を**案件ごとの1リポジトリに自動で蓄積・精製し、人と AI の両方が判断材料に使えるようにする仕組み**です。導入すると案件用のコンテキストリポジトリが作られ、同期・精製のエンジン（スキル・ワークフロー・スクリプト）は本リポジトリから自動配布・自動更新されます。
+
+実体は3つの部品で構成されます。
+
+| 部品 | 役割 | 所在 |
+| --- | --- | --- |
+| **cortex-engine（本リポ）** | 仕組みの正本。スキル・reusable workflows・scaffold・マイグレーションを一元版管理し全案件に配布 | `classmethod-team-app/cortex-engine` |
+| **案件コンテキストリポジトリ** | データ（Bronze/Silver/Gold）＋薄い設定だけを持つ。`/setup-project` が生成 | 案件ごと（実例: `cortex-context`） |
+| **cortex-tools** | 外付け基盤（AIS Viewer・CDK インフラ・cortex-notetaker） | `classmethod-team-app/cortex-tools` |
+
+> かつては基盤テンプレートリポジトリ（aidd-project-cortex）を複製する方式でしたが、2026-07 のエンジン/データ分離（v1）で「テンプレの複製」から「エンジンの配布」に移行しました（旧テンプレはアーカイブ済み。改善は本リポで行えば全案件に自動で届きます）。
+
+### 知りたいことに応じた入口
+
+- **案件で Cortex を使いたい** → 自分の案件リポジトリの README / USAGE（scaffold 同梱）。生きた実例は cortex-context
+- **新規案件に導入したい** → 部カタログ（retail-app-harnesses 等）の導入手順 ＋ `/setup-project`
+- **仕組みを知りたい・直したい** → 本リポジトリ。設計の全体像は [docs/architecture.md](docs/architecture.md)
+- **要望・不具合を伝えたい** → 本リポジトリの Issue（案件リポから `/submit-feedback` でも起票可能）
 
 ## 原則
 
