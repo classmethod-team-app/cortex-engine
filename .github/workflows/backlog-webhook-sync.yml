@@ -5,6 +5,12 @@ name: Backlogリアルタイム同期（webhook受信）
 # ドキュメントは Backlog webhook 非対応のため対象外（cron側で同期継続）。
 on:
   workflow_call:
+    inputs:
+      issue_key_filename:
+        description: "Backlogミラーのファイル名を課題キーにする（長い日本語タイトルによるLinux 255バイト超を回避。案件でオプトイン）"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   sync:
@@ -33,10 +39,10 @@ jobs:
           # 直前に変わった課題/Wikiを拾える。scope絞りで無関係な取得を避ける。
           if [ "$KIND" = "issue" ]; then
             echo "課題を増分同期（契機: ${ISSUE_KEY:-?}）"
-            npx --yes backlog-exporter@latest update --issuesOnly --force
+            npx --yes backlog-exporter@latest update --issuesOnly --force ${{ inputs.issue_key_filename && '--issueKeyFileName' || '' }}
           elif [ "$KIND" = "wiki" ]; then
             echo "Wikiを増分同期（契機: wiki ${WIKI_ID:-?}）"
-            npx --yes backlog-exporter@latest update --wikisOnly --force
+            npx --yes backlog-exporter@latest update --wikisOnly --force ${{ inputs.issue_key_filename && '--issueKeyFileName' || '' }}
           else
             echo "::warning::未対応の client_payload（kind=$KIND）。スキップ"
             exit 0
