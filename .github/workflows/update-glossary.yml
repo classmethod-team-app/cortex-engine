@@ -23,6 +23,10 @@ on:
 jobs:
   update:
     runs-on: ubuntu-latest
+    # 同一リポ内でmainへ書き込む同期系ワークフローと直列化し、push競合を構造的に減らす。
+    concurrency:
+      group: cortex-repo-write-${{ github.repository }}
+      cancel-in-progress: false
     timeout-minutes: 20
     env:
       AWS_REGION: ap-northeast-1 # Claude を有効化したリージョン（東京）
@@ -131,13 +135,24 @@ jobs:
             echo "提案なし。pushをスキップ"
             exit 0
           fi
-          for i in 1 2 3; do
+          for i in 1 2 3 4 5; do
             if git push origin HEAD:${GITHUB_REF_NAME}; then
               echo "push成功"
               exit 0
             fi
-            echo "push失敗。rebaseして再試行（$i/3）"
-            git pull --rebase origin ${GITHUB_REF_NAME}
+            echo "push失敗。最新を取り込み再試行（$i/5）"
+            git fetch origin ${GITHUB_REF_NAME} || true
+            # 未ステージの生成差分をコミットに畳む（rebaseがunstaged変更で拒否されるのを防ぐ）
+            git add -A
+            git diff --cached --quiet || git commit --amend --no-edit
+            # rebase。再生成ファイルの衝突は最新側(=こちら)を採用して自動解決する
+            if ! git rebase origin/${GITHUB_REF_NAME}; then
+              for f in $(git diff --name-only --diff-filter=U); do
+                git checkout --theirs -- "$f" 2>/dev/null || true
+                git add -- "$f" 2>/dev/null || git rm -- "$f" 2>/dev/null || true
+              done
+              GIT_EDITOR=true git rebase --continue || git rebase --abort
+            fi
           done
-          echo "pushに3回失敗しました"
+          echo "::error::pushに5回失敗しました"
           exit 1

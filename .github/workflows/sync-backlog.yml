@@ -13,6 +13,11 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    # 同一リポ内でBacklogミラーへ書き込む全ワークフロー（cron同期・realtime・decision-log等）を
+    # 1グループに直列化し、backlog-settings.json 等の再生成ファイルでのpush競合を構造的に減らす。
+    concurrency:
+      group: cortex-repo-write-${{ github.repository }}
+      cancel-in-progress: false
     # ジッター最大10分 + 同期 + リトライを考慮して引き上げ
     timeout-minutes: 30
 
@@ -65,7 +70,32 @@ jobs:
           done
           if git diff --staged --quiet; then
             echo "変更なし"
-          else
-            git commit -m "Backlogデータを同期"
-            git push
+            exit 0
           fi
+          git commit -m "Backlogデータを同期"
+          if [ -z "$(git log origin/${GITHUB_REF_NAME}..HEAD 2>/dev/null)" ]; then
+            echo "未pushコミットなし"
+            exit 0
+          fi
+          for i in 1 2 3 4 5; do
+            if git push origin HEAD:${GITHUB_REF_NAME}; then
+              echo "push成功"
+              exit 0
+            fi
+            echo "push失敗。最新を取り込み再試行（$i/5）"
+            git fetch origin ${GITHUB_REF_NAME} || true
+            # 未ステージの生成差分をコミットに畳む（rebaseがunstaged変更で拒否されるのを防ぐ）
+            git add -A
+            git diff --cached --quiet || git commit --amend --no-edit
+            # rebase。同期ミラーの再生成ファイル(backlog-settings.json/backlog-update.log等)の衝突は
+            # 最新側(=こちら)を採用して自動解決する（次回同期・cronでBacklogを正本に再整合するため安全）
+            if ! git rebase origin/${GITHUB_REF_NAME}; then
+              for f in $(git diff --name-only --diff-filter=U); do
+                git checkout --theirs -- "$f" 2>/dev/null || true
+                git add -- "$f" 2>/dev/null || git rm -- "$f" 2>/dev/null || true
+              done
+              GIT_EDITOR=true git rebase --continue || git rebase --abort
+            fi
+          done
+          echo "::error::pushに5回失敗しました"
+          exit 1
