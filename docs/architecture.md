@@ -207,6 +207,33 @@ jobs:
 - **GHA スクリプトの参照**: reusable workflow は呼び出し元コンテキストで動くため、エンジンのスクリプトが必要なステップでは `actions/checkout` で cortex-engine を同一 ref でチェックアウトして実行する
 - **cron 上で Claude Code を使うワークフロー**（update-decision-log 等）: チェックアウトしたエンジンのプラグインを `CLAUDE_CODE_PLUGIN_SEED_DIR`（CI 向けにプラグインを事前展開する公式機構）で読み込ませ、ローカル実行と同一のスキルで動かす
 
+### 5.2.1 main へ書き込むワークフローの規約（堅牢 push ＋ 直列化）
+
+案件リポの `main` に commit/push する reusable workflow は、**必ず次の2点を満たす**。新規ワークフローを追加するときも同じ方針で作る。
+
+1. **push は共有 composite action に委譲する**（`git push` のループを各ワークフローに書かない）。ワークフロー側は staging と commit まで行い、push は次を呼ぶだけにする:
+
+   ```yaml
+   - name: 堅牢push（未ステージ畳み込み・衝突自動解決・リトライ）
+     uses: classmethod-team-app/cortex-engine/.github/actions/robust-push@v1
+     with:
+       token: ${{ secrets.GITHUB_TOKEN }}
+   ```
+
+   `robust-push` は (a) 未ステージの生成差分を `commit --amend` で畳んでから rebase し（`unstaged changes` での rebase 拒否を防ぐ）、(b) 同期ミラーの再生成ファイル（`backlog-settings.json` / `backlog-update.log` 等）の rebase 衝突は最新側を採用して自動解決し、(c) 最大5回リトライする。正本は action の1箇所（`.github/actions/robust-push/`）に集約し、`@v1` で reusable workflow と版を揃える。
+
+2. **job-level concurrency で直列化する**。同一リポ内で `main` に書き込むワークフローを1グループにまとめ、push 競合の発生自体を減らす:
+
+   ```yaml
+   jobs:
+     <job>:
+       concurrency:
+         group: cortex-repo-write-${{ github.repository }}
+         cancel-in-progress: false
+   ```
+
+**背景**: リアルタイム同期の追加で push 競合が頻発し、`backlog-settings.json` の rebase 衝突・未ステージ拒否で同期系 CI が常態的に失敗した（2026-07）。真因は Gold 生成ロジックではなく、各ワークフローにコピペされた脆弱な push ループ。共有 action 化でコピペ再発を断ち、規約を「文章」ではなく「呼び出す部品」で強制する。読み取り専用の CI（`validate-cortex` 等）は `main` に書かないため対象外。
+
 ### 5.3 検証スクリプト → エンジン同梱（npm 公開はしない）
 
 `validate-cortex.mjs` / `fleet-status.mjs` はエンジンリポに置き、(a) ローカルではプラグイン同梱コピーを、(b) GHA ではチェックアウトしたエンジンのものを使う。npm パッケージ公開は配布経路を増やすだけなので行わない（正本は 1 つ、参照は 2 経路）。

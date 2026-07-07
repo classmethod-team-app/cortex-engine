@@ -1,0 +1,45 @@
+name: 堅牢push
+description: >-
+  コミット済みの変更を案件リポの main へ堅牢に push する。未ステージ差分の畳み込み・
+  再生成ファイル衝突の自動解決・リトライを内蔵し、同期系ワークフローの push 競合による
+  CI 失敗を防ぐ。呼び出し側は staging と commit まで済ませてから本 action を呼ぶ。
+inputs:
+  token:
+    description: push 認証用トークン（通常は secrets.GITHUB_TOKEN）
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        set -eu
+        git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+        # 未pushコミットが無ければ何もしない（呼び出し側が commit をスキップした場合を含む）
+        if [ -z "$(git log origin/${GITHUB_REF_NAME}..HEAD 2>/dev/null)" ]; then
+          echo "未pushコミットなし。スキップ"
+          exit 0
+        fi
+        for i in 1 2 3 4 5; do
+          if git push origin HEAD:${GITHUB_REF_NAME}; then
+            echo "push成功"
+            exit 0
+          fi
+          echo "push失敗。最新を取り込み再試行（$i/5）"
+          git fetch origin ${GITHUB_REF_NAME} || true
+          # 未ステージの生成差分をコミットに畳む（rebaseがunstaged変更で拒否されるのを防ぐ）
+          git add -A
+          git diff --cached --quiet || git commit --amend --no-edit
+          # rebase。同期ミラーの再生成ファイル(backlog-settings.json/backlog-update.log等)の衝突は
+          # 最新側(=こちら)を採用して自動解決する（次回同期・cronでBacklog等を正本に再整合するため安全）
+          if ! git rebase origin/${GITHUB_REF_NAME}; then
+            for f in $(git diff --name-only --diff-filter=U); do
+              git checkout --theirs -- "$f" 2>/dev/null || true
+              git add -- "$f" 2>/dev/null || git rm -- "$f" 2>/dev/null || true
+            done
+            GIT_EDITOR=true git rebase --continue || git rebase --abort
+          fi
+        done
+        echo "::error::pushに5回失敗しました"
+        exit 1
