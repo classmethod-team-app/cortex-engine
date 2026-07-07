@@ -91,7 +91,7 @@ jobs:
           - .cortex-engine/plugin/skills/sync-materials/SKILL.md の規約に厳密に従う。
           - 共有資料/ 配下を走査し、対応する .md がまだ無いファイルだけを対象にする（既に .md があるものはスキップ）。
           - .xlsx / .docx は SKILL 同梱スクリプト（.cortex-engine/plugin/skills/sync-materials/scripts/convert.py・markitdown）で変換する。
-          - PDF / PPTX は markitdown を使わず、Claude 自身が読み込んで Markdown 化する（図表は「何を表すか」を文章で説明。ページ番号等のノイズは除く）。
+          - PDF / PPTX / 画像（PNG・JPEG・GIF・WebP 等）は markitdown を使わず、Claude 自身が読み込んで Markdown 化する（図・グラフ・スクリーンショット・写真は「何を表すか」を文章で説明する。ページ番号等のノイズは除く）。
           - 出力 .md は元ファイルと同じディレクトリに置く。frontmatter は付けない（参照ID material:{ファイル名（拡張子なし）} はファイル名から機械導出されるため不要）。
           - 元ファイル（Bronze）は編集・削除しない。.md を新規追加するだけにする。
           - .cortex-engine/ 配下（エンジン）は走査・変更対象から除外する。
