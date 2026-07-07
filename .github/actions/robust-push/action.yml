@@ -15,6 +15,8 @@ runs:
         GH_TOKEN: ${{ inputs.token }}
       run: |
         set -eu
+        # 日本語パス（課題管理/ 等）を8進エスケープせず生のUTF-8で出させる（衝突解決の取りこぼし防止）
+        git config core.quotepath false
         git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
         # 未pushコミットが無ければ何もしない（呼び出し側が commit をスキップした場合を含む）
         if [ -z "$(git log origin/${GITHUB_REF_NAME}..HEAD 2>/dev/null)" ]; then
@@ -34,7 +36,9 @@ runs:
           # rebase。同期ミラーの再生成ファイル(backlog-settings.json/backlog-update.log等)の衝突は
           # 最新側(=こちら)を採用して自動解決する（次回同期・cronでBacklog等を正本に再整合するため安全）
           if ! git rebase origin/${GITHUB_REF_NAME}; then
-            for f in $(git diff --name-only --diff-filter=U); do
+            # 衝突ファイルを最新側(=こちら)で解決。日本語パスを取りこぼさないようNUL区切りで受け取る
+            # （for f in $(git diff ...) だとgitがエスケープした文字列を掴み実ファイルに触れず空振りする）
+            git diff --name-only --diff-filter=U -z | while IFS= read -r -d '' f; do
               git checkout --theirs -- "$f" 2>/dev/null || true
               git add -- "$f" 2>/dev/null || git rm -- "$f" 2>/dev/null || true
             done
