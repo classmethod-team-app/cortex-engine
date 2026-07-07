@@ -55,6 +55,7 @@ async function main() {
 
   let applied = 0;
   let version = current;
+  let paused = null; // autoApply:false（人間レビュー必須）で停止したマイグレーション
   for (const file of files) {
     const mod = await import(pathToFileURL(path.join(dir, file)).href);
     const meta = mod.meta;
@@ -64,7 +65,7 @@ async function main() {
     }
     if (meta.to <= version) continue; // 適用済み
     if (!meta.autoApply) {
-      console.log(`::warning::${file}（${meta.description}）は autoApply: false（人間レビュー必須）のため停止します。手動で適用してください。`);
+      paused = { file, description: meta.description };
       break;
     }
     console.log(`適用中: ${file} — ${meta.description}`);
@@ -77,6 +78,17 @@ async function main() {
   console.log(applied > 0
     ? `${applied} 件のマイグレーションを適用しました（schema_version: ${current} → ${version}）`
     : `未適用のマイグレーションはありません（schema_version: ${version}）`);
+
+  // autoApply:false で停止したら、人間が気づけるよう実行を意図的に失敗（赤）にする。
+  // （バグではなく「人間レビュー待ち」の合図。手動適用するまで毎晩赤くなって催促する）
+  if (paused) {
+    console.error(
+      `::error::${paused.file}（${paused.description}）は autoApply: false（人間レビュー必須）です。` +
+        `自動適用せず停止しました。内容を確認して手動で適用し、schema_version を進めてください。` +
+        `この実行は、停止に気づけるよう意図的に失敗（赤）にしています（コードのバグではありません）。`,
+    );
+    process.exit(1);
+  }
 }
 
 main().catch((err) => {
