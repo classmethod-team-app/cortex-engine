@@ -1,0 +1,108 @@
+name: 共有資料 自動変換（ファイル→Markdown）
+
+# 案件リポのスタブから workflow_call で呼ばれる。
+# 投入フォーム(Intake Lambda)が資料ファイルを 共有資料/ に commit → material-ingested を dispatch → スタブが本ワークフローを呼ぶ。
+on:
+  workflow_call:
+    inputs:
+      engine_ref:
+        description: "エンジン（スクリプト/スキル等）のcheckout ref。スタブのチャンネルと揃える（stable=v1 / canary=main）"
+        required: false
+        type: string
+        default: "v1"
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    # 同一リポ内でmainへ書き込む同期系ワークフローと直列化し、push競合を構造的に減らす。
+    concurrency:
+      group: cortex-repo-write-${{ github.repository }}
+      cancel-in-progress: false
+    timeout-minutes: 25
+    env:
+      AWS_REGION: ap-northeast-1 # Claude を有効化したリージョン（東京）
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 既存 .md の有無の照合に履歴が必要
+
+      - name: エンジンをチェックアウト（このワークフローと同一バージョン）
+        uses: actions/checkout@v4
+        with:
+          repository: classmethod-team-app/cortex-engine
+          ref: ${{ github.job_workflow_sha || inputs.engine_ref }}
+          path: .cortex-engine
+          token: ${{ secrets.ENGINE_REPO_TOKEN || github.token }}
+
+      - name: エンジンをGit管理対象外にする
+        run: echo ".cortex-engine/" >> .git/info/exclude
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: uv をインストール（markitdown 変換スクリプト用）
+        uses: astral-sh/setup-uv@v5
+
+      # AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）なら丸ごとスキップ（セットアップ途中の案件で毎晩failしない）
+      - name: 前提チェック（Bedrockロールの有無）
+        id: pre
+        env:
+          ROLE: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+        run: |
+          if [ -z "$ROLE" ]; then
+            echo "::notice::AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）。資料変換をスキップします。"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Git設定
+        if: steps.pre.outputs.run == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: AWS認証（OIDC）
+        if: steps.pre.outputs.run == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Claude Code をインストール
+        if: steps.pre.outputs.run == 'true'
+        run: npm i -g @anthropic-ai/claude-code
+
+      - name: 共有資料の変換（Claude / Bedrock）
+        if: steps.pre.outputs.run == 'true'
+        env:
+          CLAUDE_CODE_USE_BEDROCK: "1"
+          ANTHROPIC_MODEL: jp.anthropic.claude-sonnet-4-6
+        run: |
+          PROMPT=$(cat <<'EOF'
+          共有資料ディレクトリ（通常 共有資料/。ingest-config等でカスタムされていても 共有資料/ を基本とする）配下には、
+          手動投入で追加された資料ファイル（PDF / PPTX / DOCX / XLSX / CSV 等）が Markdown 未変換の状態で置かれていることがあります。
+          まだ対応する .md が無い資料を Markdown 化してください。
+
+          手順:
+          - .cortex-engine/plugin/skills/sync-materials/SKILL.md の規約に厳密に従う。
+          - 共有資料/ 配下を走査し、対応する .md がまだ無いファイルだけを対象にする（既に .md があるものはスキップ）。
+          - .xlsx / .docx は SKILL 同梱スクリプト（.cortex-engine/plugin/skills/sync-materials/scripts/convert.py・markitdown）で変換する。
+          - PDF / PPTX は markitdown を使わず、Claude 自身が読み込んで Markdown 化する（図表は「何を表すか」を文章で説明。ページ番号等のノイズは除く）。
+          - 出力 .md は元ファイルと同じディレクトリに置く。frontmatter は付けない（参照ID material:{ファイル名（拡張子なし）} はファイル名から機械導出されるため不要）。
+          - 元ファイル（Bronze）は編集・削除しない。.md を新規追加するだけにする。
+          - .cortex-engine/ 配下（エンジン）は走査・変更対象から除外する。
+          - 変更があれば git commit までを行う（push は行わない）。対象が無ければ何もコミットせず終了する。
+          EOF
+          )
+          # 無人実行（ephemeralなCIランナー）のため権限確認はスキップする
+          claude -p "$PROMPT" --max-turns 40 --dangerously-skip-permissions
+
+      - name: Push（競合時はrebaseで再試行）
+        if: steps.pre.outputs.run == 'true'
+        uses: classmethod-team-app/cortex-engine/.github/actions/robust-push@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,16 @@
+name: 共有資料 自動変換（ファイル→Markdown）
+# 実体はエンジン。投入フォーム(Intake Lambda)が資料を 共有資料/ に commit → material-ingested を dispatch → 本ワークフローを呼ぶ。
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [material-ingested]
+concurrency:
+  group: sync-materials
+  cancel-in-progress: false
+permissions:
+  contents: write
+  id-token: write
+jobs:
+  convert:
+    uses: classmethod-team-app/cortex-engine/.github/workflows/sync-materials.yml@v1
+    secrets: inherit
