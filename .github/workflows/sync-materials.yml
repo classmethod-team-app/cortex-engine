@@ -10,6 +10,11 @@ on:
         required: false
         type: string
         default: "v1"
+      aws_role_arn:
+        description: "Bedrock用IAMロールARN。別org等で secrets: inherit が届かない場合にスタブから明示的に渡す（空なら secrets.AWS_ROLE_TO_ASSUME を使う）"
+        required: false
+        type: string
+        default: ""
 jobs:
   convert:
     runs-on: ubuntu-latest
@@ -50,7 +55,7 @@ jobs:
       - name: 前提チェック（Bedrockロールの有無）
         id: pre
         env:
-          ROLE: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          ROLE: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
         run: |
           if [ -z "$ROLE" ]; then
             echo "::notice::AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）。資料変換をスキップします。"
@@ -69,7 +74,7 @@ jobs:
         if: steps.pre.outputs.run == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-to-assume: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Claude Code をインストール

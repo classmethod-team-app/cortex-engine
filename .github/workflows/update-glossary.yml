@@ -9,6 +9,11 @@ on:
         required: false
         type: string
         default: "v1"
+      aws_role_arn:
+        description: "Bedrock用IAMロールARN。別org等で secrets: inherit が届かない場合にスタブから明示的に渡す（空なら secrets.AWS_ROLE_TO_ASSUME を使う）"
+        required: false
+        type: string
+        default: ""
       issue_key_filename:
         description: "Backlogミラーのファイル名を課題キーにする（長い日本語タイトルによるLinux 255バイト超を回避。案件でオプトイン）"
         required: false
@@ -78,7 +83,7 @@ jobs:
       - name: AWS認証（OIDC）
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-to-assume: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Claude Code をインストール
