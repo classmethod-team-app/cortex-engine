@@ -30,8 +30,10 @@ jobs:
           T: ${{ secrets.ENGINE_REPO_TOKEN }}
         run: |
           if [ -z "$T" ]; then
-            echo "::error::ENGINE_REPO_TOKEN がワークフローに届いていません（org secret の可視性、スタブの secrets: inherit を確認）"
-            exit 1
+            # cortex-engine は public 化済みのため、ENGINE_REPO_TOKEN 未設定でも github.token で checkout 可能。
+            # 別org（例: classmethod-aws のトライアル）や Free プランで org secret が届かない場合の正常系。
+            echo "::notice::ENGINE_REPO_TOKEN 未設定。public 化した cortex-engine を github.token で checkout します。"
+            exit 0
           fi
           echo "ENGINE_REPO_TOKEN: 届いています（長さ ${#T}）"
           # 重要: checkout済みリポの中で実行すると actions/checkout が仕込んだ extraheader
