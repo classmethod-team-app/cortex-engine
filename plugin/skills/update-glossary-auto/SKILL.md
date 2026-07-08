@@ -22,7 +22,7 @@ description: >-
 
 ```bash
 git log --since="${SINCE:-25 hours ago}" --name-only --pretty=format: -- \
-  課題管理/issues/ 課題管理/documents/ 会議/ 共有資料/ Cortex/Decisions/ \
+  課題管理/issues/ 課題管理/documents/ 会議/ MTG/ ミーティング/ 共有資料/ Cortex/Decisions/ \
   | sort -u | grep -E '\.md$' || true
 ```
 

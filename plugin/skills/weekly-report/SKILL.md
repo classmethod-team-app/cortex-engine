@@ -34,11 +34,11 @@ date +%Y-%m-%d            # 実行日（既定の period_end）
 ```bash
 # 追加・更新された議事録・課題・Decisions（対象週の範囲に限定）
 git log --since="$period_start" --until="$period_end 23:59" --name-only --pretty=format: -- \
-  会議/ 課題管理/issues/ 課題管理/documents/ Cortex/Decisions/ 共有資料/ \
+  会議/ MTG/ ミーティング/ 課題管理/issues/ 課題管理/documents/ Cortex/Decisions/ 共有資料/ \
   | sort -u | grep -E '\.md$' || true
 
 # まだコミットされていない作業ツリーの変更も対象に含める（当日週のみ）
-git status --porcelain -- 会議/ 課題管理/ Cortex/Decisions/ || true
+git status --porcelain -- 会議/ MTG/ ミーティング/ 課題管理/ Cortex/Decisions/ || true
 
 # 開発リポジトリ（submodule）があれば、その週のコミット・マージ済みPRも対象にする（best-effort）
 git -C 開発/src log --since="$period_start" --until="$period_end 23:59" --pretty="%h %s (%an)" 2>/dev/null || echo "（開発submoduleなし。スキップ）"
