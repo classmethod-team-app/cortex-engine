@@ -318,7 +318,7 @@ engine:
 | --- | --- | --- |
 | **Phase 0: エンジン切り出し** | cortex-engine リポ新設。`.rulesync/skills` → プラグイン形式に変換（frontmatter 調整・`${CLAUDE_PLUGIN_ROOT}` 化）、GHA 9 本を workflow_call 化、marketplace.json・release ワークフロー・engine-migrate 骨格を作成 | ローカルで `/plugin marketplace add`（ローカルパス）して全スキルが動く。GHA を手元リポで workflow_dispatch 実行できる |
 | **Phase 1: カナリア移行** | cortex-context を新構成に移行（settings.json・スタブ化・.rulesync 削除・schema_version 付与）。夜間 cron・notetaker 連携・Backlog Webhook を 1 週間運用 | 夜間ジョブが全て安定稼働し、fleet-status が engineVersion を報告する |
-| **Phase 2: 艦隊移行** | 各案件リポ（案件A・案件B・案件C 等）を順次移行。移行自体をマイグレーション（`0001`）＋移行スキルとして実装し、最後の手動伝播とする | 全案件が stable チャンネルで稼働 |
+| **Phase 2: 艦隊移行** | 各案件リポを順次移行。移行自体をマイグレーション（`0001`）＋移行スキルとして実装し、最後の手動伝播とする | 全案件が stable チャンネルで稼働 |
 | **Phase 3: テンプレ縮小** | aidd-project-cortex を「データ骨格＋スタブ＋settings.json」だけの scaffold に縮小（もしくはエンジンの `scaffold/` に吸収し、新規案件作成は `/setup-project` が空リポに展開する方式へ）。rulesync・update-from-template を正式廃止 | 新規案件が scaffold から 30 分で立ち上がる |
 
 **v1 リリース（2026-07-31）との対応**: 本設計をそのまま v1 として出す（テンプレ方式での v1 リリースは行わない）。リリース基準は **Phase 0〜1 の完了**（エンジン稼働＋カナリアでの検証済み）を想定し、Phase 2（艦隊移行）はリリース後に順次、Phase 3 はその後とする（工数見積もりにより調整）。
