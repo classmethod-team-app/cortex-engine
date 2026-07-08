@@ -21,8 +21,11 @@ description: >-
 **前回成功実行以降**（環境変数 `SINCE`。ワークフローが「直近の成功run時刻」を渡す＝失敗が続いても次の成功時に失敗分まで遡って巻き取る）に追加・更新された、用語が含まれうるファイルを対象にする。`SINCE` が無い手元実行では約 25 時間をデフォルトにする。`Cortex/用語集/` 配下は必ず除外する（自己参照防止）。
 
 ```bash
-git log --since="${SINCE:-25 hours ago}" --name-only --pretty=format: -- \
-  課題管理/issues/ 課題管理/documents/ 会議/ MTG/ ミーティング/ 共有資料/ Cortex/Decisions/ \
+# ★ソースのディレクトリ名は案件ごとに任意なので特定ディレクトリに絞らず「入ってきたもの全部」を対象にする。
+#   除外はエンジン（.cortex-engine/）と自分の生成物（Cortex/用語集/。自己参照ループ防止）だけ。
+#   日本語パスの取りこぼし防止に core.quotepath=false を付ける（8進エスケープで .md$ を外さないため）。
+git -c core.quotepath=false log --since="${SINCE:-25 hours ago}" --name-only --pretty=format: -- \
+  . ':(exclude).cortex-engine/' ':(exclude)Cortex/用語集/' \
   | sort -u | grep -E '\.md$' || true
 ```
 
