@@ -23,10 +23,12 @@ description: 課題管理ツール（Backlog等）の課題データを手元か
 2. 以下のコマンドを実行（差分更新 + 不要ファイルの削除）
 
 ```bash
-npx backlog-exporter@latest update --force --prune
+npx backlog-exporter@1 update --force
+# Backlog上で削除・移動された項目のローカル残骸を掃除（削除を伴うため独立コマンド。非TTYでは --force 必須）
+npx backlog-exporter@1 prune --force
 ```
 
-`--prune` により、Backlog上で削除・移動されたドキュメントのローカルファイルも削除され、Backlogと同じ状態に揃います（削除対象はドキュメントの `.md` のみ。設定ファイルや `.md` 以外には触れません）。
+`prune` は削除を伴うため `update` とは独立したコマンドです。Backlog上で削除・移動された課題・ドキュメント・Wikiのローカルファイルを削除し、Backlogと同じ状態に揃えます（Backlog一覧の取得に失敗した場合は誤削除防止のため何も削除しません）。
 
 3. 実行後に `git status` で差分を確認し、削除されたファイルがあればユーザーに報告する
 
@@ -34,5 +36,5 @@ npx backlog-exporter@latest update --force --prune
 
 - ローカル実行には `DOMAIN`, `PROJECT_KEY`, `BACKLOG_API_KEY` が**環境変数として参照できる**必要があります（ローカルCLIなら `.env`、デスクトップはローカル環境エディタ、Webはクラウド環境設定の環境変数）。どこに入れるかは動作環境で変わる → `credentials` ルール参照
 - 環境変数が未設定の場合、無理にキーを配布せず上記の Actions 実行（`gh workflow run sync-backlog.yml`）を第一に案内する
-- `--prune` が「Nonexistent flag: --prune」エラーになる場合は、`--prune` を外して実行してください（その場合、削除・移動されたドキュメントの残留ファイルは手動で削除が必要です）
+- `prune` は残骸の掃除用です。エラーになる場合は `prune` の実行を省略しても構いません（その場合、削除・移動された項目の残留ファイルは手動で削除が必要です）
 - Jira 等 Backlog 以外の場合は、案件に応じた同期コマンドに読み替えてください

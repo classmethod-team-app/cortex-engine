@@ -94,7 +94,7 @@ jobs:
 
       - name: Backlog同期
         if: steps.pre.outputs.run == 'true' && steps.pre.outputs.backlog == 'true'
-        run: npx --yes backlog-exporter@latest update --force ${{ inputs.issue_key_filename && '--issueKeyFileName' || '' }}
+        run: npx --yes backlog-exporter@1 update --force ${{ inputs.issue_key_filename && '--issueKeyFileName' || '' }}
         env:
           BACKLOG_API_KEY: ${{ secrets.BACKLOG_API_KEY }}
           DOMAIN: ${{ secrets.BACKLOG_DOMAIN }}

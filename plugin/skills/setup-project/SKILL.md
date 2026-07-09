@@ -135,7 +135,7 @@ git pull
 
 `課題管理/` に課題・ドキュメント・Wiki が入っていれば成功です。以後は自動（Webhook＋毎時cron）で維持されます。
 
-> もし Actions 経由の同期で全量が取得できない場合のみ、非常口としてローカル実行（`npx backlog-exporter@latest all --domain $DOMAIN --projectIdOrKey $PROJECT_KEY --apiKey $BACKLOG_API_KEY --output ./課題管理`）を使ってください（この場合のみ手元にAPIキーが必要）。
+> もし Actions 経由の同期で全量が取得できない場合のみ、非常口としてローカル実行（`npx backlog-exporter@1 all --domain $DOMAIN --projectIdOrKey $PROJECT_KEY --apiKey $BACKLOG_API_KEY --output ./課題管理`）を使ってください（この場合のみ手元にAPIキーが必要）。
 
 ## ステップ8: Backlog リアルタイム同期の有効化（任意・推奨）
 

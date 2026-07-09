@@ -22,7 +22,7 @@ description: >-
 Backlog 由来の当日の決定を取りこぼさないよう、最初に課題を最新化する。失敗してもログを残して続行する。
 
 ```bash
-pnpm dlx backlog-exporter@latest update --force || echo "backlog同期に失敗。既存ローカルファイルで続行します"
+pnpm dlx backlog-exporter@1 update --force || echo "backlog同期に失敗。既存ローカルファイルで続行します"
 ```
 
 > cron ワークフロー側で既に実行済みの場合はこのステップをスキップする。

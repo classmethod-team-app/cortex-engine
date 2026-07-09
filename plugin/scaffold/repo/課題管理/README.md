@@ -25,11 +25,13 @@
 ### Backlog の場合
 
 ```bash
-# 差分更新（--prune でBacklog上で削除・移動されたドキュメントのローカルファイルも削除）
-npx --yes backlog-exporter@latest update --force --prune
+# 差分更新
+npx --yes backlog-exporter@1 update --force
+# Backlog上で削除・移動された課題・ドキュメント・Wikiのローカル残骸を掃除（削除を伴う独立コマンド。非TTYでは --force 必須）
+npx --yes backlog-exporter@1 prune --force
 
 # 初回の全件取得
-npx --yes backlog-exporter@latest all \
+npx --yes backlog-exporter@1 all \
   --domain $DOMAIN \
   --projectIdOrKey $PROJECT_KEY \
   --apiKey $BACKLOG_API_KEY \
