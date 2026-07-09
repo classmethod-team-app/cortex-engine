@@ -68,31 +68,43 @@ jobs:
             echo "current=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # 必要なシークレットの有無を判定する。
+      # - AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）なら用語集更新自体をスキップ（セットアップ途中の案件で毎晩failしない）
+      # - Backlog のシークレットが揃っていなければ Backlog同期だけスキップし、git差分（議事録等）からは更新する
+      - name: 前提チェック（シークレットの有無）
+        id: pre
+        env:
+          ROLE: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
+          BK_KEY: ${{ secrets.BACKLOG_API_KEY }}
+          BK_DOM: ${{ secrets.BACKLOG_DOMAIN }}
+          BK_PRJ: ${{ secrets.BACKLOG_PROJECT_KEY }}
+        run: |
+          if [ -z "$ROLE" ]; then
+            echo "::notice::AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）。用語集更新をスキップします。"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "$BK_KEY" ] && [ -n "$BK_DOM" ] && [ -n "$BK_PRJ" ]; then
+            echo "backlog=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Backlog シークレット未設定。Backlog同期をスキップし git差分からのみ更新します。"
+            echo "backlog=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Backlog同期
+        if: steps.pre.outputs.run == 'true' && steps.pre.outputs.backlog == 'true'
         run: npx --yes backlog-exporter@latest update --force ${{ inputs.issue_key_filename && '--issueKeyFileName' || '' }}
         env:
           BACKLOG_API_KEY: ${{ secrets.BACKLOG_API_KEY }}
           DOMAIN: ${{ secrets.BACKLOG_DOMAIN }}
           PROJECT_KEY: ${{ secrets.BACKLOG_PROJECT_KEY }}
 
-      - name: Git設定
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: AWS認証（OIDC）
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Claude Code をインストール
-        run: npm i -g @anthropic-ai/claude-code
-
       # 増分起点(SINCE)＝このワークフローの直近成功run。失敗が続いても次の成功で失敗分まで遡る（巻き取り）。
       # 注意: --workflow は案件リポ側スタブのファイル名。スタブは update-glossary.yml の名前を変えないこと。
       - name: 増分窓の起点(SINCE)を算出（前回成功以降・14日キャップ）
         id: win
+        if: steps.pre.outputs.run == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OVERRIDE_SINCE: ${{ inputs.since }}
@@ -112,8 +124,43 @@ jobs:
           echo "since=$SINCE" >> "$GITHUB_OUTPUT"
           echo "増分起点 SINCE=$SINCE"
 
+      # ソース差分が無い夜はAI実行（Bedrock課金・Claudeインストール）を丸ごとスキップする。
+      # 判定はスキルのステップ1と同一スクリプト（changed-sources.sh）で行い、二重定義を避ける。
+      # ゲートはBacklog同期の後に置く（同期が持ち込む未コミット変更も検査対象に含めるため）。
+      - name: 差分ゲート（対象ソースが無ければAI実行をスキップ）
+        id: gate
+        if: steps.pre.outputs.run == 'true'
+        env:
+          SINCE: ${{ steps.win.outputs.since }}
+        run: |
+          CHANGED=$(bash .cortex-engine/plugin/scripts/changed-sources.sh "$SINCE" "Cortex/用語集/")
+          if [ -n "$CHANGED" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "対象ソース差分:"; echo "$CHANGED"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::前回成功以降の対象ソース差分なし。AI実行をスキップします。"
+          fi
+
+      - name: Git設定
+        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: AWS認証（OIDC）
+        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Claude Code をインストール
+        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
+        run: npm i -g @anthropic-ai/claude-code
+
       - name: 用語集自動更新（Claude / Bedrock）
-        if: steps.schema.outputs.current == 'true'
+        if: steps.pre.outputs.run == 'true' && steps.schema.outputs.current == 'true' && steps.gate.outputs.changed == 'true'
         env:
           CLAUDE_CODE_USE_BEDROCK: "1"
           ANTHROPIC_MODEL: jp.anthropic.claude-sonnet-4-6 # 東京・日本国内推論（Bedrockで該当モデルのアクセス有効化が必要）
@@ -140,9 +187,11 @@ jobs:
 
       # 生成物がオントロジー規約に違反している場合、ここで止める（壊れたコミットをpushしない）
       - name: Cortexのスキーマ検証
+        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
         run: node .cortex-engine/plugin/scripts/validate-cortex.mjs
 
       - name: Push（競合時はrebaseで再試行）
+        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
         uses: classmethod-team-app/cortex-engine/.github/actions/robust-push@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
