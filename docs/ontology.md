@@ -8,10 +8,11 @@
 | --- | --- | --- | --- |
 | `decision` | 意思決定レコード（`Cortex/Decisions/records/`） | `YYYYMMDD-NNN` | `20260610-001` |
 | `term` | 用語（`Cortex/用語集/records/`） | `term:{slug}` | `term:コンテキスト` |
+| `member` | プロジェクト関係者（1人1ファイル、`Cortex/メンバー/records/`） | `member:{氏名（スペース無し）}` | `member:山田太郎` |
 | `report` | 週次レポート（`Cortex/レポート/`） | `report:{YYYYMMDD}-weekly` | `report:20260608-weekly` |
 | `overview` | Cortexのホームページ（1案件1ファイル） | `overview:home`（固定） | `overview:home` |
 
-バリデーション（`validate-cortex`）はGold層のfrontmatterのみを検証し、`relations.target` の実在解決もGold型のID（上記4種）に限って行う。
+バリデーション（`validate-cortex`）はGold層のfrontmatterのみを検証し、`relations.target` の実在解決もGold型のID（上記5種）に限って行う。
 
 ### Silver/Bronzeへの参照ID（frontmatterなし・ID命名規約のみ）
 

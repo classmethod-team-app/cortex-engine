@@ -27,10 +27,15 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // frontmatterを持つのはGold層（Cortex/配下）だけなので、実在検証できるのは decision / term / report / overview。
 // Silver/Bronzeへの参照（minute:・material:・design:・課題キー・ドキュメントID等）は
 // 「規約ベースのID文字列」であり、参照先にfrontmatterアンカーを要求しない＝実在検証しない（オントロジー規約参照）。
-const CHECKABLE_TARGET = /^(\d{8}-\d{3}$|term:|report:|overview:)/;
+const CHECKABLE_TARGET = /^(\d{8}-\d{3}$|term:|member:|report:|overview:)/;
 
 /** ディレクトリ名 → 期待されるtype */
-const DIR_TYPE = { Decisions: "decision", 用語集: "term", レポート: "report" };
+const DIR_TYPE = {
+  Decisions: "decision",
+  用語集: "term",
+  メンバー: "member",
+  レポート: "report",
+};
 
 /** 型ごとのスキーマ定義 */
 const SCHEMAS = {
@@ -125,6 +130,36 @@ const SCHEMAS = {
         errors.push("synonymsはリストで書く");
       if (fm.date && !DATE_RE.test(String(fm.date)))
         errors.push(`dateがYYYY-MM-DD形式ではない: ${fm.date}`);
+    },
+  },
+  member: {
+    required: ["type", "id", "title", "status"],
+    allowed: [
+      "type",
+      "id",
+      "title",
+      "yomi",
+      "aliases",
+      "org",
+      "side",
+      "role",
+      "email",
+      "status",
+      "relations",
+    ],
+    validate(fm, _fileName, errors) {
+      if (fm.id && !/^member:/.test(String(fm.id))) {
+        errors.push(`idはmember:{氏名（スペース無し）}（実際: ${fm.id}）`);
+      }
+      if (fm.status && !["active", "inactive", "draft"].includes(fm.status)) {
+        errors.push(`statusはactive|inactive|draft（実際: ${fm.status}）`);
+      }
+      // side は controlled vocabulary（空は許可＝side不明でも登録できる）
+      if (fm.side && !["cm", "client", "vendor"].includes(fm.side)) {
+        errors.push(`sideはcm|client|vendor（実際: ${fm.side}）`);
+      }
+      if (fm.aliases != null && !Array.isArray(fm.aliases))
+        errors.push("aliasesはリストで書く");
     },
   },
   report: {

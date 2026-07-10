@@ -69,6 +69,7 @@ pnpm dlx backlog-exporter@1 update --force
 
 - **ファイル名**: `YYYYMMDD-NNN-決定内容の要約.md`（`YYYYMMDD` は決定日、`NNN` は同日内の連番）
 - **frontmatter**: `type: decision` / `id` / `title` / `date` / `sprint` / `category` / `deciders` / `summary` / `references` を必須で記入
+- **deciders は名簿の正式表記に正規化する**: `deciders` は名簿（`Cortex/メンバー/records/` の `title`）の正式表記に揃える。名簿に無い人名は推測で確定させず `（要確認）` を付けて記載する
 - **relations**: 抽出元への型付き関係を安定IDで記載する（オントロジー規約参照）。議事録由来なら `rel: based_on, target: "minute:{定例名}:{YYYYMMDD}"`、課題由来なら `rel: based_on, target: "{課題キー}"`。過去の決定を変更する場合は `rel: supersedes, target: "{決定ID}"` を必ず付ける
 - **本文**: `## 背景`（なぜこの決定が必要になったか）と `## 理由`（なぜその選択をしたか、他の選択肢との比較）を記述
 - `references` には情報源を必ず記載する（ローカルは相対パス、外部はMarkdownリンク形式。人間向けの併記であり、機械向けは `relations` が担う）
