@@ -1,5 +1,6 @@
 name: Decision Log自動更新
 
+# ⚠️ 夜間cronの標準は update-gold.yml に統合済み。本ワークフローは個別バックフィル・移行期の艦隊用（削除しない）。
 # 案件リポのスタブから workflow_call で呼ばれる（トリガー・concurrency・permissions はスタブ側が持つ）
 on:
   workflow_call:

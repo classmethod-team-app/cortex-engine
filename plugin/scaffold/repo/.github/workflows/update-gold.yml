@@ -1,5 +1,6 @@
-name: Decision Log自動更新
+name: Gold昇格（Decision・用語集・メンバー）自動更新
 # 実体はエンジン。※ファイル名を変えないこと（増分起点SINCEの算出が gh run list --workflow=このファイル名 に依存）
+# 夜間Gold昇格の統合版（旧 update-decision-log / update-glossary を1本に統合。ソースを1回読み決定・用語・メンバーdraftを書く）
 on:
   schedule:
     # 毎日 夜22:00 JST（UTC 13:00）。平日昼のBacklog同期とは時間が被らない
@@ -11,7 +12,7 @@ on:
         required: false
         default: ""
 concurrency:
-  group: update-decision-log
+  group: update-gold
   cancel-in-progress: false
 permissions:
   contents: write
@@ -19,7 +20,7 @@ permissions:
   actions: read   # SINCE算出（gh run list）に必要
 jobs:
   update:
-    uses: classmethod-team-app/cortex-engine/.github/workflows/update-decision-log.yml@v1
+    uses: classmethod-team-app/cortex-engine/.github/workflows/update-gold.yml@v1
     secrets: inherit
     with:
       since: ${{ github.event.inputs.since || '' }}

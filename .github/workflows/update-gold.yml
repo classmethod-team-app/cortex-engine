@@ -1,7 +1,7 @@
-name: 用語集自動更新
+name: Gold昇格（Decision・用語集・メンバー）自動更新
 
-# ⚠️ 夜間cronの標準は update-gold.yml に統合済み。本ワークフローは個別バックフィル・移行期の艦隊用（削除しない）。
 # 案件リポのスタブから workflow_call で呼ばれる（トリガー・concurrency・permissions はスタブ側が持つ）
+# 夜間Gold昇格の統合版。1セッションでソースを1回読み、決定・用語・メンバーdraftを書く（旧 update-decision-log / update-glossary を統合）
 on:
   workflow_call:
     inputs:
@@ -49,6 +49,8 @@ jobs:
           repository: classmethod-team-app/cortex-engine
           ref: ${{ github.job_workflow_sha || inputs.engine_ref }}
           path: .cortex-engine
+          # private エンジンの checkout には読み取りトークンが必要（org secret）。
+          # エンジンが public/内部公開なら github.token でも通るためフォールバックする。
           token: ${{ secrets.ENGINE_REPO_TOKEN || github.token }}
 
       - name: エンジンをGit管理対象外にする
@@ -70,7 +72,7 @@ jobs:
           fi
 
       # 必要なシークレットの有無を判定する。
-      # - AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）なら用語集更新自体をスキップ（セットアップ途中の案件で毎晩failしない）
+      # - AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）なら Gold昇格自体をスキップ（セットアップ途中の案件で毎晩failしない）
       # - Backlog のシークレットが揃っていなければ Backlog同期だけスキップし、git差分（議事録等）からは更新する
       - name: 前提チェック（シークレットの有無）
         id: pre
@@ -81,7 +83,7 @@ jobs:
           BK_PRJ: ${{ secrets.BACKLOG_PROJECT_KEY }}
         run: |
           if [ -z "$ROLE" ]; then
-            echo "::notice::AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）。用語集更新をスキップします。"
+            echo "::notice::AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）。Gold昇格をスキップします。"
             echo "run=false" >> "$GITHUB_OUTPUT"
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
@@ -101,8 +103,12 @@ jobs:
           DOMAIN: ${{ secrets.BACKLOG_DOMAIN }}
           PROJECT_KEY: ${{ secrets.BACKLOG_PROJECT_KEY }}
 
-      # 増分起点(SINCE)＝このワークフローの直近成功run。失敗が続いても次の成功で失敗分まで遡る（巻き取り）。
-      # 注意: --workflow は案件リポ側スタブのファイル名。スタブは update-glossary.yml の名前を変えないこと。
+      # 増分の起点(SINCE)を「このワークフローの直近成功run」に置く。
+      # 失敗runは成功扱いされないので、連続失敗しても次の成功実行で失敗分まで窓が自動で遡る（取りこぼしの巻き取り）。
+      # 固定25h窓だと連続失敗で25hを超えた分が永久に漏れるため、その対策。
+      # 注意: --workflow は案件リポ側スタブのファイル名。スタブは update-gold.yml の名前を変えないこと。
+      # 移行初回対策: このワークフローの成功runがまだ無い（統合直後）場合は、旧 update-decision-log.yml の
+      #   直近成功にフォールバックする（14日再走査を避けるため。用語集側は決定と同じソースを見るので decision-log で十分）。
       - name: 増分窓の起点(SINCE)を算出（前回成功以降・14日キャップ）
         id: win
         if: steps.pre.outputs.run == 'true'
@@ -115,9 +121,14 @@ jobs:
             SINCE="$OVERRIDE_SINCE"
             echo "::notice::SINCE を手動上書き（バックフィル）: $SINCE"
           else
-            LAST=$(gh run list --workflow=update-glossary.yml --status success --limit 1 --json createdAt --jq '.[0].createdAt // empty' 2>/dev/null || true)
+            LAST=$(gh run list --workflow=update-gold.yml --status success --limit 1 --json createdAt --jq '.[0].createdAt // empty' 2>/dev/null || true)
+            if [ -z "$LAST" ]; then
+              # 統合直後でこのワークフローの成功runがまだ無い場合、旧ワークフローの直近成功に遡る
+              LAST=$(gh run list --workflow=update-decision-log.yml --status success --limit 1 --json createdAt --jq '.[0].createdAt // empty' 2>/dev/null || true)
+            fi
             if [ -z "$LAST" ]; then SINCE="$CAP"; else SINCE="$LAST"; fi
           fi
+          # 14日より古い起点は丸める（巨大窓によるmax-turns暴走を防ぐ。丸めた場合は未処理が残りうるので警告）
           if [[ "$SINCE" < "$CAP" ]]; then
             echo "::warning::増分起点 $SINCE が14日上限より古いため $CAP に丸めます（未処理分はsince入力で個別バックフィルを）"
             SINCE="$CAP"
@@ -134,7 +145,7 @@ jobs:
         env:
           SINCE: ${{ steps.win.outputs.since }}
         run: |
-          CHANGED=$(bash .cortex-engine/plugin/scripts/changed-sources.sh "$SINCE" "Cortex/用語集/")
+          CHANGED=$(bash .cortex-engine/plugin/scripts/changed-sources.sh "$SINCE" "Cortex/")
           if [ -n "$CHANGED" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
             echo "対象ソース差分:"; echo "$CHANGED"
@@ -153,6 +164,7 @@ jobs:
         if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
+          # cortex-tools/infra の GithubActionsOidc が作成したロールARN
           role-to-assume: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
@@ -160,33 +172,33 @@ jobs:
         if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
         run: npm i -g @anthropic-ai/claude-code
 
-      - name: 用語集自動更新（Claude / Bedrock）
+      - name: Gold昇格自動更新（Claude / Bedrock）
         if: steps.pre.outputs.run == 'true' && steps.schema.outputs.current == 'true' && steps.gate.outputs.changed == 'true'
         env:
-          CLAUDE_CODE_USE_BEDROCK: "1"
+          CLAUDE_CODE_USE_BEDROCK: "1" # APIキーの代わりに Bedrock を使用
           ANTHROPIC_MODEL: jp.anthropic.claude-sonnet-4-6 # 東京・日本国内推論（Bedrockで該当モデルのアクセス有効化が必要）
           SINCE: ${{ steps.win.outputs.since }} # 増分起点（前回成功以降）。スキルの git log --since に渡す
         run: |
           PROMPT=$(cat <<'EOF'
-          .cortex-engine/plugin/skills/update-glossary-auto/SKILL.md の指示に従い、
-          前回実行以降に追加・更新されたコンテキストから案件固有の新規用語を抽出し、
-          Cortex/用語集/records/ に1用語1ファイルで追加してください。
+          .cortex-engine/plugin/skills/update-gold-auto/SKILL.md の指示に従い、
+          前回実行以降に追加・更新されたコンテキスト（その日の議事録・課題等）から
+          Gold層（Decisions・用語集・メンバーdraft）への昇格を1セッションで行ってください。
+          ソースは1回だけ読み、その読みを決定・用語・メンバーの各フェーズで共有してください。
 
           注意:
-          - 増分方式です。環境変数 SINCE 以降（前回成功以降）のgit差分のみを対象にしてください。git log は --since="$SINCE" を使うこと（SINCEが空なら約25時間がデフォルト）。
+          - 増分方式です。フル走査せず、環境変数 SINCE 以降（前回成功以降）に追加・更新されたソースだけを対象にしてください。git log は --since="$SINCE" を使うこと（SINCEが空なら約25時間がデフォルト）。
           - Backlog同期は既にワークフロー側で実行済みなのでスキップしてください。
-          - 新規用語の status は必ず draft にしてください（AI生成・人間未確認の印。人間がレビューして active に変えます）。
-          - Cortex/用語集/README.md の「除外用語」セクションにある語は提案しないでください。
-          - 新規追加と既存用語へのsynonyms追記のみを行い、既存の定義本文は書き換えないでください。
-          - .cortex-engine/ 配下（エンジン）は抽出源から除外し、変更・コミットもしないでください。
-          - 変更があれば git commit までを行ってください（push は行わない）。
-          - 新規候補が無ければ何もコミットせず終了してください（毎晩走るため、これは通常の状態です）。
+          - フェーズごと（決定→用語→メンバー）に、対象ディレクトリだけを git add して逐次コミットしてください（push は行わない）。
+          - Cortex/ 配下・.cortex-engine/ 配下（エンジン）は抽出源から除外してください（自己参照防止・エンジン不変更）。ただし本セッションの Phase A で自分が作成した Decision を用語フェーズの抽出源に含めるのは例外です（スキルの指示どおり）。
+          - 昇格すべき候補が無ければ何もコミットせず終了してください（毎晩走るため、これは通常の状態です）。
           EOF
           )
           # 無人実行（ephemeralなCIランナー）のため権限確認はスキップする
-          claude -p "$PROMPT" --max-turns 60 --dangerously-skip-permissions
+          # 決定・用語・メンバーの3フェーズを1セッションで回すため、単発の60から余裕を見て80に増やす
+          claude -p "$PROMPT" --max-turns 80 --dangerously-skip-permissions
 
       # 生成物がオントロジー規約に違反している場合、ここで止める（壊れたコミットをpushしない）
+      # 増分窓が約25時間あるため、生成の揺らぎによる違反は翌晩のリトライで回復する
       - name: Cortexのスキーマ検証
         if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
         run: node .cortex-engine/plugin/scripts/validate-cortex.mjs
