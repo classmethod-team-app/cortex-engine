@@ -97,7 +97,7 @@ cortex-engine/
 │   └── scripts/                  # スキルが使うスクリプト（${CLAUDE_PLUGIN_ROOT} で参照）
 ├── .github/workflows/            # reusable workflows（on: workflow_call）
 │   ├── sync-backlog.yml  backlog-webhook-sync.yml  ingest-minutes.yml
-│   ├── update-decision-log.yml  update-glossary.yml  weekly-report.yml
+│   ├── update-gold.yml  weekly-report.yml
 │   ├── sync-designs.yml  fleet-status.yml  validate-cortex.yml
 │   └── engine-migrate.yml        # 【新規】スキーママイグレーション実行
 ├── scripts/                      # GHA用スクリプト（validate-cortex.mjs / fleet-status.mjs）

@@ -106,7 +106,7 @@ const usesFigmaInfer = !!(figmaJson && !hasPlaceholder(figmaJson) && /"key"\s*:\
 /** capability のツールが expected か。tools 未宣言なら fallback */
 const usesTool = (cap, expected, fallback) => (tools === null ? fallback : tools[cap] === expected);
 
-const runDecisionLog = lastRun("update-decision-log.yml");
+const runDecisionLog = lastRun("update-gold.yml");
 const runBacklog = lastRun("sync-backlog.yml");
 const runDesigns = lastRun("sync-designs.yml");
 
@@ -153,7 +153,7 @@ const CHECKS = [
     status: okFromBool(secret("AWS_ROLE_TO_ASSUME")), action: "案件リポに RoleArn を登録" },
   { id: "decisions_content", label: "Cortex/Decisions 実データ", cat: "Cortex",
     status: decisionsCount > 0 ? "ok" : "missing", detail: `${decisionsCount}件` },
-  { id: "nightly_decisionlog", label: "夜間 Decision Log run", cat: "自動化",
+  { id: "nightly_decisionlog", label: "夜間 Gold昇格 run", cat: "自動化",
     status: runStatus(runDecisionLog), detail: runDecisionLog || "" },
   // ---- 課題管理 == backlog ----
   { id: "backlog_secrets", label: "BACKLOG_* シークレット", cat: "課題管理", applies: usesTool("課題管理", "backlog", true),
