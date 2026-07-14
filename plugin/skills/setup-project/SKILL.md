@@ -156,11 +156,15 @@ git pull
 
 ソースコードリポジトリが既にあるなら `/clone-dev-repos` で submodule として取り込みます。まだ無ければスキップし、作成後に実行するよう案内してください。
 
-## ステップ11: チャット（Slack）連携（任意）
+## ステップ11: チャット（Slack / Teams）連携（任意）
 
-参照したい Slack チャンネル（複数可・チャンネル名とリンク）をユーザーに尋ね、`チャット/channels.json` の `channels` 配列に `{ "name": "...", "url": "..." }` 形式で登録します。あわせて次を伝えてください:
+チャットツール（`slack` | `teams` | `none`）をユーザーに確認し、`Cortex/Home.md` の `tools.チャット` に反映します（ステップの `tools` マップと整合させる）。`none` ならスキップ可。
 
-- 内容は Claude Code から **Slack MCP 経由でライブ参照**する（`/read-chat`）。**リポジトリには取り込まれない**ため顧客には見えない（Slack MCP に接続できるのは社内メンバーだけ＝公開範囲の境界）
+参照したいチャンネル（複数可・チャンネル名とリンク）をユーザーに尋ね、`チャット/channels.json` の `channels` 配列に `{ "name": "...", "platform": "slack|teams", "url": "..." }` 形式で登録します（各チャンネルに `platform` を付ける。省略時は `slack`）。あわせて次を伝えてください:
+
+- 内容は Claude Code から **MCP 経由でライブ参照**する（`/read-chat`）。**リポジトリには取り込まれない**ため顧客には見えない（MCP に接続できるのは社内メンバーだけ＝公開範囲の境界。Slack / Teams いずれも同一）
+- **Slack**: cortexプラグインの `.mcp.json` の `slack` サーバに OAuth 接続する。
+- **Teams**: 公用ホスト型 MCP が無いため、`.mcp.json` にはハードコードしていない。**テナントごとに Azure AD アプリ登録＋Graph 権限＋テナント認証**を行い、各自の Claude Code の MCP 設定に Teams MCP を接続する（接続方法は `/read-chat` の前提節を参照）。
 
 ## ステップ12: 会議の自動取り込み設定（任意）
 

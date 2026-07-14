@@ -164,9 +164,9 @@ const CHECKS = [
     status: issuesCount > 0 ? "ok" : "missing", detail: `${issuesCount}件`, action: "sync-backlog を workflow_dispatch で実行（初回全量同期）" },
   { id: "nightly_backlog", label: "夜間 Backlog同期 run", cat: "自動化", applies: usesTool("課題管理", "backlog", true),
     status: runStatus(runBacklog), detail: runBacklog || "" },
-  // ---- チャット == slack ----
-  { id: "channels_json", label: "channels.json 充足", cat: "チャット", applies: usesTool("チャット", "slack", true),
-    status: (() => { if (channels == null) return "missing"; try { return (JSON.parse(channels).channels || []).some((x) => /archives\/C/.test(x.url || "")) ? "ok" : "missing"; } catch { return "missing"; } })(),
+  // ---- チャット == slack | teams ----
+  { id: "channels_json", label: "channels.json 充足", cat: "チャット", applies: usesTool("チャット", "slack", true) || usesTool("チャット", "teams", false),
+    status: (() => { if (channels == null) return "missing"; try { return (JSON.parse(channels).channels || []).some((x) => (x.url || "").length > 0 && !/CHANNEL_ID/.test(x.url)) ? "ok" : "missing"; } catch { return "missing"; } })(),
     action: "チャット/channels.json に実チャンネルを登録" },
   // ---- 開発 == github（ソースコードrepoをsubmoduleで同梱） ----
   { id: "submodules", label: "開発 submodule 構成", cat: "開発", applies: usesTool("開発", "github", gitmodules != null),
