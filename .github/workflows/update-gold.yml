@@ -139,19 +139,27 @@ jobs:
       # ソース差分が無い夜はAI実行（Bedrock課金・Claudeインストール）を丸ごとスキップする。
       # 判定はスキルのステップ1と同一スクリプト（changed-sources.sh）で行い、二重定義を避ける。
       # ゲートはBacklog同期の後に置く（同期が持ち込む未コミット変更も検査対象に含めるため）。
+      # 差分ゲート: リポ内差分(changed-sources.sh)に加えて、Cortex/external-sources.json に
+      # 登録された外部ソース(GitHub Issues/Discussions)の活動(external-sources.sh)も見る。
+      # どちらかが非空なら changed=true（リポが静かでも外部に動きがあれば夜間精製を走らせる）。
+      # 差分ゼロ最適化は「リポも外部も動きなし」の夜だけスキップ、を維持する。
+      # external-sources.sh は権限エラー等を「活動なし」として扱うため、権限不備で毎晩空振りAI実行にはならない。
       - name: 差分ゲート（対象ソースが無ければAI実行をスキップ）
         id: gate
         if: steps.pre.outputs.run == 'true'
         env:
           SINCE: ${{ steps.win.outputs.since }}
+          GH_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           CHANGED=$(bash .cortex-engine/plugin/scripts/changed-sources.sh "$SINCE" "Cortex/")
-          if [ -n "$CHANGED" ]; then
+          EXT=$(bash .cortex-engine/plugin/scripts/external-sources.sh "$SINCE")
+          if [ -n "$CHANGED" ] || [ -n "$EXT" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "対象ソース差分:"; echo "$CHANGED"
+            if [ -n "$CHANGED" ]; then echo "対象ソース差分:"; echo "$CHANGED"; fi
+            if [ -n "$EXT" ]; then echo "外部ソースに活動あり"; fi
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::前回成功以降の対象ソース差分なし。AI実行をスキップします。"
+            echo "::notice::前回成功以降の対象ソース差分・外部ソース活動なし。AI実行をスキップします。"
           fi
 
       - name: Git設定
@@ -178,6 +186,7 @@ jobs:
           CLAUDE_CODE_USE_BEDROCK: "1" # APIキーの代わりに Bedrock を使用
           ANTHROPIC_MODEL: jp.anthropic.claude-sonnet-4-6 # 東京・日本国内推論（Bedrockで該当モデルのアクセス有効化が必要）
           SINCE: ${{ steps.win.outputs.since }} # 増分起点（前回成功以降）。スキルの git log --since に渡す
+          GH_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }} # スキルが external-sources.sh で外部ソース(Issues/Discussions)を取得するため
         run: |
           PROMPT=$(cat <<'EOF'
           .cortex-engine/plugin/skills/update-gold-auto/SKILL.md の指示に従い、
