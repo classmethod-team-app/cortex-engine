@@ -50,7 +50,15 @@ bash "<SKILL_DIR>/../../scripts/external-sources.sh" "${SINCE:-}"
 
 `update-decision-log-auto/SKILL.md` の**ステップ2〜5**（採番・重複照合・抽出・ファイル作成）に**厳密に従って** `Cortex/Decisions/records/` に新規 Decision を作成する。ソースの読みはステップ2の結果を使う（`update-decision-log-auto` のステップ1は本スキルのステップ1で済んでいる）。
 
-**外部コンテンツ（GitHub Issues/Discussions/Slack）からも確定した決定を抽出する**。出典は `relations` / `references` に**外部の安定な識別子（Issue/Discussion の番号・URL）**で記載する（例: `references: "[owner/repo#123](https://github.com/owner/repo/issues/123)"`）。ファイルパスは書かない。Slack は安定URLが張りにくいので、可能なら**チャンネル名＋日付**（メッセージの permalink が取れるなら URL も。best-effort。取れなければチャンネル/日付でよい）で出典を記す。
+**外部コンテンツからの Decision 昇格は"明示シグナル駆動"（昇格は狭く・参照は広く）**。外部ソース（GitHub Issues/Discussions/Slack）は議事録と違い"決定の面"ではなく、調査・仮説・質問が大半の生記録である。素朴に決定抽出すると仮説の誤昇格・些末な実装判断・撤回済み暫定でノイズだらけになる。**明示シグナルがある item からだけ Decision を作り、無ければ Decision にしない（用語と参照どまり。迷ったら作らない＝安全側）**。判定は `external-sources.sh` の出力ヘッダにある `state`（open/closed）・`labels`・`category` を手がかりにする:
+
+- **ソースの `decisions` が `label:X`** … `external-sources.sh` が既にその label の item だけに取得を絞っている（skill 側はそれ前提。取れた item は昇格対象＝チームが決定規約として宣言したもの）。ヘッダの `labels` にその label があることを確認して抽出する。
+- **ソースの `decisions` が `none`** … **そのソースからは Decision を作らない**（用語・参照のみ）。設定は `Cortex/external-sources.json` を参照して判断する。
+- **`decisions` 省略（汎用シグナル）** … 本文に `## 決定` / `## Decision` / `## 結論` セクションがある、または **closed issue の明確な解決コメント**がある item からのみ抽出する。**open で結論の無い調査スレッド・仮説・質問からは作らない**。
+- **Slack** … ラベル/セクションが無いので**さらに保守的**に。「〜で決定した」「〜で合意した」等の**明示的な確定発言があるメッセージのみ**を昇格する。雑談・調査・提案・質問からは作らない（既定は事実上"Decisionを作らない寄り"）。
+- **既存の保守規律を外部にも徹底**: 確定表現のみ・根拠（引用/リンク）必須・「〜する方向/依頼する/検討中」等の未確定は昇格しない・些末な実装細部は Decision にしない。
+
+出典は `relations` / `references` に**外部の安定な識別子（Issue/Discussion の番号・URL）**で記載する（例: `references: "[owner/repo#123](https://github.com/owner/repo/issues/123)"`）。ファイルパスは書かない。Slack は安定URLが張りにくいので、可能なら**チャンネル名＋日付**（メッセージの permalink が取れるなら URL も。best-effort。取れなければチャンネル/日付でよい）で出典を記す。**参照（`gh` ライブや references 記載）は昇格の外で常に可能**——シグナルが無い item も、用語抽出や関連参照としては使ってよい（昇格＝Decision化だけを狭く絞る）。
 
 作成後、コミット前に検証してからコミットする：
 
@@ -68,7 +76,7 @@ fi
 
 `update-glossary-auto/SKILL.md` の**ステップ2〜4**（既存用語・除外リストの読み込み・新規用語候補の抽出・ファイル作成/synonyms追記）に従って `Cortex/用語集/records/` に `status: draft` で新規用語を追加、または既存用語へ synonyms を追記する。ソースの読みはステップ2の結果を使う。
 
-**加えて、Phase A で本セッションが作成した Decision も用語の抽出源に含める**（従来は翌晩の glossary が拾っていた分を、その場で拾う）。**外部コンテンツからも案件固有の新規用語を抽出する**（出典が外部 Issue/Discussion なら、その番号・URL を安定な参照として用いる）。
+**加えて、Phase A で本セッションが作成した Decision も用語の抽出源に含める**（従来は翌晩の glossary が拾っていた分を、その場で拾う）。**用語集は外部コンテンツから広く抽出してよい**（低リスク。Decision 昇格のような明示シグナルの制約は不要で、`decisions` 設定にも縛られない。シグナルの無い調査スレッド・Slack の雑談からでも案件固有の語彙は拾う）。出典が外部 Issue/Discussion なら、その番号・URL を安定な参照として用いる。**ただし内部限定情報フィルタは維持**（下記「注意事項」。売上・工数・単価・人事評価等は用語にも書かない）。
 
 作成後、コミット前に検証してからコミットする：
 

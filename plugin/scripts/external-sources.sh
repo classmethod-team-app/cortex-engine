@@ -44,7 +44,8 @@ fi
 TMPDIR_EXT=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_EXT"' EXIT
 
-# 設定を "type<TAB>ref" 行に正規化（jq非依存でpython3を使う。CIランナー・macに標準搭載）。
+# 設定を "type<TAB>ref<TAB>decisions" 行に正規化（jq非依存でpython3を使う。CIランナー・macに標準搭載）。
+# decisions は任意フィールド（"label:<name>" / "none" / 省略）。省略・未知値は空文字で出す（＝従来挙動）。
 SOURCES=$(CONFIG="$CONFIG" python3 <<'PY'
 import json, os, sys
 try:
@@ -54,23 +55,33 @@ except Exception:
 for s in (data.get("sources") or []):
     t = s.get("type", "")
     ref = s.get("repo") or s.get("channel") or ""
+    dec = (s.get("decisions") or "").strip()
     if t:
-        print(f"{t}\t{ref}")
+        print(f"{t}\t{ref}\t{dec}")
 PY
 )
 [ -n "$SOURCES" ] || exit 0
 
 emit_issues() {
   local repo="$1"
+  local decisions="${2:-}"
   local jsonf="$TMPDIR_EXT/issues.json"
-  # SINCE 以降に更新された Issue を本文込みで取得。失敗（権限無し等）はソース単位でスキップ。
-  if ! gh issue list --repo "$repo" --state all \
-      --search "updated:>=${SINCE_DATE}" \
-      --json number,title,updatedAt,body,url > "$jsonf" 2>/dev/null; then
-    echo "::warning::external-sources: github-issues $repo の取得に失敗（権限/存在を確認）。スキップします。" >&2
+  # decisions が "label:<name>" のときは取得をそのラベルに限定（＝チームの決定規約の宣言。
+  # ラベル無しitemは取り込まない＝ライブ参照どまり）。"none"・省略・未知値は従来どおり updated 窓の全件。
+  local label=""
+  case "$decisions" in
+    label:*) label="${decisions#label:}" ;;
+  esac
+  # SINCE 以降に更新された Issue を本文込み・state/labelsメタ付きで取得。失敗（権限無し等）はソース単位でスキップ。
+  # --label と --search は AND で交差する（gh 仕様で確認済み）。
+  local args=(--repo "$repo" --state all --search "updated:>=${SINCE_DATE}" \
+    --json number,title,updatedAt,state,labels,body,url)
+  [ -n "$label" ] && args+=(--label "$label")
+  if ! gh issue list "${args[@]}" > "$jsonf" 2>/dev/null; then
+    echo "::warning::external-sources: github-issues $repo の取得に失敗（権限/存在/ラベルを確認）。スキップします。" >&2
     return 0
   fi
-  # 各Issueを見出し付きで出力し、対象Issue番号を numbers ファイルに書き出す。
+  # 各Issueを見出し付き（state/labelsメタ入り。AIがシグナル判定に使う）で出力し、対象Issue番号を numbers ファイルに書き出す。
   REPO="$repo" python3 - "$jsonf" "$TMPDIR_EXT/numbers.txt" <<'PY'
 import json, os, sys
 repo = os.environ["REPO"]
@@ -80,7 +91,15 @@ for it in data:
     num = it.get("number")
     title = it.get("title", "")
     updated = it.get("updatedAt", "")
-    print(f'\n## [github-issues] {repo} #{num} {title} (updated {updated})')
+    state = (it.get("state") or "").lower()
+    labels = ", ".join(l.get("name", "") for l in (it.get("labels") or []) if l.get("name"))
+    meta = f"state: {state}" if state else ""
+    if labels:
+        meta = f"{meta}, labels: {labels}" if meta else f"labels: {labels}"
+    head = f'\n## [github-issues] {repo} #{num} {title}'
+    if meta:
+        head += f' ({meta})'
+    print(f'{head} (updated {updated})')
     print(f'URL: {it.get("url", "")}')
     body = (it.get("body") or "").strip()
     if body:
@@ -105,15 +124,25 @@ PY
 
 emit_discussions() {
   local repo="$1"
+  local decisions="${2:-}"
   local owner name jsonf
   owner="${repo%%/*}"; name="${repo##*/}"
   jsonf="$TMPDIR_EXT/discussions.json"
+  # decisions が "label:<name>" のときは対象をそのラベルに絞る（issues と同じ思想）。
+  # discussions はラベルフィルタを graphql に持たず、取得後にスクリプト側で交差させる（best-effort）。
+  local label=""
+  case "$decisions" in
+    label:*) label="${decisions#label:}" ;;
+  esac
   # best-effort: 更新降順で最大50件取得し、SINCE以降をスクリプト側で絞る。graphql失敗はスキップ。
+  # category/labels は AI のシグナル判定用メタとしてヘッダに出す。
   if ! gh api graphql -f owner="$owner" -f name="$name" -f query='
     query($owner:String!, $name:String!){
       repository(owner:$owner, name:$name){
         discussions(first:50, orderBy:{field:UPDATED_AT, direction:DESC}){
           nodes{ number title body url updatedAt
+            category{ name }
+            labels(first:20){ nodes{ name } }
             comments(first:50){ nodes{ body author{ login } } } }
         }
       }
@@ -121,19 +150,32 @@ emit_discussions() {
     echo "::warning::external-sources: github-discussions $repo の取得に失敗（権限/graphql）。スキップします。" >&2
     return 0
   fi
-  SINCE_ISO="$SINCE_ISO" REPO="$repo" python3 - "$jsonf" <<'PY'
+  SINCE_ISO="$SINCE_ISO" REPO="$repo" LABEL="$label" python3 - "$jsonf" <<'PY'
 import json, os, sys
 resp = json.load(open(sys.argv[1], encoding="utf-8"))
 since = os.environ["SINCE_ISO"]
 repo = os.environ["REPO"]
+want_label = os.environ.get("LABEL", "")
 nodes = (((resp.get("data") or {}).get("repository") or {}).get("discussions") or {}).get("nodes") or []
 for d in nodes:
     if (d.get("updatedAt") or "") < since:
         continue
+    labels = [l.get("name", "") for l in (((d.get("labels") or {}).get("nodes")) or []) if l.get("name")]
+    # decisions: label:X 指定時はそのラベルを持つ discussion だけ取り込む（無ければライブ参照どまり）。
+    if want_label and want_label not in labels:
+        continue
     num = d.get("number")
     title = d.get("title", "")
     updated = d.get("updatedAt", "")
-    print(f'\n## [github-discussions] {repo} #{num} {title} (updated {updated})')
+    category = ((d.get("category") or {}).get("name")) or ""
+    meta = f"category: {category}" if category else ""
+    if labels:
+        lbl = ", ".join(labels)
+        meta = f"{meta}, labels: {lbl}" if meta else f"labels: {lbl}"
+    head = f'\n## [github-discussions] {repo} #{num} {title}'
+    if meta:
+        head += f' ({meta})'
+    print(f'{head} (updated {updated})')
     print(f'URL: {d.get("url", "")}')
     body = (d.get("body") or "").strip()
     if body:
@@ -311,13 +353,13 @@ emit_slack() {
   fi
 }
 
-while IFS=$'\t' read -r type ref; do
+while IFS=$'\t' read -r type ref decisions; do
   [ -n "$type" ] || continue
   case "$type" in
     github-issues)
-      [ -n "$ref" ] && emit_issues "$ref" ;;
+      [ -n "$ref" ] && emit_issues "$ref" "${decisions:-}" ;;
     github-discussions)
-      [ -n "$ref" ] && emit_discussions "$ref" ;;
+      [ -n "$ref" ] && emit_discussions "$ref" "${decisions:-}" ;;
     slack)
       [ -n "$ref" ] && emit_slack "$ref" ;;
     *)
