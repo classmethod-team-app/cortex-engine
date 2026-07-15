@@ -29,12 +29,11 @@ Usage:
 --organize: ファイル名と同名のディレクトリを作成し、元ファイルを移動して変換結果を保存する。
             ディレクトリを指定した場合は配下を再帰的に走査し、未整理のファイルをまとめて変換する。
 
-変換方式:
-    .xlsx / .docx ... markitdownで自動変換する。
-    .pdf / .pptx  ... markitdownを使わず、Claudeが読み込んでMarkdown化する。
-                      （.pdf は Read ツール、.pptx は pptx ドキュメントスキルで読み込む）
-                      スクリプトはディレクトリ・実ファイルを用意し、[CLAUDE_TODO] を
-                      出力してClaudeに変換を委譲する。
+変換方式（markitdownのみ・AWS/Bedrock不要）:
+    テキスト抽出可能な形式（.xlsx / .docx / .pptx / .pdf / .txt / .csv 等）
+        ... markitdownでMarkdownに自動変換する。
+    画像（.png / .jpg / .jpeg / .gif / .webp / .bmp / .tiff / .svg）
+        ... 変換しない。生ファイルのまま置く（必要時にClaudeが直接読む）。
 """
 
 import shutil
@@ -44,16 +43,22 @@ from pathlib import Path
 
 from markitdown import MarkItDown
 
-# markitdownで変換する形式と、Claudeに変換を委譲する形式（PDF・PPTX）
-MARKITDOWN_EXTENSIONS = {".xlsx", ".docx"}
-CLAUDE_EXTENSIONS = {".pdf", ".pptx"}
-SUPPORTED_EXTENSIONS = MARKITDOWN_EXTENSIONS | CLAUDE_EXTENSIONS
-
-# Claude委譲時の読み込み方法（拡張子ごとのヒント）
-CLAUDE_CONVERT_HINTS = {
-    ".pdf": "Read ツールで読み込む（ページが多い場合は分割して読む）",
-    ".pptx": "pptx ドキュメントスキル（document-skills:pptx）で読み込む",
+# markitdown[all] がテキスト抽出できる形式。少なくとも xlsx/docx/pptx/pdf/txt/csv を含む。
+MARKITDOWN_EXTENSIONS = {
+    ".xlsx",
+    ".docx",
+    ".pptx",
+    ".pdf",
+    ".txt",
+    ".csv",
+    ".html",
+    ".htm",
+    ".json",
+    ".xml",
+    ".rtf",
 }
+# 変換対象外（生のまま置く）。必要時にClaudeが直接読む。
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".svg"}
 
 
 def convert(file_path: Path) -> str:
@@ -61,15 +66,10 @@ def convert(file_path: Path) -> str:
         print(f"Error: ファイルが見つかりません: {file_path}", file=sys.stderr)
         sys.exit(1)
     suffix = file_path.suffix.lower()
-    if suffix in CLAUDE_EXTENSIONS:
-        print(
-            f"Error: {suffix} はmarkitdownではなくClaudeで変換します: {file_path}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
     if suffix not in MARKITDOWN_EXTENSIONS:
         print(
-            f"Error: 未対応の形式です: {file_path.suffix} (対応形式: {', '.join(sorted(SUPPORTED_EXTENSIONS))})",
+            f"Error: 未対応の形式です: {file_path.suffix} "
+            f"(markitdown対応形式: {', '.join(sorted(MARKITDOWN_EXTENSIONS))})",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -82,17 +82,16 @@ def convert(file_path: Path) -> str:
 
 
 def generate_md(original_path: Path, md_path: Path) -> None:
-    """元ファイルからmdを生成する。PDF・PPTXはClaudeに委譲し、TODOを出力するのみ。"""
+    """元ファイルからmdを生成する。markitdown対象のみ変換し、画像・未知形式はスキップする。"""
     suffix = original_path.suffix.lower()
-    if suffix in CLAUDE_EXTENSIONS:
-        hint = CLAUDE_CONVERT_HINTS.get(suffix, "Claude が読み込む")
-        print(
-            f"[CLAUDE_TODO] {suffix} はClaudeが読み込んでMarkdown化します。\n"
-            f"  入力ファイル: {original_path}\n"
-            f"  出力MD : {md_path}\n"
-            f"  読み込み方法: {hint}",
-            file=sys.stderr,
-        )
+    if suffix in IMAGE_EXTENSIONS:
+        print(f"スキップ（画像は変換対象外・生のまま置く）: {original_path}", file=sys.stderr)
+        return
+    if suffix not in MARKITDOWN_EXTENSIONS:
+        print(f"警告: 未対応の形式のためスキップ（生のまま）: {original_path}", file=sys.stderr)
+        return
+    if md_path.exists():
+        print(f"スキップ（既に変換済み）: {md_path}", file=sys.stderr)
         return
     md_path.write_text(convert(original_path), encoding="utf-8")
     print(f"変換完了: {md_path}", file=sys.stderr)
@@ -139,6 +138,14 @@ def import_to_dest(file_path: Path, dest_dir: Path, name_override: str | None = 
 
 def organize(path: Path) -> None:
     if path.is_file():
+        suffix = path.suffix.lower()
+        if suffix in IMAGE_EXTENSIONS:
+            print(f"スキップ（画像は変換対象外・生のまま置く）: {path}", file=sys.stderr)
+            return
+        if suffix not in MARKITDOWN_EXTENSIONS:
+            print(f"警告: 未対応の形式のためスキップ（生のまま）: {path}", file=sys.stderr)
+            return
+        # 既に整理済みフォルダ内（{名}/{名}.ext）のファイルは、再度moveせずその場でmdを生成する
         if is_inside_organized_dir(path):
             reconvert_file(path)
             return
@@ -146,20 +153,31 @@ def organize(path: Path) -> None:
         return
 
     if path.is_dir():
-        # 配下を再帰走査：まだ整理されていない素のファイルをその場で整理する
-        loose_files = sorted(
-            f for f in path.rglob("*")
-            if f.is_file()
-            and f.suffix.lower() in SUPPORTED_EXTENSIONS
-            and not is_inside_organized_dir(f)
-            and not is_already_organized(f)
+        # 配下を再帰走査。markitdown対象のみ対象にし、画像・未知形式は最初から数えない。
+        targets = sorted(
+            f
+            for f in path.rglob("*")
+            if f.is_file() and f.suffix.lower() in MARKITDOWN_EXTENSIONS
         )
-        if not loose_files:
-            print(f"対応ファイルが見つかりません: {path}", file=sys.stderr)
-            return
-        for f in loose_files:
-            organize_file(f)
-        print(f"\n完了: {len(loose_files)} 件処理", file=sys.stderr)
+        processed = 0
+        for f in targets:
+            if is_inside_organized_dir(f):
+                # ① 既に整理済みフォルダ内 → その場で md 生成（未変換のもののみ）
+                md_path = f.parent / (f.stem + ".md")
+                if md_path.exists():
+                    continue
+                generate_md(f, md_path)
+                processed += 1
+            else:
+                # ② ルート直下等の未整理ファイル → {stem}/ に move して md 生成
+                if is_already_organized(f):
+                    continue
+                organize_file(f)
+                processed += 1
+        if processed == 0:
+            print(f"変換対象の未処理ファイルはありません: {path}", file=sys.stderr)
+        else:
+            print(f"\n完了: {processed} 件処理", file=sys.stderr)
         return
 
     print(f"Error: パスが見つかりません: {path}", file=sys.stderr)

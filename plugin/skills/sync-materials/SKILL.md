@@ -78,40 +78,20 @@ uv run --no-project "<SKILL_DIR>/scripts/convert.py" "共有資料/" --organize
 
 ---
 
-### ステップ：PDF・PPTX は Claude が変換（重要）
+### 変換方式：markitdown のみ（AWS/Bedrock 不要）
 
-`.xlsx` / `.docx` はスクリプトが markitdown で自動変換するが、**PDF と PPTX は markitdown を使わない**。これらは図・スライドのレイアウトが崩れるため、**Claude 自身が読み込んで Markdown 化する**。
+`.xlsx` / `.docx` / `.pptx` / `.pdf` / `.txt` / `.csv` 等のテキスト抽出可能な形式は、スクリプトが **markitdown で自動変換**する（安い・速い・AWS 認証不要）。Claude や Bedrock による変換は行わない。
 
-スクリプト実行後、出力に次の行があれば対応する：
+**画像（`.png` / `.jpg` / `.jpeg` / `.gif` / `.webp` / `.bmp` / `.tiff` / `.svg`）は変換せず、生ファイルのまま置く。** 図やスクリーンショットの内容が必要になったときは、Claude が生の画像ファイルを直接読めばよい（`.md` は作らない）。
 
-```
-[CLAUDE_TODO] .pptx はClaudeが読み込んでMarkdown化します。
-  入力ファイル: <...>.pptx
-  出力MD : <...>.md
-  読み込み方法: pptx ドキュメントスキル（document-skills:pptx）で読み込む
-```
-
-このとき、`読み込み方法` に従って入力ファイルを読み込む：
-
-- **PDF**: `Read` ツールで「入力ファイル」を読み込む（ページ数が多い場合は分割して読む）
-- **PPTX**: `document-skills:pptx` スキルを使って「入力ファイル」のテキスト・スピーカーノート・表を抽出する
-
-読み込んだら、共通で以下を行う：
-
-1. 図・グラフは**何を表しているかを文章で説明**して Markdown 化する（「イメージ」等のプレースホルダにしない）
-2. 見出し階層・表・強調を適切に再構成し、ページ番号などのノイズは除く
-3. PPTX のスライドは見出しで区切り、スピーカーノートがあれば併記する
-4. frontmatter は**付けない**（frontmatterを持つのはGold層のみ＝オントロジー規約）。この資料への参照ID `material:{出力mdファイル名（拡張子なし）}` はファイル名から機械的に導出されるため、メタデータの付与は不要
-5. 「出力 MD」のパスに `Write` で保存する
-
-> スクリプトはディレクトリ・実ファイルまで用意済み。Claude は `.md` の生成だけを担当する。
+元ファイル（Bronze）は編集・削除せず残す。frontmatter は付けない（frontmatter を持つのは Gold 層のみ＝オントロジー規約。参照 ID `material:{ファイル名（拡張子なし）}` はファイル名から機械的に導出される）。
 
 ## 補足：スクリプトの自動処理
 
-- **取り込み（--dest）**: 手元のファイルを `<親dir>/<--name または元ファイル名のstem>/` にコピー → 変換（PDF・PPTX は `[CLAUDE_TODO]` を出力して委譲）。元ファイルは手元にも残る。
-- **整理・変換（--organize）**: 拡張子を除いた名前のディレクトリを作成 → 元ファイルを移動 → 変換 → `.md` を保存。ディレクトリ指定時は配下の未整理ファイルを再帰的に処理。
-- **単発変換（-o / 引数のみ）**: `.xlsx` / `.docx` を md にして指定パスへ保存、または標準出力。
-- **PDF・PPTX の変換**: markitdown は使わず、Claude が読み込んで `.md` を生成する（PDF は `Read` ツール、PPTX は `document-skills:pptx` スキル）。
+- **取り込み（--dest）**: 手元のファイルを `<親dir>/<--name または元ファイル名のstem>/` にコピー → markitdown で変換。元ファイルは手元にも残る。
+- **整理・変換（--organize）**: 拡張子を除いた名前のディレクトリを作成 → 元ファイルを移動 → markitdown で変換 → `.md` を保存。ディレクトリ指定時は配下の未整理ファイルを再帰的に処理。既に整理済みフォルダ内（`{名}/{名}.ext`）のファイルは再移動せずその場で `.md` を生成する。既に `.md` があるものはスキップ（べき等）。
+- **単発変換（-o / 引数のみ）**: 対応形式を md にして指定パスへ保存、または標準出力。
+- **画像**: 変換対象外。生のまま置く（ログに「画像は変換対象外」と出力し、`.md` は作らない）。
 
 ```
 共有資料/
@@ -125,5 +105,5 @@ uv run --no-project "<SKILL_DIR>/scripts/convert.py" "共有資料/" --organize
 
 ## 対応形式
 
-- `markitdown`（Microsoft 製）で自動変換: `.xlsx`, `.docx`
-- **Claude が読み込んで変換**: `.pdf`（`Read` ツール）, `.pptx`（`document-skills:pptx` スキル）
+- `markitdown`（Microsoft 製）で自動変換（AWS/Bedrock 不要）: `.xlsx`, `.docx`, `.pptx`, `.pdf`, `.txt`, `.csv`, `.html`, `.htm`, `.json`, `.xml`, `.rtf`
+- **変換しない（生のまま置く）**: 画像（`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.bmp`, `.tiff`, `.svg`）。必要時に Claude が生ファイルを直接読む
