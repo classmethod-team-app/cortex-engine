@@ -1,0 +1,5 @@
+{
+  "_doc": "Google Drive の資料を Cortex の 共有資料/ へ自動ミラーする際の、この案件の設定。中央 Apps Script（cortex-notetaker）が driveFolderIds のフォルダを30分ごとに走査し、新規/更新ファイルを 共有資料/ へ commit → material-ingested を発火 → sync-materials が Markdown 化する。会議取り込み（会議/ingest-config.json）とは独立。前提: 対象 Drive フォルダに cortex-notetaker アカウントを閲覧者として招待しておくこと（招待が無いと読めない＝公開範囲の境界）。driveFolderIds はフォルダURL drive.google.com/drive/folders/<この部分> の値。詳細: cortex-tools/apps-script/",
+  "enabled": false,
+  "driveFolderIds": []
+}
