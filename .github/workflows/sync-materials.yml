@@ -48,7 +48,7 @@ jobs:
       - name: 共有資料の変換（markitdown）
         run: |
           # 共有資料/ 配下の未変換ファイル（対応形式）をmarkitdownでMD化。画像等は生のまま。
-          uv run python .cortex-engine/plugin/skills/sync-materials/scripts/convert.py 共有資料 --organize || echo "変換対象なし or 一部スキップ"
+          uv run --no-project .cortex-engine/plugin/skills/sync-materials/scripts/convert.py 共有資料 --organize || echo "変換対象なし or 一部スキップ"
           git add 共有資料/
           if git diff --staged --quiet; then echo "変更なし"; else git commit -m "共有資料をMarkdownに変換（markitdown）"; fi
 
