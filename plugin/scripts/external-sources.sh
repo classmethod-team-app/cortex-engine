@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cortex/external-sources.json に登録された「外部ソース」（GitHub Issues/Discussions）から、
+# Cortex/external-sources.json に登録された「外部ソース」（GitHub Issues/Discussions/Slack）から、
 # SINCE 以降に更新されたコンテンツを取得し、ソース見出し付きテキストで stdout に出す。
 # 夜間Gold昇格(update-gold)の差分ゲートと、精製スキル(update-gold-auto)のステップ1が
 # 共に本スクリプトを使う（changed-sources.sh と同じ思想。判定の二重定義によるドリフト防止）。
@@ -7,6 +7,7 @@
 # 使い方: external-sources.sh <SINCE-ISO8601>
 #   $1: 起点（ISO8601。空なら約25時間前をデフォルト）。gh search は日付粒度なので日付部分を使う。
 # 認証: GH_TOKEN 環境変数を使う（ワークフローが EXTERNAL_SOURCES_TOKEN || github.token を渡す）。gh 前提。
+#   Slack は SLACK_BOT_TOKEN（xoxb-）を Slack Web API に Bearer で渡す。curl + jq（CIランナー同梱）を使う。
 # 出力: 取得できた外部コンテンツをソース見出し付きテキストで stdout に。何も無ければ空出力・exit 0。
 #
 # 設計メモ（重要・変えないこと）:
@@ -15,7 +16,8 @@
 # - 取得失敗（権限無し・graphql失敗等）はソース単位で warn してスキップし、他ソース・全体を止めない。
 #   失敗＝「活動なし」として扱い出力しない（＝差分ゲートで changed に寄与させない。空振りAI実行を避ける）。
 # - Cortex/external-sources.json が無ければ何も出力せず exit 0（未設定案件で無害）。
-# - slack type は phase2。現状は notice を出してスキップ。
+# - slack type は SLACK_BOT_TOKEN と bot 招待済みチャンネルのみ無人読み取り。トークン未設定/未招待/権限不足は
+#   「活動なし」として扱いスキップ（GHの権限エラーと同じ思想でゲートを膨らませない）。スレッド/ページングは安全上限付き。
 set -euo pipefail
 
 CONFIG="Cortex/external-sources.json"
@@ -30,6 +32,13 @@ else
   # デフォルト約25時間前（changed-sources.sh の "25 hours ago" と同思想）。GNU/BSD date 両対応。
   SINCE_DATE=$(date -u -d '25 hours ago' +%Y-%m-%d 2>/dev/null || date -u -v-25H +%Y-%m-%d)
   SINCE_ISO=$(date -u -d '25 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-25H +%Y-%m-%dT%H:%M:%SZ)
+fi
+
+# Slack API の oldest は Unix 秒。SINCE を秒に変換（GNU/BSD 両対応。失敗時は 0＝安全上限内で全量）。
+if [ -n "$SINCE_RAW" ]; then
+  SINCE_EPOCH=$(date -u -d "$SINCE_ISO" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$SINCE_ISO" +%s 2>/dev/null || echo 0)
+else
+  SINCE_EPOCH=$(date -u -d '25 hours ago' +%s 2>/dev/null || date -u -v-25H +%s 2>/dev/null || echo 0)
 fi
 
 TMPDIR_EXT=$(mktemp -d)
@@ -137,6 +146,171 @@ for d in nodes:
 PY
 }
 
+# ---- Slack（Bot Token + Web API・MCPは使わない） --------------------------------
+# 認証は SLACK_BOT_TOKEN（xoxb-）を Bearer で渡す。bot が招待済みのチャンネルだけ読める
+# （Figma/Drive の中央アカウント招待と同じ公開範囲境界）。読めないチャンネルは warn してスキップ。
+
+# Slack Web API を GET で叩く。$1=メソッド名、以降は curl の追加引数（--data-urlencode 等）。
+# 429 は Retry-After を軽く尊重して数回だけ再試行し、それでも駄目なら本文を返す（呼び出し側が ok:false で判定）。
+slack_api() {
+  local method="$1"; shift
+  local url="https://slack.com/api/${method}"
+  local hdr="$TMPDIR_EXT/slack_hdr"
+  local attempt=0 body http retry
+  while :; do
+    attempt=$((attempt + 1))
+    body=$(curl -sS -G --max-time 30 "$url" \
+      -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+      -H "Accept: application/json" \
+      -D "$hdr" "$@" 2>/dev/null) || true
+    http=$(awk 'NR==1{print $2}' "$hdr" 2>/dev/null || echo "")
+    if [ "$http" = "429" ] && [ "$attempt" -le 3 ]; then
+      retry=$(awk 'tolower($1)=="retry-after:"{print $2}' "$hdr" 2>/dev/null | tr -d '\r')
+      [ -n "$retry" ] || retry=2
+      # 無人ジョブを長時間ブロックしないよう待機は 10 秒で頭打ち
+      if [ "$retry" -gt 10 ] 2>/dev/null; then retry=10; fi
+      sleep "$retry"
+      continue
+    fi
+    printf '%s' "$body"
+    return 0
+  done
+}
+
+# Slack ts（"1717488000.000200"）→ ISO8601。整数秒だけ使う。GNU/BSD 両対応。
+slack_ts_to_iso() {
+  local ts="$1" sec="${1%%.*}"
+  [ -n "$sec" ] || { printf '%s' "$ts"; return; }
+  date -u -d "@$sec" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || date -u -r "$sec" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || printf '%s' "$ts"
+}
+
+# user ID → 表示名。同一run内はディスクにキャッシュして再取得しない。解決失敗は ID のまま。
+slack_user_name() {
+  local uid="$1"
+  [ -n "$uid" ] || { printf '%s' "?"; return; }
+  local cache="$TMPDIR_EXT/slack_users"; mkdir -p "$cache"
+  local f="$cache/$uid"
+  if [ -f "$f" ]; then cat "$f"; return; fi
+  local resp name=""
+  resp=$(slack_api users.info --data-urlencode "user=$uid")
+  if [ "$(printf '%s' "$resp" | jq -r '.ok // false')" = "true" ]; then
+    name=$(printf '%s' "$resp" | jq -r '.user.profile.display_name // .user.real_name // .user.name // empty')
+  fi
+  [ -n "$name" ] || name="$uid"
+  printf '%s' "$name" > "$f"
+  printf '%s' "$name"
+}
+
+# reply_count>0 の親メッセージのスレッド返信を取得して出力（親は履歴側で出力済みなのでスキップ）。
+emit_slack_replies() {
+  local ch="$1" parent="$2" chname="$3"
+  local resp ok err
+  resp=$(slack_api conversations.replies \
+    --data-urlencode "channel=$ch" --data-urlencode "ts=$parent" --data-urlencode "limit=200")
+  ok=$(printf '%s' "$resp" | jq -r '.ok // false')
+  if [ "$ok" != "true" ]; then
+    err=$(printf '%s' "$resp" | jq -r '.error // "unknown"')
+    echo "::warning::external-sources: slack #$chname (replies $parent) 取得失敗: ${err}。スレッドをスキップします。" >&2
+    return 0
+  fi
+  printf '%s' "$resp" | jq -c '.messages[]?' | while IFS= read -r line; do
+    local ts user text uname iso
+    ts=$(printf '%s' "$line" | jq -r '.ts // empty')
+    [ "$ts" = "$parent" ] && continue
+    text=$(printf '%s' "$line" | jq -r '.text // ""')
+    [ -n "$text" ] || continue
+    user=$(printf '%s' "$line" | jq -r '.user // .bot_id // empty')
+    uname=$(slack_user_name "$user")
+    iso=$(slack_ts_to_iso "$ts")
+    echo "  └ [$uname $iso] $text"
+  done
+}
+
+emit_slack() {
+  local ch="$1"
+  # 認証チェック: トークン未設定なら notice（1回だけ）して活動なし扱い。ゲートを膨らませない。
+  if [ -z "${SLACK_BOT_TOKEN:-}" ]; then
+    if [ -z "${SLACK_TOKEN_NOTICED:-}" ]; then
+      echo "::notice::external-sources: SLACK_BOT_TOKEN 未設定。slackソースをスキップします（活動なし扱い）。" >&2
+      SLACK_TOKEN_NOTICED=1
+    fi
+    return 0
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "::warning::external-sources: jq が見つからないため slack をスキップします。" >&2
+    return 0
+  fi
+
+  # チャンネル名を解決（見出し用・best-effort。失敗時は ID）。
+  local infoj chname=""
+  infoj=$(slack_api conversations.info --data-urlencode "channel=$ch")
+  if [ "$(printf '%s' "$infoj" | jq -r '.ok // false')" = "true" ]; then
+    chname=$(printf '%s' "$infoj" | jq -r '.channel.name // empty')
+  fi
+  [ -n "$chname" ] || chname="$ch"
+
+  # 履歴取得（oldest=SINCE_EPOCH）。ページングは安全上限で打ち切り。
+  local cursor="" page=0 total=0
+  local histf="$TMPDIR_EXT/slack_hist"
+  : > "$histf"
+  local MAX_PAGES=5 MAX_MSGS=500
+  while :; do
+    page=$((page + 1))
+    local args=(--data-urlencode "channel=$ch" --data-urlencode "oldest=$SINCE_EPOCH" --data-urlencode "limit=200")
+    [ -n "$cursor" ] && args+=(--data-urlencode "cursor=$cursor")
+    local resp ok err
+    resp=$(slack_api conversations.history "${args[@]}")
+    ok=$(printf '%s' "$resp" | jq -r '.ok // false')
+    if [ "$ok" != "true" ]; then
+      err=$(printf '%s' "$resp" | jq -r '.error // "unknown"')
+      echo "::warning::external-sources: slack #$chname (history) 取得失敗: ${err}。スキップします。" >&2
+      return 0
+    fi
+    printf '%s' "$resp" | jq -c '.messages[]?' >> "$histf"
+    total=$(wc -l < "$histf" | tr -d ' ')
+    cursor=$(printf '%s' "$resp" | jq -r '.response_metadata.next_cursor // empty')
+    [ -n "$cursor" ] || break
+    if [ "$page" -ge "$MAX_PAGES" ] || [ "$total" -ge "$MAX_MSGS" ]; then
+      echo "::notice::external-sources: slack #$chname が安全上限(${MAX_PAGES}ページ/${MAX_MSGS}件)に達したため以降を打ち切りました。" >&2
+      break
+    fi
+  done
+
+  [ -s "$histf" ] || return 0
+
+  echo ""
+  echo "## [slack] #$chname ($total messages since ${SINCE_ISO})"
+
+  # Slack 履歴は新しい順。読みやすさのため古い順に並べ替えて出力。
+  local ordf="$TMPDIR_EXT/slack_ord"
+  awk '{a[NR]=$0} END{for(i=NR;i>=1;i--) print a[i]}' "$histf" > "$ordf"
+
+  local thread_calls=0 MAX_THREADS=20
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    local ts user text rc uname iso
+    ts=$(printf '%s' "$line" | jq -r '.ts // empty')
+    text=$(printf '%s' "$line" | jq -r '.text // ""')
+    user=$(printf '%s' "$line" | jq -r '.user // .bot_id // empty')
+    rc=$(printf '%s' "$line" | jq -r '.reply_count // 0')
+    if [ -n "$text" ]; then
+      uname=$(slack_user_name "$user")
+      iso=$(slack_ts_to_iso "$ts")
+      echo "[$uname $iso] $text"
+    fi
+    # スレッド返信（決定はスレッドに続くことが多い）。安全上限までしか辿らない。
+    if [ "$rc" != "0" ] && [ "$rc" != "null" ] && [ "$thread_calls" -lt "$MAX_THREADS" ]; then
+      thread_calls=$((thread_calls + 1))
+      emit_slack_replies "$ch" "$ts" "$chname"
+    fi
+  done < "$ordf"
+  if [ "$thread_calls" -ge "$MAX_THREADS" ]; then
+    echo "::notice::external-sources: slack #$chname のスレッド取得が安全上限(${MAX_THREADS}件)に達しました。" >&2
+  fi
+}
+
 while IFS=$'\t' read -r type ref; do
   [ -n "$type" ] || continue
   case "$type" in
@@ -145,7 +319,7 @@ while IFS=$'\t' read -r type ref; do
     github-discussions)
       [ -n "$ref" ] && emit_discussions "$ref" ;;
     slack)
-      echo "::notice::external-sources: slack はphase2で対応予定。今回はスキップします（${ref}）。" >&2 ;;
+      [ -n "$ref" ] && emit_slack "$ref" ;;
     *)
       echo "::warning::external-sources: 未知のtype '$type' をスキップします。" >&2 ;;
   esac

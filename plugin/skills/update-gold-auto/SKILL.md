@@ -30,16 +30,16 @@ bash "<SKILL_DIR>/../../scripts/changed-sources.sh" "${SINCE:-}" "Cortex/"
 
 - 出力された各行を「当日の対象リポ差分ソース」とする。
 
-**外部ソースの取得**: `Cortex/external-sources.json` に登録された外部ソース（GitHub Issues/Discussions）から、`SINCE` 以降に更新されたコンテンツを取得する。差分ゲートと同一スクリプトを共有する（二重定義防止）。
+**外部ソースの取得**: `Cortex/external-sources.json` に登録された外部ソース（GitHub Issues/Discussions/Slack）から、`SINCE` 以降に更新されたコンテンツを取得する。差分ゲートと同一スクリプトを共有する（二重定義防止）。
 
 ```bash
 # 出力（ソース見出し付きテキスト）を「当日の外部コンテンツ」とする。未登録・活動なしなら空出力。
-# 認証は環境変数 GH_TOKEN（ワークフローが EXTERNAL_SOURCES_TOKEN || github.token を渡す）。
+# 認証は環境変数 GH_TOKEN（ワークフローが EXTERNAL_SOURCES_TOKEN || github.token を渡す）と SLACK_BOT_TOKEN（slack用）。
 bash "<SKILL_DIR>/../../scripts/external-sources.sh" "${SINCE:-}"
 ```
 
 - 外部ソースへの登録は「そのソースの中身を Gold に昇格してよい」という人間の明示判断である（record単位のvisibilityフラグは無い）。**ただし公開範囲フィルタは維持する**（下記「注意事項」）。
-- Slack は phase2 で対応予定。現状 `external-sources.sh` がスキップするため、外部コンテンツに Slack は含まれない。
+- Slack も外部ソースとして扱われる（`SLACK_BOT_TOKEN` と bot 招待済みチャンネルが前提。未設定/未招待/権限不足はスクリプトが「活動なし」としてスキップする）。**公開範囲フィルタは Slack にも適用する**（下記「注意事項」）。
 - **リポ差分ソースも外部コンテンツも 0 件なら**、以降をスキップして「昇格なし」で正常終了する。ワークフロー経由の実行では、両方0件ならそもそもAI実行前にスキップされている。
 
 ### ステップ 2: 対象ソースを読む（1回だけ）
@@ -50,7 +50,7 @@ bash "<SKILL_DIR>/../../scripts/external-sources.sh" "${SINCE:-}"
 
 `update-decision-log-auto/SKILL.md` の**ステップ2〜5**（採番・重複照合・抽出・ファイル作成）に**厳密に従って** `Cortex/Decisions/records/` に新規 Decision を作成する。ソースの読みはステップ2の結果を使う（`update-decision-log-auto` のステップ1は本スキルのステップ1で済んでいる）。
 
-**外部コンテンツ（GitHub Issues/Discussions）からも確定した決定を抽出する**。出典は `relations` / `references` に**外部の安定な識別子（Issue/Discussion の番号・URL）**で記載する（例: `references: "[owner/repo#123](https://github.com/owner/repo/issues/123)"`）。ファイルパスは書かない。
+**外部コンテンツ（GitHub Issues/Discussions/Slack）からも確定した決定を抽出する**。出典は `relations` / `references` に**外部の安定な識別子（Issue/Discussion の番号・URL）**で記載する（例: `references: "[owner/repo#123](https://github.com/owner/repo/issues/123)"`）。ファイルパスは書かない。Slack は安定URLが張りにくいので、可能なら**チャンネル名＋日付**（メッセージの permalink が取れるなら URL も。best-effort。取れなければチャンネル/日付でよい）で出典を記す。
 
 作成後、コミット前に検証してからコミットする：
 
@@ -112,7 +112,7 @@ fi
 
 ## 注意事項
 
-- **公開範囲フィルタ（外部ソースにも適用）**: 外部ソースは「登録＝Gold昇格OK」だが、議事録と同じ規律で、**内部限定情報（売上・利益率・原価・見積・アサイン工数・単価・人事評価・顧客/ベンダーへの率直な評価・内部限定のリスク所感等）は Decision・用語に書かない**。登録済みソースでも内部限定の断片は Gold に残さない（Gold＝顧客可視面）。
+- **公開範囲フィルタ（外部ソースにも適用・Slack含む）**: 外部ソース（GitHub Issues/Discussions/Slack）は「登録＝Gold昇格OK」だが、議事録と同じ規律で、**内部限定情報（売上・利益率・原価・見積・アサイン工数・単価・人事評価・顧客/ベンダーへの率直な評価・内部限定のリスク所感等）は Decision・用語に書かない**。とくに Slack はチャット由来で内部の雑談・評価が混ざりやすいので注意する。登録済みソースでも内部限定の断片は Gold に残さない（Gold＝顧客可視面）。
 - 優先順は A→B→C。残ターンが尽きそうなら現在フェーズのコミットまでを完了させ、**途中終了時はその旨をログに明記して非0で終了**する（翌晩に全フェーズ再実行。重複はA/Bの署名照合・title照合が吸収する）。
 - コミットメッセージは各フェーズで**日本語・簡潔**に。箇条書きは使わない。**AI 署名は付けない**。
 - push は呼び出し側（cron ワークフロー）が担当する。**このスキルでは push しない**。

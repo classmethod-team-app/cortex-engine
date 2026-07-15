@@ -1,4 +1,4 @@
 {
-  "_doc": "夜間Gold昇格(update-gold)が、リポ内差分に加えて取り込む『外部ソース』の宣言。ここに登録する＝そのソースの中身をGold（Decision/用語。顧客可視）に昇格してよい、という人間の明示判断。登録しなければ取り込まない。AIは抽出時に内部限定情報（売上・工数・単価・評価等）をDecisionに書かないフィルタを維持する（議事録と同じ）。type: github-issues | github-discussions（slackはphase2で対応予定・現状スキップ）。取得には対象リポを読めるトークンが要る（EXTERNAL_SOURCES_TOKEN。未設定時はcase repoのgithub.tokenで読める公開/同一リポのみ）。",
+  "_doc": "夜間Gold昇格(update-gold)が、リポ内差分に加えて取り込む『外部ソース』の宣言。ここに登録する＝そのソースの中身をGold（Decision/用語。顧客可視）に昇格してよい、という人間の明示判断。登録しなければ取り込まない。AIは抽出時に内部限定情報（売上・工数・単価・評価等）をDecisionに書かないフィルタを維持する（議事録と同じ）。type: github-issues | github-discussions | slack。github系は対象リポを読めるトークン(EXTERNAL_SOURCES_TOKEN。未設定時はcase repoのgithub.tokenで読める公開/同一リポのみ)が要る。slackは { type: slack, channel: C0XXXX }（チャンネルID）で登録し、前提としてSLACK_BOT_TOKEN(Slack AppのBot Token・conversations.history/groups:history/channels:read/users:readスコープ)をsecretに設定し、対象チャンネルにbotを招待しておくこと（bot招待済みチャンネルだけ読める＝公開範囲の境界）。チャットは高ノイズなので、決定がSlackに集約される案件だけ登録する運用を推奨。",
   "sources": []
 }

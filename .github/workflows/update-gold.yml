@@ -150,6 +150,7 @@ jobs:
         env:
           SINCE: ${{ steps.win.outputs.since }}
           GH_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} # external-sources.sh が slack ソースを読むため（未設定なら slack は活動なし扱い）
         run: |
           CHANGED=$(bash .cortex-engine/plugin/scripts/changed-sources.sh "$SINCE" "Cortex/")
           EXT=$(bash .cortex-engine/plugin/scripts/external-sources.sh "$SINCE")
@@ -187,6 +188,7 @@ jobs:
           ANTHROPIC_MODEL: jp.anthropic.claude-sonnet-4-6 # 東京・日本国内推論（Bedrockで該当モデルのアクセス有効化が必要）
           SINCE: ${{ steps.win.outputs.since }} # 増分起点（前回成功以降）。スキルの git log --since に渡す
           GH_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }} # スキルが external-sources.sh で外部ソース(Issues/Discussions)を取得するため
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} # スキルが external-sources.sh で slack ソースを取得するため（未設定なら slack はスキップ）
         run: |
           PROMPT=$(cat <<'EOF'
           .cortex-engine/plugin/skills/update-gold-auto/SKILL.md の指示に従い、
