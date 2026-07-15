@@ -28,7 +28,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22 # backlog-exporter@1 が node>=22 を要求
 
       - name: 対象（課題 or Wiki）を単体同期
         env:

@@ -28,7 +28,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22 # backlog-exporter@1 が node>=22 を要求
 
       - name: ジッター待機（同時刻バースト回避）
         if: github.event_name == 'schedule'
@@ -46,11 +46,22 @@ jobs:
           DOMAIN: ${{ secrets.BACKLOG_DOMAIN }}
           PROJECT_KEY: ${{ secrets.BACKLOG_PROJECT_KEY }}
         run: |
+          # 初回（backlog-settings.json が無い新規リポ）は全量取得 all、以降は増分 update。
+          #   update は既存の backlog-settings.json（lastUpdated）を前提にするため、
+          #   初回にこれが無いと「変更なし」で何も入らない（新規セットアップの落とし穴）。
+          # all/update とも冪等なので、下のリトライで再実行しても安全。
+          run_sync() {
+            if find . -name backlog-settings.json -not -path './.git/*' | grep -q .; then
+              npx --yes backlog-exporter@1 update --force ${{ inputs.issue_key_filename && '--issueKeyFileName' || '' }}
+            else
+              echo "backlog-settings.json が無いため初回全量取得(all)を実行します"
+              npx --yes backlog-exporter@1 all --domain "$DOMAIN" --projectIdOrKey "$PROJECT_KEY" --output ./課題管理
+            fi
+          }
           # backlog-exporter自身も100req/15秒のRateLimiterを持つが、
           # 課題一覧fetchの失敗は致命的(即終了)になるため、ジョブ全体の軽いリトライを保険として被せる。
-          # update --force は冪等なので再実行しても安全。
           for attempt in 1 2 3; do
-            if npx --yes backlog-exporter@1 update --force ${{ inputs.issue_key_filename && '--issueKeyFileName' || '' }}; then
+            if run_sync; then
               # Backlog上で削除・移動された課題・ドキュメント・Wikiのローカル残骸を掃除してミラーを一致させる。
               # 一覧取得に失敗した場合は何も削除しない安全設計のため、失敗しても同期全体は失敗させない（ログのみ）。
               npx --yes backlog-exporter@1 prune --force || echo "::warning::pruneに失敗（同期は成功扱い。次回に再試行）"
