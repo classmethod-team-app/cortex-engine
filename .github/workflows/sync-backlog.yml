@@ -41,6 +41,7 @@ jobs:
           sleep "$wait"
 
       - name: Backlog同期
+        id: sync
         env:
           BACKLOG_API_KEY: ${{ secrets.BACKLOG_API_KEY }}
           DOMAIN: ${{ secrets.BACKLOG_DOMAIN }}
@@ -65,15 +66,22 @@ jobs:
               # Backlog上で削除・移動された課題・ドキュメント・Wikiのローカル残骸を掃除してミラーを一致させる。
               # 一覧取得に失敗した場合は何も削除しない安全設計のため、失敗しても同期全体は失敗させない（ログのみ）。
               npx --yes backlog-exporter@1 prune --force || echo "::warning::pruneに失敗（同期は成功扱い。次回に再試行）"
+              echo "ok=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             echo "同期に失敗しました（試行 ${attempt}/3）。${attempt}分待って再試行します..." >&2
             sleep $((attempt * 60))
           done
-          echo "3回試行しても同期に失敗しました" >&2
-          exit 1
+          # 3回失敗しても、ここで job を止めない。exporter は課題→Wiki→ドキュメントの順に
+          # 逐次ディスクへ書くため、途中の 403 等で落ちても「取得済み分」は working tree に残っている。
+          # それを次ステップで commit/push し、取得済みの成果を捨てないようにする（未取得分は
+          # 該当フォルダの lastUpdated が未前進のため次回 update で再取得＝自己回復）。
+          # prune は部分同期での誤削除を避けるためスキップ（成功時のみ実行済み）。最終ステップで run を失敗にする。
+          echo "::warning::Backlog同期が3回失敗（403等で一部リソース未取得）。取得済み分だけコミットして続行します" >&2
+          echo "ok=false" >> "$GITHUB_OUTPUT"
 
       - name: 変更をコミット・プッシュ
+        if: ${{ !cancelled() }} # 同期が途中失敗しても取得済み分はコミットする
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -89,6 +97,13 @@ jobs:
           git commit -m "Backlogデータを同期"
 
       - name: 堅牢push（未ステージ畳み込み・衝突自動解決・リトライ）
+        if: ${{ !cancelled() }} # 取得済み分は途中失敗でも push する
         uses: classmethod-team-app/cortex-engine/.github/actions/robust-push@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 同期が途中失敗なら run を失敗にする（取得済み分は push 済み）
+        if: steps.sync.outputs.ok != 'true'
+        run: |
+          echo "::error::Backlog同期が途中で失敗しました。取得済み分はコミット/push済みですが、一部リソース（403等）が未取得です。次回の同期で再取得を試みます。恒常的に続く場合は APIキーの権限（そのユーザーが該当ドキュメント/Wikiを閲覧できるか）と backlog-exporter の 403 ハンドリングを確認してください。"
+          exit 1
