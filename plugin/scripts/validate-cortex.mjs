@@ -179,15 +179,9 @@ const SCHEMAS = {
     },
   },
   report: {
-    required: [
-      "type",
-      "id",
-      "project",
-      "period_start",
-      "period_end",
-      "generated_at",
-      "metrics",
-    ],
+    // 週次（report:YYYYMMDD-weekly）と日次（report:YYYYMMDD-daily）の2種を持つ。
+    // 必須はvalidate()内で種別ごとに検証する（requiredは共通部のみ）。
+    required: ["type", "id"],
     allowed: [
       "type",
       "id",
@@ -196,10 +190,43 @@ const SCHEMAS = {
       "period_end",
       "generated_at",
       "metrics",
+      "date",
+      "status",
+      "sources",
     ],
     validate(fm, fileName, errors) {
-      if (fm.id && !/^report:\d{8}-weekly$/.test(String(fm.id))) {
-        errors.push(`idがreport:YYYYMMDD-weekly形式ではない: ${fm.id}`);
+      const id = String(fm.id ?? "");
+      if (/^report:\d{8}-daily$/.test(id)) {
+        // 日次: date / status(active|skip) / sources(件数マップ) を必須とする
+        for (const f of ["date", "status", "sources"]) {
+          if (fm[f] == null) errors.push(`日次レポートの必須フィールドがない: ${f}`);
+        }
+        if (fm.date && !DATE_RE.test(String(fm.date)))
+          errors.push(`dateがYYYY-MM-DD形式ではない: ${fm.date}`);
+        if (fm.status && !["active", "skip"].includes(fm.status))
+          errors.push(`日次レポートのstatusはactive|skip（実際: ${fm.status}）`);
+        if (fm.date) {
+          const ymd = String(fm.date).replaceAll("-", "");
+          if (id !== `report:${ymd}-daily`)
+            errors.push(`idの日付がdateと一致しない`);
+          if (fileName !== `${ymd}-daily.md`)
+            errors.push(`日次のファイル名はYYYYMMDD-daily.md（期待値: ${ymd}-daily.md）`);
+        }
+        const SRC_KEYS = ["changed_files", "decisions_added", "terms_added", "members_added"];
+        if (fm.sources != null) {
+          for (const k of SRC_KEYS) {
+            if (typeof fm.sources[k] !== "number")
+              errors.push(`sources.${k} が数値で記載されていない`);
+          }
+        }
+        return;
+      }
+      if (!/^report:\d{8}-weekly$/.test(id)) {
+        errors.push(`idがreport:YYYYMMDD-weekly|YYYYMMDD-daily形式ではない: ${fm.id}`);
+      }
+      // 週次: 従来の必須フィールド
+      for (const f of ["project", "period_start", "period_end", "generated_at", "metrics"]) {
+        if (fm[f] == null) errors.push(`週次レポートの必須フィールドがない: ${f}`);
       }
       for (const f of ["period_start", "period_end", "generated_at"]) {
         if (fm[f] && !DATE_RE.test(String(fm[f])))

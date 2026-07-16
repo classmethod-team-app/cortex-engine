@@ -10,7 +10,7 @@
 | `term` | 用語（`Cortex/用語集/records/`） | `term:{slug}` | `term:コンテキスト` |
 | `member` | プロジェクト関係者（1人1ファイル、`Cortex/メンバー/records/`） | `member:{氏名（スペース無し）}` | `member:山田太郎` |
 | `design` | デザイン画面の育成ノート（1画面1ファイル、`Cortex/デザイン/records/`。Figmaのトップレベルフレームの目的・主要要素の蓄積層） | `design:{fileKey}:{nodeId}` | `design:abc123XYZ:1023:456` |
-| `report` | 週次レポート（`Cortex/レポート/`） | `report:{YYYYMMDD}-weekly` | `report:20260608-weekly` |
+| `report` | レポート（`Cortex/レポート/`）。週次（週の振り返り・日次の集約）と日次（当日のGold昇格ダイジェスト＋概要。動きのない日は `status: skip`） | `report:{YYYYMMDD}-weekly` / `report:{YYYYMMDD}-daily` | `report:20260608-weekly` / `report:20260716-daily` |
 | `overview` | Cortexのホームページ（1案件1ファイル） | `overview:home`（固定） | `overview:home` |
 
 バリデーション（`validate-cortex`）はGold層のfrontmatterのみを検証し、`relations.target` の実在解決もGold型のID（上記6種）に限って行う。
