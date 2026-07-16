@@ -13,6 +13,8 @@
 | `report` | レポート（`Cortex/レポート/`）。週次（週の振り返り・日次の集約）と日次（当日のGold昇格ダイジェスト＋概要。動きのない日は `status: skip`） | `report:{YYYYMMDD}-weekly` / `report:{YYYYMMDD}-daily` | `report:20260608-weekly` / `report:20260716-daily` |
 | `overview` | Cortexのホームページ（1案件1ファイル） | `overview:home`（固定） | `overview:home` |
 
+Gold層のエンティティは**判断材料**（decision・term・report・overview）と**台帳的レコード**（member・design）に大別される。巡回エージェント・AISの横断走査は判断材料を優先し、台帳は人物・画面を特定する必要が生じたときに辞書的に引く。
+
 バリデーション（`validate-cortex`）はGold層のfrontmatterのみを検証し、`relations.target` の実在解決もGold型のID（上記6種）に限って行う。
 
 ### Silver/Bronzeへの参照ID（frontmatterなし・ID命名規約のみ）
