@@ -1,6 +1,6 @@
-name: デザイン育成ノート自動更新
+name: デザインMD自動育成
 # 実体はエンジン。※ファイル名を変えないこと（増分起点SINCEの算出が gh run list --workflow=このファイル名 に依存）
-# デザイン画面の育成ノート（Gold層）を夜間に自動更新する。update-gold とは独立（画像モダリティ・別ソース）
+# DESIGN.md の本文（デザイン版CLAUDE.mdの公式8節）を夜間にAIが育成する。update-gold とは独立（画像モダリティ・別ソース）
 on:
   schedule:
     # 毎日 夜22:30 JST（UTC 13:30）。update-gold（22:00）の30分後。

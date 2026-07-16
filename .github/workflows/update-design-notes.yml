@@ -1,8 +1,9 @@
-name: デザイン育成ノート自動更新
+name: デザインMD自動育成
 
 # 案件リポのスタブから workflow_call で呼ばれる（トリガー・concurrency・permissions はスタブ側が持つ）。
 # update-gold とは独立の夜間ワークフロー。画像モダリティ（サムネイルPNGの視覚AI）でコンテキストを食い、
 # 読むソース（デザイン/inventory + resources）も update-gold と重複しないため統合しない。
+# ※ファイル名は update-design-notes.yml のまま変えない（SINCE算出が gh run list --workflow=このファイル名 に依存・スタブ配布済み）。
 on:
   workflow_call:
     inputs:
@@ -29,7 +30,7 @@ jobs:
     concurrency:
       group: cortex-repo-write-${{ github.repository }}
       cancel-in-progress: false
-    timeout-minutes: 30 # 視覚AI（画像読み取り）を最大15画面ぶん回すため余裕を持たせる
+    timeout-minutes: 30 # 視覚AI（サムネイル読み取り・最大10枚）を回すため余裕を持たせる
     env:
       AWS_REGION: ap-northeast-1 # Claude を有効化したリージョン（東京）
 
@@ -56,7 +57,6 @@ jobs:
           node-version: 22
 
       # 案件のデータ版(schema_version)がエンジン最新より古い（未適用マイグレーション保留中）なら精製をスキップ。
-      # デザイン育成ノート自体が migration 0003 で導入されるため、0003未適用の案件はここで自然にスキップされる。
       - name: スキーマ版チェック
         id: schema
         run: |
@@ -79,10 +79,10 @@ jobs:
           DESIGN_DIR=$(dirname "${FJ:-デザイン/figma.json}")
           echo "design_dir=$DESIGN_DIR" >> "$GITHUB_OUTPUT"
           if [ ! -d "$DESIGN_DIR/inventory" ]; then
-            echo "::notice::$DESIGN_DIR/inventory が無い（figmaを使わない案件 or 未同期）。デザイン育成をスキップします。"
+            echo "::notice::$DESIGN_DIR/inventory が無い（figmaを使わない案件 or 未同期）。デザインMD育成をスキップします。"
             echo "run=false" >> "$GITHUB_OUTPUT"
           elif [ -z "$ROLE" ]; then
-            echo "::notice::AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）。デザイン育成をスキップします。"
+            echo "::notice::AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）。デザインMD育成をスキップします。"
             echo "run=false" >> "$GITHUB_OUTPUT"
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
@@ -90,7 +90,6 @@ jobs:
 
       # 増分の起点(SINCE)を「このワークフローの直近成功run」に置く（update-gold と同じ実装）。
       # 失敗runは成功扱いされないので、連続失敗しても次の成功実行で失敗分まで窓が自動で遡る（取りこぼしの巻き取り）。
-      # 15画面上限を超えた夜は本ワークフローを意図的に失敗（赤）で終えるため、SINCEが進まず翌晩に未処理分を再対象化する。
       # 注意: --workflow は案件リポ側スタブのファイル名。スタブは update-design-notes.yml の名前を変えないこと。
       - name: 増分窓の起点(SINCE)を算出（前回成功以降・14日キャップ）
         id: win
@@ -115,7 +114,8 @@ jobs:
           echo "増分起点 SINCE=$SINCE"
 
       # デザインの目録(inventory)・サムネイル(resources)に SINCE 以降の変更が無い夜はAI実行（Bedrock課金）を丸ごとスキップ。
-      - name: 差分ゲート（変更画面が無ければAI実行をスキップ）
+      # DESIGN.md 自身はゲートに含めない（AIの自コミットで翌晩再発火しない。デザインの実変更だけが引き金）。
+      - name: 差分ゲート（デザイン変更が無ければAI実行をスキップ）
         id: gate
         if: steps.pre.outputs.run == 'true'
         env:
@@ -149,7 +149,7 @@ jobs:
         if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
         run: npm i -g @anthropic-ai/claude-code
 
-      - name: デザイン育成ノート自動更新（Claude / Bedrock）
+      - name: デザインMD自動育成（Claude / Bedrock）
         if: steps.pre.outputs.run == 'true' && steps.schema.outputs.current == 'true' && steps.gate.outputs.changed == 'true'
         env:
           CLAUDE_CODE_USE_BEDROCK: "1" # APIキーの代わりに Bedrock を使用
@@ -158,26 +158,50 @@ jobs:
           DESIGN_DIR: ${{ steps.pre.outputs.design_dir }} # デザインディレクトリ（案件でカスタマイズされ得る）
         run: |
           PROMPT=$(cat <<'EOF'
-          .cortex-engine/plugin/skills/update-design-notes-auto/SKILL.md の指示に従い、
-          前回実行以降（環境変数 SINCE）に変更されたデザイン画面について、
-          Cortex/デザイン/records/ の育成ノートを1セッションで生成/更新してください。
+          .cortex-engine/plugin/skills/update-design-md-auto/SKILL.md の指示に従い、
+          前回実行以降（環境変数 SINCE）にデザインが変更されているため、
+          $DESIGN_DIR/DESIGN.md の本文（公式8節のprose）を最新のデザイン事実に基づいて記入・更新してください。
 
           注意:
-          - 増分方式です。環境変数 SINCE 以降に デザイン/inventory・resources が変更された画面だけを対象にしてください（git log は --since="$SINCE"）。
-          - デザインディレクトリは環境変数 DESIGN_DIR です（既定は デザイン/）。
-          - 1回の実行で最大15画面までにしてください。超過した場合はスキルの指示どおり overflow フラグを書き出し、処理できた分だけコミットしてください。
-          - 既存レコードは <!-- cortex-auto:begin --> 〜 <!-- cortex-auto:end --> の内側だけ書き換え、マーカー外（人間の補足）は絶対に変更しないでください。
-          - Cortex/ 配下・.cortex-engine/ 配下は編集源として自己参照しないでください（読むのは inventory・resources・用語集/Decisionsのfrontmatterのみ）。
-          - 対象画面が無ければ何もコミットせず終了してください。
+          - フロントマター（先頭の --- で囲まれたYAML）は sync-designs の機械領域です。1文字も変更しないでください。
+          - 根拠にできるのはフロントマターのトークン値・inventory mdの機械抽出節・resources のサムネイルPNG（Readで最大10枚）だけです。それ以外から断定しないでください。
+          - {{例: …}} プレースホルダは根拠のある実文にだけ置き換え、根拠が足りない箇所はプレースホルダのまま残してください。
+          - 既に書かれている実文は尊重し、現在のトークン・画面と矛盾する場合だけ最小限更新してください。
+          - git add は "$DESIGN_DIR/DESIGN.md" のみ。Cortex/ 配下・inventory/・resources/・.cortex-engine/ 配下は編集しないでください。
+          - 変更が無ければ何もコミットせず終了してください。
           EOF
           )
           # 無人実行（ephemeralなCIランナー）のため権限確認はスキップする
-          claude -p "$PROMPT" --max-turns 60 --dangerously-skip-permissions
+          claude -p "$PROMPT" --max-turns 40 --dangerously-skip-permissions
 
-      # 生成物がオントロジー規約に違反している場合、ここで止める（壊れたコミットをpushしない）
-      - name: Cortexのスキーマ検証
+      # AIが構造を壊した状態を配布しない: 公式lintで errors > 0 なら push せず失敗（warningは許容）。
+      # 失敗するとSINCE（=直近の成功run）が進まないため、翌晩も同じ増分窓で再試行される。
+      - name: DESIGN.md lintゲート（errorsがあればpushしない）
         if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
-        run: node .cortex-engine/plugin/scripts/validate-cortex.mjs
+        env:
+          DESIGN_DIR: ${{ steps.pre.outputs.design_dir }}
+        run: |
+          DESIGN_DIR="${DESIGN_DIR#./}" # git diff の出力（./なし）と表記を揃える
+          # push対象の確認: AIのコミットが DESIGN.md 以外に触れていないか（触れていたらpushしない）
+          EXTRA=$(git -c core.quotepath=false diff --name-only "${{ github.sha }}"..HEAD -- . | grep -vF "$DESIGN_DIR/DESIGN.md" || true)
+          if [ -n "$EXTRA" ]; then
+            echo "::error::DESIGN.md 以外への変更がコミットされています。pushせず失敗します。"
+            echo "$EXTRA"
+            exit 1
+          fi
+          if [ ! -f "$DESIGN_DIR/DESIGN.md" ]; then
+            echo "::notice::$DESIGN_DIR/DESIGN.md が無いためlintをスキップします"
+            exit 0
+          fi
+          OUT=$(npx -y @google/design.md@0.3.0 lint --format json "$DESIGN_DIR/DESIGN.md" || true)
+          echo "$OUT"
+          ERRORS=$(echo "$OUT" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).summary.errors)}catch{console.log("parse-failed")}})')
+          if [ "$ERRORS" = "0" ]; then
+            echo "lint合格（errors 0）"
+          else
+            echo "::error::DESIGN.md が公式仕様のlintに失敗（errors=$ERRORS）。pushせず失敗します（翌晩のSINCE巻き取りで再試行）。"
+            exit 1
+          fi
 
       - name: Push（競合時はrebaseで再試行）
         if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
@@ -185,16 +209,4 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 15画面上限を超えて未処理画面が残った場合、処理できた分は push 済みだが本runを意図的に失敗（赤）で終える。
-      # これによりSINCE（=直近の成功run）が進まず、翌晩の増分窓に未処理画面が再び入り巻き取られる。
-      # フラグはスキルが Cortex/ の外に書き出すので、push対象（Cortex/デザイン/のみadd）には含まれない。
-      - name: 未処理画面があれば翌晩巻き取り用に非0終了
-        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
-        run: |
-          if [ -f .design-notes-overflow ]; then
-            echo "::warning::15画面上限を超えたため未処理画面が残りました。今回の進捗はpush済みですが、SINCEを進めないため本runは失敗扱いにします（翌晩のSINCE巻き取りで再対象化）。"
-            cat .design-notes-overflow || true
-            exit 1
-          fi
-
-      # 通知は実装しない。将来 notify-slack.sh に乗せてdraftレビュー導線をSlackへ流せる（update-gold のGold昇格サマリと同型）。
+      # 通知は実装しない。将来 notify-slack.sh に乗せてレビュー導線をSlackへ流せる（update-gold のGold昇格サマリと同型）。
