@@ -96,6 +96,11 @@ jobs:
           fi
 
       - name: Backlog同期
+        # このステップは差分ゲートを最新化するための補助であり、Goldの原料そのものは既にコミット済みの課題。
+        # そのため docs/wiki の 403 等で backlog-exporter が部分失敗しても job を止めない（continue-on-error）。
+        # ここでハード失敗させると、以降のGold昇格まで丸ごとskipされ「使っていないdocs/wikiの403で
+        # Gold精製が毎晩止まる」事故になる。恒常的な同期失敗はスタンドアロンの sync-backlog が可視化する。
+        continue-on-error: true
         if: steps.pre.outputs.run == 'true' && steps.pre.outputs.backlog == 'true'
         run: npx --yes backlog-exporter@1 update --force ${{ inputs.issue_key_filename && '--issueKeyFileName' || '' }}
         env:
