@@ -52,7 +52,6 @@ bash "<SKILL_DIR>/../../scripts/external-sources.sh" "${SINCE:-}"
 
 **外部コンテンツからの Decision 昇格は"明示シグナル駆動"（昇格は狭く・参照は広く）**。外部ソース（GitHub Issues/Discussions/Slack）は議事録と違い"決定の面"ではなく、調査・仮説・質問が大半の生記録である。素朴に決定抽出すると仮説の誤昇格・些末な実装判断・撤回済み暫定でノイズだらけになる。**明示シグナルがある item からだけ Decision を作り、無ければ Decision にしない（用語と参照どまり。迷ったら作らない＝安全側）**。判定は `external-sources.sh` の出力ヘッダにある `state`（open/closed）・`labels`・`category` を手がかりにする:
 
-- **ソースの `decisions` が `label:X`** … `external-sources.sh` が既にその label の item だけに取得を絞っている（skill 側はそれ前提。取れた item は昇格対象＝チームが決定規約として宣言したもの）。ヘッダの `labels` にその label があることを確認して抽出する。
 - **ソースの `decisions` が `none`** … **そのソースからは Decision を作らない**（用語・参照のみ）。設定は `Cortex/external-sources.json` を参照して判断する。
 - **`decisions` 省略（汎用シグナル）** … 本文に `## 決定` / `## Decision` / `## 結論` セクションがある、または **closed issue の明確な解決コメント**がある item からのみ抽出する。**open で結論の無い調査スレッド・仮説・質問からは作らない**。
 - **Slack** … ラベル/セクションが無いので**さらに保守的**に。「〜で決定した」「〜で合意した」等の**明示的な確定発言があるメッセージのみ**を昇格する。雑談・調査・提案・質問からは作らない（既定は事実上"Decisionを作らない寄り"）。

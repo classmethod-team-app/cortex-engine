@@ -203,11 +203,11 @@ git pull
 
 > **登録＝Gold 昇格してよいという人間の明示判断**です。登録したソースの中身は Decision/用語（顧客可視の Gold 層）に昇格されます（AI は抽出時に内部限定情報を除くフィルタを維持しますが、そもそも顧客に見せてよいソースだけを登録してください）。
 
-> **Decision 昇格は"明示シグナル駆動"**（昇格は狭く・参照は広く）。外部ソースは調査・仮説・質問が大半の生記録なので、Issue/Slack 全体を決定として取り込むわけではありません。`decisions: "label:adr"` 等でチームの決定規約を宣言でき（そのラベルの item だけを取り込み・Decision 化）、宣言が無ければ本文の `## 決定/結論` セクションか close 済み issue の明確な解決からのみ抽出、Slack は「〜で決定/合意した」等の明示確定発言のみ抽出します。用語集は設定に関わらず広く抽出します。
+> **Decision 昇格は"明示シグナル駆動"**（昇格は狭く・参照は広く）。外部ソースは調査・仮説・質問が大半の生記録なので、Issue/Slack 全体を決定として取り込むわけではありません。本文の `## 決定/結論` セクションか close 済み issue の明確な解決からのみ保守的に抽出し、Slack は「〜で決定/合意した」等の明示確定発言のみ抽出します。用語集は広く抽出します。
 
 1. `Cortex/external-sources.json` の `sources` に登録する（既定は空）:
    - `{ "type": "github-issues", "repo": "owner/repo" }`
-   - `{ "type": "github-issues", "repo": "owner/repo", "decisions": "label:adr" }`（決定を特定ラベルで運用している場合。そのラベルの item だけを Decision 化対象にする。`"none"` なら用語・参照のみで Decision を作らない）
+   - `{ "type": "github-issues", "repo": "owner/repo", "decisions": "none" }`（このソースからは Decision を作らない＝用語・参照のみ、にしたい場合）
    - `{ "type": "github-discussions", "repo": "owner/repo" }`
    - `{ "type": "slack", "channel": "C0XXXX" }`（チャンネルID。決定が Slack に集約される案件向け。チャットは高ノイズなので登録は絞る）
 2. **対象リポが非公開、または case repo と別リポ**なら、`EXTERNAL_SOURCES_TOKEN`（対象リポの Issues/Discussions: Read を持つ Fine-grained PAT）を repo secret に登録する（ステップ6の表）。未設定なら case repo の `github.token` で読める範囲（公開/同一リポ）に限られます。将来は `sync-fleet-secrets` の共有シークレット候補に載せてチーム配布することも可能です。
