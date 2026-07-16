@@ -270,11 +270,18 @@ jobs:
           if [ -f "$daily" ]; then
             summary=$(awk '/^## 今日の概要/{flag=1;next}/^## /{flag=0}flag' "$daily" | sed '/^[[:space:]]*$/d' | head -6)
           fi
-          # リンク先: Home.md 識別カードの viewer_url（AIS Viewer）があればそちら、無ければ GitHub の Cortex/。
-          link=$(grep -m1 -E '^viewer_url:' Cortex/Home.md 2>/dev/null | sed -E 's/^viewer_url:[[:space:]]*//; s/^"//; s/"[[:space:]]*(#.*)?$//; s/[[:space:]]*#.*$//' || true)
-          [ -n "$link" ] || link="https://github.com/${REPO}/tree/main/Cortex"
+          # リンク先: Home.md 識別カードの viewer_url（AIS Viewer）があればそちら、無ければ GitHub。
+          # 日次レポートがあれば、その個別ページ（Viewerは ?id=<レコードID> 形式）へ直リンクする。
+          base=$(grep -m1 -E '^viewer_url:' Cortex/Home.md 2>/dev/null | sed -E 's/^viewer_url:[[:space:]]*//; s/^"//; s/"[[:space:]]*(#.*)?$//; s/[[:space:]]*#.*$//' || true)
+          if [ -n "$base" ]; then
+            link="$base"
+            daily_link="${base}/?id=report%3A${today}-daily"
+          else
+            link="https://github.com/${REPO}/tree/main/Cortex"
+            daily_link="https://github.com/${REPO}/blob/main/$(python3 -c 'import urllib.parse,sys; print("/".join(urllib.parse.quote(p) for p in sys.argv[1].split("/")))' "$daily")"
+          fi
           if [ -n "$summary" ]; then
-            body=$(printf '📅 デイリーレポート\n%s\n\n🌟 Gold昇格: Decision %s件 / 用語 %s件(draft) / メンバー %s件(draft)\n%sdraft のレビューをお願いします → %s' "$summary" "$N" "$M" "$K" "$titles" "$link")
+            body=$(printf '📅 デイリーレポート → %s\n%s\n\n🌟 Gold昇格: Decision %s件 / 用語 %s件(draft) / メンバー %s件(draft)\n%sdraft のレビューをお願いします → %s' "$daily_link" "$summary" "$N" "$M" "$K" "$titles" "$link")
           else
             body=$(printf '🌟 Gold昇格: Decision %s件 / 用語 %s件(draft) / メンバー %s件(draft)\n%sdraft のレビューをお願いします → %s' "$N" "$M" "$K" "$titles" "$link")
           fi
