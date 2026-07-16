@@ -83,9 +83,10 @@ async function readHomeProject(root) {
   const home = path.join(root, "Cortex", "Home.md");
   if (!(await exists(home))) return null;
   const text = await fs.readFile(home, "utf8");
-  const m = /^project:\s*(.+)$/m.exec(text);
+  // 引用符付きは引用符の中身だけ、無引用符は行内コメント（#以降）の手前までを値とする
+  const m = /^project:\s*(?:"([^"]*)"|'([^']*)'|([^#\n]+))/m.exec(text);
   if (!m) return null;
-  const v = m[1].trim().replace(/^["']|["']$/g, "").trim();
+  const v = (m[1] ?? m[2] ?? m[3] ?? "").trim();
   if (!v || v.includes("{{")) return null;
   return v;
 }
