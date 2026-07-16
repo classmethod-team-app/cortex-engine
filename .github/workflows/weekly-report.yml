@@ -106,7 +106,7 @@ jobs:
         if: steps.schema.outputs.current == 'true'
         env:
           CLAUDE_CODE_USE_BEDROCK: "1" # APIキーの代わりに Bedrock を使用
-          ANTHROPIC_MODEL: jp.anthropic.claude-sonnet-4-6 # 東京・日本国内推論（Bedrockで該当モデルのアクセス有効化が必要）
+          ANTHROPIC_MODEL: global.anthropic.claude-sonnet-5 # Sonnet 5。jp.（日本国内推論）に未提供のため当面global.で運用し、jp.anthropic.claude-sonnet-5 が提供され次第そちらへ切り替える（Bedrockで該当モデルのアクセス有効化が必要）
           SINCE: ${{ steps.win.outputs.since }} # 増分起点（前回成功以降）。未生成週の判定に使う
         run: |
           PROMPT=$(cat <<'EOF'

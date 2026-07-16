@@ -99,7 +99,7 @@ jobs:
         if: steps.pre.outputs.run == 'true' && steps.schema.outputs.current == 'true'
         env:
           CLAUDE_CODE_USE_BEDROCK: "1" # APIキーの代わりに Bedrock を使用
-          ANTHROPIC_MODEL: jp.anthropic.claude-sonnet-4-6 # 東京・日本国内推論（Bedrockで該当モデルのアクセス有効化が必要）
+          ANTHROPIC_MODEL: global.anthropic.claude-sonnet-5 # Sonnet 5。jp.（日本国内推論）に未提供のため当面global.で運用し、jp.anthropic.claude-sonnet-5 が提供され次第そちらへ切り替える（Bedrockで該当モデルのアクセス有効化が必要）
         run: |
           PROMPT=$(cat <<'EOF'
           会議ディレクトリ（`ingest-config.json` があるディレクトリ。通常は 会議/ だが案件により MTG/ 等にカスタマイズされている）配下には、
