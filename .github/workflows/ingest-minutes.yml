@@ -77,6 +77,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      # 通知（後段）で「このrunで増えた議事録」を検出するための基準コミットを記録
+      - name: 通知用の基準コミットを記録
+        id: prehead
+        if: steps.pre.outputs.run == 'true'
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: AWS認証（OIDC）
         if: steps.pre.outputs.run == 'true'
         uses: aws-actions/configure-aws-credentials@v4
@@ -126,3 +132,35 @@ jobs:
         uses: classmethod-team-app/cortex-engine/.github/actions/robust-push@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 生成された議事録を Slack に通知しレビューを促す（品質ゲート。best-effort＝失敗しても job を落とさない）。
+      # notify:true チャンネルへ投稿し、文字起こしに埋め込まれた organizer をメンションする。
+      - name: 議事録レビュー依頼を通知（best-effort）
+        if: steps.pre.outputs.run == 'true'
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          PRE_HEAD: ${{ steps.prehead.outputs.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          [ -n "$PRE_HEAD" ] || exit 0
+          # このrunで増えた議事録ファイルを検出（0件なら何もしない）
+          NEW_MINUTES=$(git -c core.quotepath=false diff --name-only "$PRE_HEAD"..HEAD | grep '_minutes\.md$' || true)
+          [ -n "$NEW_MINUTES" ] || { echo "::notice::新規議事録なし。通知しません。"; exit 0; }
+          # 1ファイル=1通のループ（主催者はファイルごとに異なりうるため）。通知は best-effort。
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            dir=$(dirname "$f")
+            # 表示名: ディレクトリ2段（定例名/日付）を人間可読に
+            label=$(printf '%s' "$dir" | awk -F/ '{ if (NF>=2) print $(NF-1)" "$NF; else print $NF }')
+            # GitHubリンク（パスをURLエンコード）
+            enc=$(python3 -c 'import sys,urllib.parse; print("/".join(urllib.parse.quote(p) for p in sys.argv[1].split("/")))' "$f")
+            link="https://github.com/${REPO}/blob/main/${enc}"
+            # 主催者メール: 同じディレクトリ内のファイルから最初の organizer を拾う
+            email=$(grep -rhoE 'cortex: organizer=[^ >-]+' "$dir" 2>/dev/null | head -n1 | sed 's/^cortex: organizer=//' || true)
+            body=$(printf '📝 議事録が自動生成されました（AIレビュー前）\n%s → %s\n今晩のGold昇格前に内容の確認をお願いします（冒頭の⚠️行を削除するとレビュー済みの印になります）。' "$label" "$link")
+            if [ -n "$email" ]; then
+              printf '%s' "$body" | bash .cortex-engine/plugin/scripts/notify-slack.sh --mention-email "$email" || true
+            else
+              printf '%s' "$body" | bash .cortex-engine/plugin/scripts/notify-slack.sh || true
+            fi
+          done <<< "$NEW_MINUTES"
