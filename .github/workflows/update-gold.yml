@@ -280,6 +280,17 @@ jobs:
             link="https://github.com/${REPO}/tree/main/Cortex"
             daily_link="https://github.com/${REPO}/blob/main/$(python3 -c 'import urllib.parse,sys; print("/".join(urllib.parse.quote(p) for p in sys.argv[1].split("/")))' "$daily")"
           fi
+          # Viewer（Amplify）の再ビルドはpushから数分かかる。通知直後にリンクを踏んで
+          # 「見つかりません」にならないよう、サイトデータに当日のdaily IDが載るまで待つ（最大7分・best-effort）。
+          if [ -n "$base" ] && [ -f "$daily" ]; then
+            for i in $(seq 1 14); do
+              if curl -sS --max-time 20 "$base/" 2>/dev/null | grep -q "report:${today}-daily"; then
+                echo "Viewerへの反映を確認（約$((i*30))秒待機）"
+                break
+              fi
+              sleep 30
+            done
+          fi
           if [ -n "$summary" ]; then
             body=$(printf '📅 デイリーレポート → %s\n%s\n\n🌟 Gold昇格: Decision %s件 / 用語 %s件(draft) / メンバー %s件(draft)\n%sdraft のレビューをお願いします → %s' "$daily_link" "$summary" "$N" "$M" "$K" "$titles" "$link")
           else
