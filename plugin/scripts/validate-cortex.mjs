@@ -231,6 +231,8 @@ const SCHEMAS = {
       "domains",
       "platforms",
       "tools",
+      // AIS Viewer のURL（任意。Slack通知のリンク先等に使う）
+      "viewer_url",
       // エンジン設定（schema_version はマイグレーションが管理・channel は配布チャンネルの表示）
       "engine",
     ],
