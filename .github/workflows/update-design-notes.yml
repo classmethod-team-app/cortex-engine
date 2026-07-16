@@ -1,0 +1,200 @@
+name: デザイン育成ノート自動更新
+
+# 案件リポのスタブから workflow_call で呼ばれる（トリガー・concurrency・permissions はスタブ側が持つ）。
+# update-gold とは独立の夜間ワークフロー。画像モダリティ（サムネイルPNGの視覚AI）でコンテキストを食い、
+# 読むソース（デザイン/inventory + resources）も update-gold と重複しないため統合しない。
+on:
+  workflow_call:
+    inputs:
+      engine_ref:
+        description: "エンジン（スクリプト等）のcheckout ref。スタブのチャンネルと揃える（stable=v1 / canary=main）"
+        required: false
+        type: string
+        default: "v1"
+      aws_role_arn:
+        description: "Bedrock用IAMロールARN。別org等で secrets: inherit が届かない場合にスタブから明示的に渡す（空なら secrets.AWS_ROLE_TO_ASSUME を使う）"
+        required: false
+        type: string
+        default: ""
+      since:
+        description: "増分起点をISO8601で上書き（バックフィル用。空なら前回成功以降）"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    # 同一リポ内でmainへ書き込む同期系ワークフロー（sync-designs・update-gold 等）と直列化し、push競合を減らす。
+    concurrency:
+      group: cortex-repo-write-${{ github.repository }}
+      cancel-in-progress: false
+    timeout-minutes: 30 # 視覚AI（画像読み取り）を最大15画面ぶん回すため余裕を持たせる
+    env:
+      AWS_REGION: ap-northeast-1 # Claude を有効化したリージョン（東京）
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 増分判定（git log --since）に履歴が必要
+
+      - name: エンジンをチェックアウト（このワークフローと同一バージョン）
+        uses: actions/checkout@v4
+        with:
+          repository: classmethod-team-app/cortex-engine
+          ref: ${{ github.job_workflow_sha || inputs.engine_ref }}
+          path: .cortex-engine
+          token: ${{ secrets.ENGINE_REPO_TOKEN || github.token }}
+
+      - name: エンジンをGit管理対象外にする
+        run: echo ".cortex-engine/" >> .git/info/exclude
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # 案件のデータ版(schema_version)がエンジン最新より古い（未適用マイグレーション保留中）なら精製をスキップ。
+      # デザイン育成ノート自体が migration 0003 で導入されるため、0003未適用の案件はここで自然にスキップされる。
+      - name: スキーマ版チェック
+        id: schema
+        run: |
+          if node .cortex-engine/scripts/schema-current.mjs; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 前提チェック:
+      # - デザインを使わない案件（figma.json未設定 / inventory不在）→ notice でスキップ（毎晩failさせない）
+      # - AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）→ スキップ（update-gold と同じ）
+      - name: 前提チェック（デザイン設定・シークレットの有無）
+        id: pre
+        env:
+          ROLE: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
+        run: |
+          # figma.json の場所は案件でカスタマイズされ得る（例: デザイン/ ではなく Figma/）ため探索する
+          FJ=$(find . -maxdepth 2 -name figma.json -not -path './node_modules/*' -not -path './.git/*' -not -path './.cortex-engine/*' | head -1)
+          DESIGN_DIR=$(dirname "${FJ:-デザイン/figma.json}")
+          echo "design_dir=$DESIGN_DIR" >> "$GITHUB_OUTPUT"
+          if [ ! -d "$DESIGN_DIR/inventory" ]; then
+            echo "::notice::$DESIGN_DIR/inventory が無い（figmaを使わない案件 or 未同期）。デザイン育成をスキップします。"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          elif [ -z "$ROLE" ]; then
+            echo "::notice::AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）。デザイン育成をスキップします。"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 増分の起点(SINCE)を「このワークフローの直近成功run」に置く（update-gold と同じ実装）。
+      # 失敗runは成功扱いされないので、連続失敗しても次の成功実行で失敗分まで窓が自動で遡る（取りこぼしの巻き取り）。
+      # 15画面上限を超えた夜は本ワークフローを意図的に失敗（赤）で終えるため、SINCEが進まず翌晩に未処理分を再対象化する。
+      # 注意: --workflow は案件リポ側スタブのファイル名。スタブは update-design-notes.yml の名前を変えないこと。
+      - name: 増分窓の起点(SINCE)を算出（前回成功以降・14日キャップ）
+        id: win
+        if: steps.pre.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OVERRIDE_SINCE: ${{ inputs.since }}
+        run: |
+          CAP=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          if [ -n "$OVERRIDE_SINCE" ]; then
+            SINCE="$OVERRIDE_SINCE"
+            echo "::notice::SINCE を手動上書き（バックフィル）: $SINCE"
+          else
+            LAST=$(gh run list --workflow=update-design-notes.yml --status success --limit 1 --json createdAt --jq '.[0].createdAt // empty' 2>/dev/null || true)
+            if [ -z "$LAST" ]; then SINCE="$CAP"; else SINCE="$LAST"; fi
+          fi
+          if [[ "$SINCE" < "$CAP" ]]; then
+            echo "::warning::増分起点 $SINCE が14日上限より古いため $CAP に丸めます（未処理分はsince入力で個別バックフィルを）"
+            SINCE="$CAP"
+          fi
+          echo "since=$SINCE" >> "$GITHUB_OUTPUT"
+          echo "増分起点 SINCE=$SINCE"
+
+      # デザインの目録(inventory)・サムネイル(resources)に SINCE 以降の変更が無い夜はAI実行（Bedrock課金）を丸ごとスキップ。
+      - name: 差分ゲート（変更画面が無ければAI実行をスキップ）
+        id: gate
+        if: steps.pre.outputs.run == 'true'
+        env:
+          SINCE: ${{ steps.win.outputs.since }}
+          DESIGN_DIR: ${{ steps.pre.outputs.design_dir }}
+        run: |
+          CHANGED=$(git -c core.quotepath=false log --since="$SINCE" --name-only --pretty=format: \
+            -- "$DESIGN_DIR/inventory/" "$DESIGN_DIR/resources/" | grep -v '^$' | sort -u || true)
+          if [ -n "$CHANGED" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "変更されたデザインソース:"; echo "$CHANGED"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::前回成功以降のデザイン変更なし。AI実行をスキップします。"
+          fi
+
+      - name: Git設定
+        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: AWS認証（OIDC）
+        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Claude Code をインストール
+        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
+        run: npm i -g @anthropic-ai/claude-code
+
+      - name: デザイン育成ノート自動更新（Claude / Bedrock）
+        if: steps.pre.outputs.run == 'true' && steps.schema.outputs.current == 'true' && steps.gate.outputs.changed == 'true'
+        env:
+          CLAUDE_CODE_USE_BEDROCK: "1" # APIキーの代わりに Bedrock を使用
+          ANTHROPIC_MODEL: jp.anthropic.claude-sonnet-4-6 # 視覚AI（画像読み取り）対応・日本国内推論プロファイル
+          SINCE: ${{ steps.win.outputs.since }} # 増分起点（前回成功以降）。スキルの git log --since に渡す
+          DESIGN_DIR: ${{ steps.pre.outputs.design_dir }} # デザインディレクトリ（案件でカスタマイズされ得る）
+        run: |
+          PROMPT=$(cat <<'EOF'
+          .cortex-engine/plugin/skills/update-design-notes-auto/SKILL.md の指示に従い、
+          前回実行以降（環境変数 SINCE）に変更されたデザイン画面について、
+          Cortex/デザイン/records/ の育成ノートを1セッションで生成/更新してください。
+
+          注意:
+          - 増分方式です。環境変数 SINCE 以降に デザイン/inventory・resources が変更された画面だけを対象にしてください（git log は --since="$SINCE"）。
+          - デザインディレクトリは環境変数 DESIGN_DIR です（既定は デザイン/）。
+          - 1回の実行で最大15画面までにしてください。超過した場合はスキルの指示どおり overflow フラグを書き出し、処理できた分だけコミットしてください。
+          - 既存レコードは <!-- cortex-auto:begin --> 〜 <!-- cortex-auto:end --> の内側だけ書き換え、マーカー外（人間の補足）は絶対に変更しないでください。
+          - Cortex/ 配下・.cortex-engine/ 配下は編集源として自己参照しないでください（読むのは inventory・resources・用語集/Decisionsのfrontmatterのみ）。
+          - 対象画面が無ければ何もコミットせず終了してください。
+          EOF
+          )
+          # 無人実行（ephemeralなCIランナー）のため権限確認はスキップする
+          claude -p "$PROMPT" --max-turns 60 --dangerously-skip-permissions
+
+      # 生成物がオントロジー規約に違反している場合、ここで止める（壊れたコミットをpushしない）
+      - name: Cortexのスキーマ検証
+        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
+        run: node .cortex-engine/plugin/scripts/validate-cortex.mjs
+
+      - name: Push（競合時はrebaseで再試行）
+        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
+        uses: classmethod-team-app/cortex-engine/.github/actions/robust-push@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 15画面上限を超えて未処理画面が残った場合、処理できた分は push 済みだが本runを意図的に失敗（赤）で終える。
+      # これによりSINCE（=直近の成功run）が進まず、翌晩の増分窓に未処理画面が再び入り巻き取られる。
+      # フラグはスキルが Cortex/ の外に書き出すので、push対象（Cortex/デザイン/のみadd）には含まれない。
+      - name: 未処理画面があれば翌晩巻き取り用に非0終了
+        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
+        run: |
+          if [ -f .design-notes-overflow ]; then
+            echo "::warning::15画面上限を超えたため未処理画面が残りました。今回の進捗はpush済みですが、SINCEを進めないため本runは失敗扱いにします（翌晩のSINCE巻き取りで再対象化）。"
+            cat .design-notes-overflow || true
+            exit 1
+          fi
+
+      # 通知は実装しない。将来 notify-slack.sh に乗せてdraftレビュー導線をSlackへ流せる（update-gold のGold昇格サマリと同型）。

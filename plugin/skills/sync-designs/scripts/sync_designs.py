@@ -83,6 +83,70 @@ def slugify(name: str) -> str:
     return s or "untitled"
 
 
+# 機械抽出の上限（inventory肥大を防ぐ。超過分は「…他N件」に畳む）
+MAX_TEXT_LINES = 50
+MAX_COMPONENT_LINES = 20
+
+
+def _collect_text_and_components(node: dict, texts: list, components: list) -> None:
+    """フレーム配下を再帰的に走査し、TEXTノードのcharactersとINSTANCE名を集める。
+
+    追加のAPIコールは発生しない（全ツリーを1回取得済みのノードをメモリ内で走査するだけ）。
+    """
+    ntype = node.get("type")
+    if ntype == "TEXT":
+        chars = node.get("characters")
+        if chars:
+            t = re.sub(r"\s+", " ", chars).strip()  # 改行・連続空白を1つに畳んで1行化
+            if t:
+                texts.append(t)
+    elif ntype == "INSTANCE":
+        name = node.get("name")
+        if name and name.strip():
+            components.append(name.strip())
+    for child in node.get("children", []) or []:
+        _collect_text_and_components(child, texts, components)
+
+
+def _dedup(seq: list) -> list:
+    """出現順を保ったまま重複を除去する。"""
+    seen = set()
+    out = []
+    for x in seq:
+        if x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
+
+
+def _extract_section(child: dict) -> str:
+    """トップレベルフレーム配下から機械抽出した節（画面内テキスト・使用コンポーネント）を組み立てる。
+
+    frontmatterは付けない（inventoryは同期ミラー。frontmatterはGold層のみ）。
+    """
+    texts: list = []
+    components: list = []
+    _collect_text_and_components(child, texts, components)
+    texts = _dedup(texts)
+    components = _dedup(components)
+    section = ""
+    if texts:
+        shown = texts[:MAX_TEXT_LINES]
+        section += "\n## 画面内テキスト（機械抽出）\n"
+        section += "".join(f"- {t}\n" for t in shown)
+        extra = len(texts) - len(shown)
+        if extra > 0:
+            section += f"- …他{extra}件\n"
+    if components:
+        shown = components[:MAX_COMPONENT_LINES]
+        section += "\n## 使用コンポーネント（機械抽出）\n"
+        section += "".join(f"- {c}\n" for c in shown)
+        extra = len(components) - len(shown)
+        if extra > 0:
+            section += f"- …他{extra}件\n"
+    return section
+
+
 def main() -> int:
     if not CONF_PATH.exists():
         print(f"{CONF_PATH} が無いためスキップします（このリポジトリではデザイン同期は未設定）")
@@ -103,7 +167,10 @@ def main() -> int:
 
     for f in files:
         key = f["key"]
-        doc = api(f"/files/{key}?depth=2")
+        # 全ツリーを1回取得する（追加APIコールを増やさない）。旧実装は ?depth=2 で
+        # ページ＋トップレベルフレームまでしか取れず、フレーム配下のTEXT/INSTANCEを機械抽出できない。
+        # depth指定を外して全ツリーを1コール取得し、抽出はメモリ内走査で賄う（レート制限に影響しない）。
+        doc = api(f"/files/{key}")
         file_name = doc.get("name", key)
         updated_at = str(doc.get("lastModified", ""))[:10]
         frames = []
@@ -163,6 +230,7 @@ def main() -> int:
                 f"- 参照ID: `{sid}`\n"
                 f"- [Figmaで開く]({deep_link})\n"
                 f"{thumb_md}"
+                f"{_extract_section(child)}"
             )
             (out_dir / f"{slugify(frame_name)}-{safe_node}.md").write_text(md, encoding="utf-8")
             total += 1

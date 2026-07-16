@@ -27,7 +27,8 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // frontmatterを持つのはGold層（Cortex/配下）だけなので、実在検証できるのは decision / term / report / overview。
 // Silver/Bronzeへの参照（minute:・material:・design:・課題キー・ドキュメントID等）は
 // 「規約ベースのID文字列」であり、参照先にfrontmatterアンカーを要求しない＝実在検証しない（オントロジー規約参照）。
-const CHECKABLE_TARGET = /^(\d{8}-\d{3}$|term:|member:|report:|overview:)/;
+const CHECKABLE_TARGET =
+  /^(\d{8}-\d{3}$|term:|member:|report:|overview:|design:)/;
 
 /** ディレクトリ名 → 期待されるtype */
 const DIR_TYPE = {
@@ -35,6 +36,7 @@ const DIR_TYPE = {
   用語集: "term",
   メンバー: "member",
   レポート: "report",
+  デザイン: "design",
 };
 
 /** 型ごとのスキーマ定義 */
@@ -160,6 +162,20 @@ const SCHEMAS = {
       }
       if (fm.aliases != null && !Array.isArray(fm.aliases))
         errors.push("aliasesはリストで書く");
+    },
+  },
+  design: {
+    // デザイン画面の育成ノート（Cortex/デザイン/records/）。inventory（Silverミラー）とは別レコード。
+    // AI領域は <!-- cortex-auto:begin/end --> マーカーで囲み、マーカー外の人間の補足は保持する。
+    required: ["type", "id", "title", "status"],
+    allowed: ["type", "id", "title", "status", "source", "relations"],
+    validate(fm, _fileName, errors) {
+      if (fm.id && !/^design:/.test(String(fm.id))) {
+        errors.push(`idはdesign:{fileKey}:{nodeId}（実際: ${fm.id}）`);
+      }
+      if (fm.status && !["draft", "active"].includes(fm.status)) {
+        errors.push(`statusはdraft|active（実際: ${fm.status}）`);
+      }
     },
   },
   report: {
