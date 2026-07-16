@@ -1,8 +1,10 @@
 ---
 name: sync-designs
-description: Figmaから画面インベントリ（全画面の一覧・安定ID・ディープリンク・サムネイル）を デザイン/inventory/ に同期する
+description: Figmaから画面インベントリ（全画面の一覧・安定ID・ディープリンク・サムネイル）を デザイン/inventory/ に同期し、DESIGN.mdのデザイントークン（YAMLフロントマター）を自動生成する
 ---
 Figmaファイルの**画面インベントリ（目録）**を `デザイン/inventory/` に同期します。デザインの絵そのものではなく「どんな画面が存在し、どこにあり、何と関係しうるか」をAIが辿れる形（1画面1md）にするのが目的です。
+
+あわせて、`デザイン/DESIGN.md` の**デザイントークン（YAMLフロントマター）**をFigmaの実データ（published styles・頻度集計）から自動生成します。フロントマター＝機械可読トークン（このスキルが上書き）／Markdown本文＝人間+AIの設計判断（バイト単位で保全・触らない）の分業です。
 
 ## 実行手順
 
@@ -29,6 +31,7 @@ python3 "<SKILL_DIR>/scripts/sync_designs.py"
 
 - `デザイン/inventory/{ファイル名}/{画面名}-{nodeId}.md` — 1画面1ファイル。本文に画面名・参照ID `design:{fileKey}:{nodeId}`・Figmaディープリンク・更新日・サムネイル（frontmatterは付けない。frontmatterを持つのはGold層のみ＝オントロジー規約）
 - `デザイン/resources/{fileKey}/{nodeId}.png` — サムネイル
+- `デザイン/DESIGN.md` のYAMLフロントマター — デザイントークン（colors / typography / rounded / spacing）。published stylesの名前と実値から生成し、無ければツリーの頻度集計にフォールバックする（意味名の推測はしない）。`figma.json` に複数ファイルがある場合は先頭ファイルのみが源。本文は変更しない。DESIGN.mdが無ければscaffoldテンプレをベースに新規作成する
 
 ## 注意事項
 

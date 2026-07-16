@@ -66,6 +66,18 @@ jobs:
           FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN }}
         run: python3 .cortex-engine/plugin/skills/sync-designs/scripts/sync_designs.py
 
+      - name: DESIGN.md lint（公式仕様検証・best-effort）
+        # 書き手（Python抽出）と検証者（公式linter）を分ける。落ちても同期は成功扱い。
+        if: steps.conf.outputs.configured == 'true'
+        continue-on-error: true
+        run: |
+          DMD="${{ steps.conf.outputs.design_dir }}/DESIGN.md"
+          if [ -f "$DMD" ]; then
+            npx -y @google/design.md@0.3.0 lint "$DMD"
+          else
+            echo "$DMD が無いためlintをスキップします"
+          fi
+
       - name: コミット
         if: steps.conf.outputs.configured == 'true'
         run: |
