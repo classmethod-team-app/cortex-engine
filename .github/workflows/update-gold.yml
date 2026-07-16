@@ -33,7 +33,7 @@ jobs:
     concurrency:
       group: cortex-repo-write-${{ github.repository }}
       cancel-in-progress: false
-    timeout-minutes: 20
+    timeout-minutes: 30 # AI生成が15-20分かかりSonnet 5移行で20分超過の実績があるため余裕を持たせる
     env:
       AWS_REGION: ap-northeast-1 # Claude を有効化したリージョン（東京）
 
