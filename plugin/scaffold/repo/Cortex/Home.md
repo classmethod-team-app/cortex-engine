@@ -23,6 +23,7 @@ tools:
   チャット: slack # slack | teams | none
   デザイン: none # figma | none
   開発: none # github（ソースをsubmodule同梱） | none
+viewer_url: "" # AIS Viewer のURL（任意。ビューアデプロイ後に記入。Slack通知のリンク先等に使う）
 ---
 
 # Home

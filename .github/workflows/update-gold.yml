@@ -263,6 +263,8 @@ jobs:
             count=$((count + 1))
             [ "$count" -ge 3 ] && break
           done <<< "$(printf '%s\n' "$DIFF" | grep '^Cortex/Decisions/records/')"
-          link="https://github.com/${REPO}/tree/main/Cortex"
+          # リンク先: Home.md 識別カードの viewer_url（AIS Viewer）があればそちら、無ければ GitHub の Cortex/。
+          link=$(grep -m1 -E '^viewer_url:' Cortex/Home.md 2>/dev/null | sed -E 's/^viewer_url:[[:space:]]*//; s/^"//; s/"[[:space:]]*(#.*)?$//; s/[[:space:]]*#.*$//' || true)
+          [ -n "$link" ] || link="https://github.com/${REPO}/tree/main/Cortex"
           body=$(printf '🌟 Gold昇格: Decision %s件 / 用語 %s件(draft) / メンバー %s件(draft)\n%sdraft のレビューをお願いします → %s' "$N" "$M" "$K" "$titles" "$link")
           printf '%s' "$body" | bash .cortex-engine/plugin/scripts/notify-slack.sh || true
