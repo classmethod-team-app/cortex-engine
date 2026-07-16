@@ -1,6 +1,8 @@
 ---
 type: report
 id: "report:YYYYMMDD-weekly"
+title: "週次レポート YYYY-MM-DD"
+description: "{今週の総括の1文要約}"
 project: "{{プロジェクト名}}"
 period_start: YYYY-MM-DD
 period_end: YYYY-MM-DD

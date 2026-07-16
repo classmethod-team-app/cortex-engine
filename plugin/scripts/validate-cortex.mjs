@@ -49,7 +49,7 @@ const SCHEMAS = {
       "date",
       "category",
       "deciders",
-      "summary",
+      "description",
       "references",
     ],
     allowed: [
@@ -60,7 +60,7 @@ const SCHEMAS = {
       "sprint",
       "category",
       "deciders",
-      "summary",
+      "description",
       "relations",
       "references",
     ],
@@ -92,11 +92,12 @@ const SCHEMAS = {
     },
   },
   term: {
-    required: ["type", "id", "title", "scope", "status", "date"],
+    required: ["type", "id", "title", "description", "scope", "status", "date"],
     allowed: [
       "type",
       "id",
       "title",
+      "description",
       "synonyms",
       "scope",
       "status",
@@ -135,11 +136,12 @@ const SCHEMAS = {
     },
   },
   member: {
-    required: ["type", "id", "title", "status"],
+    required: ["type", "id", "title", "description", "status"],
     allowed: [
       "type",
       "id",
       "title",
+      "description",
       "yomi",
       "aliases",
       "org",
@@ -168,7 +170,7 @@ const SCHEMAS = {
     // デザイン画面の育成ノート（Cortex/デザイン/records/）。inventory（Silverミラー）とは別レコード。
     // AI領域は <!-- cortex-auto:begin/end --> マーカーで囲み、マーカー外の人間の補足は保持する。
     required: ["type", "id", "title", "status"],
-    allowed: ["type", "id", "title", "status", "source", "relations"],
+    allowed: ["type", "id", "title", "description", "status", "source", "relations"],
     validate(fm, _fileName, errors) {
       if (fm.id && !/^design:/.test(String(fm.id))) {
         errors.push(`idはdesign:{fileKey}:{nodeId}（実際: ${fm.id}）`);
@@ -181,10 +183,12 @@ const SCHEMAS = {
   report: {
     // 週次（report:YYYYMMDD-weekly）と日次（report:YYYYMMDD-daily）の2種を持つ。
     // 必須はvalidate()内で種別ごとに検証する（requiredは共通部のみ）。
-    required: ["type", "id"],
+    required: ["type", "id", "title", "description"],
     allowed: [
       "type",
       "id",
+      "title",
+      "description",
       "project",
       "period_start",
       "period_end",
@@ -256,11 +260,12 @@ const SCHEMAS = {
     },
   },
   overview: {
-    required: ["type", "id", "title", "kind", "lifecycle"],
+    required: ["type", "id", "title", "description", "kind", "lifecycle"],
     allowed: [
       "type",
       "id",
       "title",
+      "description",
       "status",
       "source",
       // プロジェクト識別カード（巡回エージェント/company brainが横断走査時に最初に読む）

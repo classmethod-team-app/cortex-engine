@@ -99,7 +99,7 @@ fi
 - **GitHub の author**（login のみ）は氏名の確証が持てないことが多いので、login から実名が明らかな場合を除き起票しない。
 
 - 既存レコードは書き換えない（新規追加のみ）。
-- **本文を空にしない**: ソースから分かる範囲で「何者か」を1〜2文書く（例: 「〇〇株式会社所属。△△定例に参加。」）。役割が不明なら「役割は確認中」と書く（Viewerの個別ページに本文が表示されるため）。
+- **`description` と本文を空にしない**: frontmatter の `description` に「何者か」の1文（例: 「〇〇株式会社所属。PM。」）、本文にはソースから分かる範囲で1〜2文書く（例: 「〇〇株式会社所属。△△定例に参加。」）。役割が不明なら「役割は確認中」と書く（Viewerの個別ページに本文が表示されるため）。
 - 氏名の確証が持てない場合は追加しない（過剰起票はノイズ）。
 - 既存メンバーの照合は frontmatter の grep で行う（全文 Read しない）：
 
@@ -138,6 +138,8 @@ git -c core.quotepath=false diff --name-only "$(git rev-parse HEAD~$(git rev-lis
 ---
 type: report
 id: "report:YYYYMMDD-daily"
+title: "YYYY-MM-DD デイリーレポート"
+description: "<今日の概要の1文要約>"
 date: YYYY-MM-DD
 status: active
 sources:

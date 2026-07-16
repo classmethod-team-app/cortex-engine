@@ -312,6 +312,8 @@ jobs:
           ---
           type: report
           id: "report:${today}-daily"
+          title: "${date_h} デイリーレポート"
+          description: "ソース差分なし（動きのなかった日）"
           date: ${date_h}
           status: skip
           sources:

@@ -3,6 +3,7 @@ type: member
 id: "member:山田太郎"
 title: "山田 太郎"
 yomi: "やまだ たろう"
+description: "株式会社〇〇所属。プロジェクトマネージャー。"  # 何者かの1文要約（一覧・検索・外部消費で使う）
 aliases: []            # 文字起こしの誤変換・呼称の揺れを蓄積（例: ["山田さん", "ヤマダ"]）。用語集のsynonymsと同役割
 org: ""                # 所属組織名（開発側/顧客/ベンダー等の正式社名）
 side: cm               # cm | client | vendor（担当割当の整合チェックに使う controlled vocabulary）

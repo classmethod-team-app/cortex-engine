@@ -170,7 +170,7 @@ async function buildIndex(root) {
       type: data.type != null ? String(data.type) : "",
       title: data.title != null ? String(data.title) : h1 ? h1[1].trim() : path.basename(file),
       date: normDate(data.date),
-      summary: data.summary != null ? String(data.summary) : "",
+      summary: data.description != null ? String(data.description) : data.summary != null ? String(data.summary) : "", // description優先（旧summaryは移行期の互換）
       path: relPath,
       body,
       relations: toRelations(data.relations),
@@ -202,7 +202,7 @@ async function buildIndex(root) {
         type: data.type != null ? String(data.type) : km ? "issue" : "",
         title: data.title != null ? String(data.title) : h1 ? h1[1].trim() : path.basename(file),
         date: normDate(data.date),
-        summary: data.summary != null ? String(data.summary) : "",
+        summary: data.description != null ? String(data.description) : data.summary != null ? String(data.summary) : "", // description優先（旧summaryは移行期の互換）
         path: rel,
         body,
         relations: toRelations(data.relations),

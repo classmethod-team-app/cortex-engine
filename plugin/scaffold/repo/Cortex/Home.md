@@ -2,6 +2,7 @@
 type: overview
 id: "overview:home"
 title: "Home"
+description: "{{プロジェクト名}}のコンテキストリポジトリの入口（Gold層）"
 status: active
 
 # プロジェクト識別カード（巡回エージェント/company brainが横断走査時に最初に読む）

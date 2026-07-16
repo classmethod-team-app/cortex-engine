@@ -49,7 +49,7 @@ bash "<SKILL_DIR>/../../scripts/changed-sources.sh" "${SINCE:-}" "Cortex/"
 
 ### ステップ 2: 採番と重複照合の準備（既存 Decision は全文読みしない）
 
-> ⚠️ **既存 Decision を 1 ファイルずつ開いて全文 Read しない**。records は案件の進行とともに数百件規模になり、全件 Read は無人実行のターン上限を食い潰す。ここで必要なのは「採番用のファイル名」と「重複照合用の frontmatter（`title`/`summary`）」だけで、**どちらもコマンド数回で取れる**。
+> ⚠️ **既存 Decision を 1 ファイルずつ開いて全文 Read しない**。records は案件の進行とともに数百件規模になり、全件 Read は無人実行のターン上限を食い潰す。ここで必要なのは「採番用のファイル名」と「重複照合用の frontmatter（`title`/`description`）」だけで、**どちらもコマンド数回で取れる**。
 
 - **日付ごとの最大連番**（`YYYYMMDD-NNN` の `NNN`。次に振る番号の起点）は **ファイル名だけで分かる**（中身は不要）。これから書く決定の日付について最大連番を取る：
 
@@ -59,14 +59,14 @@ ls Cortex/Decisions/records/ | grep -E '^20260626-' \
   | sed -E 's/^[0-9]{8}-([0-9]{3}).*/\1/' | sort -n | tail -1 || true
 ```
 
-- 既収録レコードの**署名集合**（重複判定用。frontmatter `title` ＋ `summary` を空白・記号正規化した文字列）は、**frontmatter だけを grep で一括取得**する（ファイルを開かない）。増分窓は約 25 時間で、抽出される決定の日付は直近に限られるため、照合相手は「**これから書く日付の既存 Decision だけ**」で十分（古い決定とは衝突しない）：
+- 既収録レコードの**署名集合**（重複判定用。frontmatter `title` ＋ `description` を空白・記号正規化した文字列）は、**frontmatter だけを grep で一括取得**する（ファイルを開かない）。増分窓は約 25 時間で、抽出される決定の日付は直近に限られるため、照合相手は「**これから書く日付の既存 Decision だけ**」で十分（古い決定とは衝突しない）：
 
 ```bash
-# これから書く日付ぶんだけ、id/title/summary を 1 回で取得（全文 Read しない）
-grep -hE '^(id|title|summary):' Cortex/Decisions/records/20260626-*.md 2>/dev/null || true
+# これから書く日付ぶんだけ、id/title/description を 1 回で取得（全文 Read しない）
+grep -hE '^(id|title|description):' Cortex/Decisions/records/20260626-*.md 2>/dev/null || true
 ```
 
-> 対象日付が先に分からなければ、ステップ 3 で決定を抽出して日付を確定させてから本ステップを行ってもよい（順序は前後して構わない）。どうしても全体の署名が要る場合でも、ファイルを開かず `grep -hE '^(title|summary):' Cortex/Decisions/records/*.md` の **1 コマンド**で済ませる。
+> 対象日付が先に分からなければ、ステップ 3 で決定を抽出して日付を確定させてから本ステップを行ってもよい（順序は前後して構わない）。どうしても全体の署名が要る場合でも、ファイルを開かず `grep -hE '^(title|description):' Cortex/Decisions/records/*.md` の **1 コマンド**で済ませる。
 
 ### ステップ 3: 当日分の確定した決定事項を抽出
 
@@ -105,7 +105,7 @@ grep -hE '^(id|title|summary):' Cortex/Decisions/records/20260626-*.md 2>/dev/nu
 - **frontmatter**（詳細は `Cortex/Decisions/README.md`）:
   - `type`: `decision`（固定）
   - `id`: `YYYYMMDD-NNN`
-  - `title` / `date` / `category`（README のカテゴリー一覧から）/ `deciders` / `summary`
+  - `title` / `date` / `category`（README のカテゴリー一覧から）/ `deciders` / `description`
     - `deciders` は名簿（`Cortex/メンバー/records/` の `title`）の正式表記に正規化する。名簿に無い人名は推測で確定させず `（要確認）` を付けて記載する
   - `sprint`: スプリント運用している案件のみ記入（無ければ省略可）
   - `relations`: 抽出元への型付き関係を安定IDで記載（議事録: `rel: based_on, target: "minute:{定例名}:{YYYYMMDD}"`、課題: `rel: based_on, target: "{課題キー}"`。過去の決定の変更なら `rel: supersedes, target: "{決定ID}"`）。**ファイルパスは使わない**

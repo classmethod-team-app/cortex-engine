@@ -8,7 +8,7 @@ category: 技術選定
 deciders:
   - CM_氏名
   - {{クライアント名}}_氏名
-summary: "決定内容の要約"
+description: "決定内容の要約（1文）"
 relations:
   - rel: based_on
     target: "minute:{定例名}:YYYYMMDD"

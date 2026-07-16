@@ -56,7 +56,7 @@ grep -hE '^(title|synonyms):' Cortex/用語集/records/*.md 2>/dev/null || true
 
 ### ステップ 4: ファイル作成・更新とコミット
 
-- 新規用語: `Cortex/用語集/template.md` をベースに `records/{代表表記}.md` を作成（スキーマは `Cortex/用語集/README.md`）。**`status` は必ず `draft`**。`source` に案件内の出典（安定IDまたはURL）を記載する。一般公開用語でWeb一次情報を確認できた場合は `references` にそのURLを記載する（案件固有語は省略）
+- 新規用語: `Cortex/用語集/template.md` をベースに `records/{代表表記}.md` を作成（スキーマは `Cortex/用語集/README.md`）。**`status` は必ず `draft`**。`description` に「この案件における意味の1文要約」を必ず記入する（一覧・検索・外部消費で使う）。`source` に案件内の出典（安定IDまたはURL）を記載する。一般公開用語でWeb一次情報を確認できた場合は `references` にそのURLを記載する（案件固有語は省略）
 - synonyms追記: 該当ファイルのfrontmatterの `synonyms` のみを変更する（`status` は触らない）
 - **コミット前に `node "<SKILL_DIR>/../../scripts/validate-cortex.mjs"`（プラグイン同梱リンター） を実行し、規約違反があれば修正する**（違反したままコミットしない）
 - 変更があれば `git commit` までを行う（push は行わない）。コミットメッセージは日本語で簡潔に、AI署名は付けない

@@ -2,6 +2,7 @@
 type: term
 id: "term:{代表表記}"
 title: "{代表表記}"
+description: "{この案件における意味の1文要約}"
 synonyms: []
 scope: project
 status: active

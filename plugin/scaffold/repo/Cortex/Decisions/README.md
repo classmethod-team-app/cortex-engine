@@ -35,7 +35,7 @@ category: 技術選定
 deciders:
   - CM_鈴木花子
   - {{クライアント名}}_田中太郎
-summary: "フロントエンドフレームワークにNext.jsを採用する"
+description: "フロントエンドフレームワークにNext.jsを採用する"
 relations:
   - rel: based_on
     target: "minute:定例:20260325"
@@ -70,7 +70,7 @@ category: ビジネス
 deciders:
   - CM_鈴木花子
   - {{クライアント名}}_田中太郎
-summary: "キャンペーンのプレゼント応募は、不正・重複応募を防ぐため1ユーザーにつき1回までに制限する"
+description: "キャンペーンのプレゼント応募は、不正・重複応募を防ぐため1ユーザーにつき1回までに制限する"
 relations:
   - rel: based_on
     target: "minute:定例:20260402"
@@ -107,7 +107,7 @@ references:
 | sprint | スプリント（例: `sprint1`）。スプリント運用していない場合はフェーズ（例: `Ph.1`）を記載 |
 | deciders | 決定に関わった人のリスト（`組織_名前` の形式、例: `CM_鈴木花子`, `{{クライアント名}}_田中太郎`） |
 | category | カテゴリー（下記「カテゴリー一覧」から選択） |
-| summary | 決定内容の要約 |
+| description | 決定内容の要約 |
 | references | 決定が行われた場所への参照（人間向けの自由記述リンク）。ローカルファイルはリポジトリルートからの相対パス（例: `"会議/Ph.1/20260325/minutes.md"`）、外部リンクはMarkdownリンク形式（例: `"[{{開発リポ}}#1](https://github.com/{{開発リポ}}/issues/1)"`）で記載 |
 
 ### 任意
