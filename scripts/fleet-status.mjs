@@ -18,6 +18,8 @@
  */
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
 const NOW = process.env.FLEET_NOW || new Date().toISOString();
 const REPO = process.env.GITHUB_REPOSITORY || tryGitRepo();
@@ -184,6 +186,88 @@ const CHECKS = [
     status: runStatus(runDesigns), detail: runDesigns || "" },
 ];
 
+// ---------- 外部ソース接続状況（best-effort・失敗しても全体は成功） ----------
+// 「何と接続していて、毎晩何がGoldに昇格するか」をAISビューアが表示するための材料。
+// ソース解決は update-gold と同一の resolve-external-sources.mjs（--all＝除外込み全登録）を再利用し、
+// 物理ゲート（bot招待・トークンスコープ）をソース1件につき1コールで実測する。
+const RESOLVER = join(dirname(fileURLToPath(import.meta.url)), "..", "plugin", "scripts", "resolve-external-sources.mjs");
+
+function resolveExternalSourcesAll() {
+  try {
+    const out = execFileSync("node", [RESOLVER, "--all"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 15000 });
+    return JSON.parse(out);
+  } catch { return []; }
+}
+
+/** slack の物理ゲート実測: bot招待済みで読めるか（conversations.history limit=1） */
+function probeSlackGate(ref) {
+  const token = process.env.SLACK_BOT_TOKEN;
+  if (!token) return "no_token";
+  try {
+    const body = execFileSync("curl", ["-sS", "--max-time", "5", "-G",
+      "https://slack.com/api/conversations.history",
+      "-H", `Authorization: Bearer ${token}`,
+      "--data-urlencode", `channel=${ref}`,
+      "--data-urlencode", "limit=1"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 10000 });
+    const j = JSON.parse(body);
+    if (j.ok) return "ok";
+    if (j.error === "not_in_channel") return "not_in_channel";
+    if (j.error === "channel_not_found" || j.error === "is_archived") return "unreachable";
+    return "unknown";
+  } catch { return "unknown"; }
+}
+
+/** github の物理ゲート実測: トークンスコープでリポが見えるか（repos/{ref} 1コール） */
+function probeGithubGate(ref) {
+  const token = process.env.EXTERNAL_SOURCES_TOKEN || process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+  if (!token) return "no_token";
+  try {
+    execFileSync("gh", ["api", `repos/${ref}`, "--jq", ".id"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 10000,
+        env: { ...process.env, GH_TOKEN: token } });
+    return "ok";
+  } catch (e) {
+    const s = `${e.stderr || ""}${e.stdout || ""}`;
+    if (/404|403|Not Found/i.test(s)) return "unreachable";
+    return "unknown";
+  }
+}
+
+const externalSources = resolveExternalSourcesAll().map((s) => {
+  const gate = s.type === "slack" ? probeSlackGate(s.ref) : probeGithubGate(s.ref);
+  const item = { type: s.type, name: s.name, ref: s.ref, gold: s.gold !== false };
+  if (s.type === "slack") item.notify = s.notify === true;
+  item.gate = gate;
+  return item;
+});
+
+// ---------- パイプライン一覧（エンジンreusableを uses しているスタブ） ----------
+// 「毎晩どの配管が動いているか」の宣言的な一覧。lastSuccess は gh で best-effort 取得
+// （権限不足・取得失敗はフィールド省略で静かに続行。engine-migrate はデータ配管ではないので除外）。
+function listPipelines() {
+  const dir = ".github/workflows";
+  const out = [];
+  for (const f of (listDir(dir) || []).sort()) {
+    if (!/\.ya?ml$/.test(f)) continue;
+    const text = readText(`${dir}/${f}`);
+    if (!text || !/uses:\s*\S*cortex-engine\/\.github\/workflows\//.test(text)) continue;
+    const id = f.replace(/\.ya?ml$/, "");
+    if (id === "engine-migrate") continue;
+    const nameM = text.match(/^name:\s*["']?(.+?)["']?\s*$/m);
+    const p = { id, label: nameM ? nameM[1] : id };
+    try {
+      const runs = execFileSync("gh", ["run", "list", "--workflow", f, "--status", "success", "-L", "1", "--json", "createdAt"],
+        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 10000 });
+      const arr = JSON.parse(runs);
+      if (arr.length && arr[0].createdAt) p.lastSuccess = arr[0].createdAt;
+    } catch {}
+    out.push(p);
+  }
+  return out;
+}
+const pipelines = listPipelines();
+
 // ---------- 評価 ----------
 let okW = 0, denW = 0;
 const checks = CHECKS.map((c) => {
@@ -201,6 +285,8 @@ const out = {
   // エンジン分離の状態（巡回エージェントがフリートのバージョン分布・移行状況を見る）
   engine: { migrated: engineMigrated, version: engineVersion, channel: engineChannel, schemaVersion },
   score, checks, nextActions,
+  // 外部ソース接続状況（gate=物理ゲート実測）と夜間パイプライン一覧（AISビューア表示用）
+  externalSources, pipelines,
 };
 writeFileSync("fleet-status.json", JSON.stringify(out, null, 2) + "\n");
 
