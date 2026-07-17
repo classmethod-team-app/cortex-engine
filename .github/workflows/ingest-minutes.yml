@@ -125,7 +125,7 @@ jobs:
           EOF
           )
           # 無人実行（ephemeralなCIランナー）のため権限確認はスキップする
-          claude -p "$PROMPT" --max-turns 40 --dangerously-skip-permissions
+          claude -p "$PROMPT" --max-turns 60 --dangerously-skip-permissions
 
       - name: Push（競合時はrebaseで再試行）
         if: steps.pre.outputs.run == 'true'
