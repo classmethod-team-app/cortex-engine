@@ -281,23 +281,21 @@ jobs:
             link="https://github.com/${REPO}/tree/main/Cortex"
             daily_link="https://github.com/${REPO}/blob/main/$(python3 -c 'import urllib.parse,sys; print("/".join(urllib.parse.quote(p) for p in sys.argv[1].split("/")))' "$daily")"
           fi
-          # Viewer（Amplify）の再ビルドはpushから数分かかる。通知直後にリンクを踏んで
-          # 「見つかりません」にならないよう、サイトデータに当日のdaily IDが載るまで待つ（最大7分・best-effort）。
-          if [ -n "$base" ] && [ -f "$daily" ]; then
-            for i in $(seq 1 14); do
-              if curl -sS --max-time 20 "$base/" 2>/dev/null | grep -q "report:${today}-daily"; then
-                echo "Viewerへの反映を確認（約$((i*30))秒待機）"
-                break
-              fi
-              sleep 30
-            done
-          fi
+          # 配達は翌朝9時(JST)の予約投稿（夜中に鳴らさない）。予約時点でViewerの再ビルドは
+          # とうに完了しているため、旧実装の「反映待ちループ」は不要になった。
+          # 「次の9:00 JST」を計算。9:00 JST は同じ暦日の 0:00 UTC に等しい。
+          # 過去（またはバッファ2分未満）なら翌日9:00 JSTへ。
+          now=$(date -u +%s)
+          POST_AT=$(date -u -d "$(date -u -d '+9 hours' +%Y-%m-%d) 00:00:00 UTC" +%s)
+          [ $((POST_AT - now)) -gt 120 ] || POST_AT=$((POST_AT + 86400))
+          date_label=$(date -u -d '+9 hours' +%-m/%-d)
           if [ -n "$summary" ]; then
-            body=$(printf '📅 デイリーレポート → %s\n%s\n\n🌟 Gold昇格: Decision %s件 / 用語 %s件(draft) / メンバー %s件(draft)\n%sdraft のレビューをお願いします → %s' "$daily_link" "$summary" "$N" "$M" "$K" "$titles" "$link")
+            body=$(printf '📅 デイリーレポート（%s） → %s\n%s\n\n🌟 Gold昇格: Decision %s件 / 用語 %s件(draft) / メンバー %s件(draft)\n%sdraft のレビューをお願いします → %s' "$date_label" "$daily_link" "$summary" "$N" "$M" "$K" "$titles" "$link")
           else
-            body=$(printf '🌟 Gold昇格: Decision %s件 / 用語 %s件(draft) / メンバー %s件(draft)\n%sdraft のレビューをお願いします → %s' "$N" "$M" "$K" "$titles" "$link")
+            body=$(printf '🌟 Gold昇格（%s）: Decision %s件 / 用語 %s件(draft) / メンバー %s件(draft)\n%sdraft のレビューをお願いします → %s' "$date_label" "$N" "$M" "$K" "$titles" "$link")
           fi
-          printf '%s' "$body" | bash .cortex-engine/plugin/scripts/notify-slack.sh || true
+          echo "通知を翌朝9時(JST)に予約: $(date -u -d "@$POST_AT" +%Y-%m-%dT%H:%M:%SZ)"
+          printf '%s' "$body" | bash .cortex-engine/plugin/scripts/notify-slack.sh --post-at "$POST_AT" || true
 
       # 差分ゼロの夜: AI実行はスキップされるが、日次レポートの連続性のため status: skip のレコードを機械生成して積む。
       # frontmatterのsources件数が全て0＝AI(概要)不要。読み手（AI/巡回）は status: skip を見てボディを読まずに飛ばせる。

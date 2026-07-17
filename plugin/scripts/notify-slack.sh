@@ -4,9 +4,11 @@
 # 議事録レビュー依頼(ingest-minutes)・Gold昇格サマリ(update-gold)の通知に使う。
 #
 # 使い方:
-#   echo "<本文（mrkdwn）>" | notify-slack.sh [--mention-email <email>]
+#   echo "<本文（mrkdwn）>" | notify-slack.sh [--mention-email <email>] [--post-at <unix秒>]
 #   - 本文は stdin から受ける（クォート地獄回避）。
 #   - --mention-email があれば users.lookupByEmail で <@Uxxxx> を解決し本文の先頭行に付加。
+#   - --post-at があれば chat.scheduleMessage で予約投稿する（例: 夜間生成の通知を翌朝9時に配達）。
+#     不正値（過去時刻等）はチャンネル単位で warn スキップ（best-effort は不変）。
 #
 # 認証: SLACK_BOT_TOKEN（xoxb-）を Bearer で Slack Web API に渡す。
 #   スコープ chat:write（メンションには users:read.email）と、通知チャンネルへの bot 招待が前提。
@@ -27,16 +29,24 @@ if [ -z "$BODY" ]; then
   exit 0
 fi
 
-# 引数（--mention-email）をパース。
+# 引数（--mention-email / --post-at）をパース。
 MENTION_EMAIL=""
+POST_AT=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --mention-email)
       MENTION_EMAIL="${2:-}"; shift 2 ;;
+    --post-at)
+      POST_AT="${2:-}"; shift 2 ;;
     *)
       echo "::warning::notify-slack: 未知の引数 '$1' を無視します。" >&2; shift ;;
   esac
 done
+# --post-at は数値のみ受け付ける（不正なら即時投稿にフォールバック）。
+if [ -n "$POST_AT" ] && ! printf '%s' "$POST_AT" | grep -qE '^[0-9]+$'; then
+  echo "::warning::notify-slack: --post-at '$POST_AT' が不正なため即時投稿します。" >&2
+  POST_AT=""
+fi
 
 # トークン未設定 → notice して exit 0（best-effort）。
 if [ -z "${SLACK_BOT_TOKEN:-}" ]; then
@@ -141,16 +151,22 @@ sys.stdout.write("\n".join(lines))
   fi
 fi
 
-# 各チャンネルへ chat.postMessage（POST JSON: channel, text）。ok:false はチャンネル単位で warn スキップ。
+# 各チャンネルへ投稿（POST JSON: channel, text）。--post-at があれば chat.scheduleMessage で予約投稿。
+# ok:false はチャンネル単位で warn スキップ。
+METHOD="chat.postMessage"
+[ -z "$POST_AT" ] || METHOD="chat.scheduleMessage"
 payloadf="$TMPDIR_NS/payload.json"
 while IFS= read -r ch; do
   [ -n "$ch" ] || continue
-  # channel/text を JSON payload に組み立て（本文のエスケープを python に任せる）。
-  PAYLOAD="$payloadf" CH="$ch" python3 -c 'import json,os,sys
+  # channel/text（＋予約時は post_at）を JSON payload に組み立て（本文のエスケープを python に任せる）。
+  PAYLOAD="$payloadf" CH="$ch" POST_AT="$POST_AT" python3 -c 'import json,os,sys
 body=sys.stdin.read()
-json.dump({"channel": os.environ["CH"], "text": body}, open(os.environ["PAYLOAD"], "w", encoding="utf-8"))
+p={"channel": os.environ["CH"], "text": body}
+if os.environ.get("POST_AT"):
+    p["post_at"]=int(os.environ["POST_AT"])
+json.dump(p, open(os.environ["PAYLOAD"], "w", encoding="utf-8"))
 ' <<< "$BODY" 2>/dev/null || { echo "::warning::notify-slack: payload組み立て失敗（$ch）。スキップします。" >&2; continue; }
-  resp=$(slack_api chat.postMessage POST --data-binary "@$payloadf")
+  resp=$(slack_api "$METHOD" POST --data-binary "@$payloadf")
   ok=$(printf '%s' "$resp" | python3 -c 'import json,sys
 try:
     print("true" if json.load(sys.stdin).get("ok") else "false")
