@@ -91,6 +91,17 @@ jobs:
           role-to-assume: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # 【移行①シャドーモード】決定的パイプライン＋LLM関数化の新実装を、本番(claude -p)の前に「観察だけ」実行する。
+      # リポジトリの変更・コミット・pushは一切しない（判断ログと生成議事録をrun log / Step Summaryに出すのみ）。
+      # 失敗しても本番を止めない（continue-on-error）。カナリア切替は本シャドーの結果を見て別途。
+      - name: 議事録パイプライン（シャドー・観察のみ）
+        if: steps.pre.outputs.run == 'true' && steps.schema.outputs.current == 'true'
+        continue-on-error: true
+        env:
+          INGEST_PIPELINE_MODE: shadow
+          ANTHROPIC_MODEL: global.anthropic.claude-sonnet-5 # 本番ステップと同一モデル
+        run: node .cortex-engine/plugin/scripts/ingest-minutes-pipeline.mjs
+
       - name: Claude Code をインストール
         if: steps.pre.outputs.run == 'true'
         run: npm i -g @anthropic-ai/claude-code
