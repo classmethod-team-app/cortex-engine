@@ -126,7 +126,7 @@ jobs:
           EOF
           )
           # 無人実行（ephemeralなCIランナー）のため権限確認はスキップする
-          claude -p "$PROMPT" --max-turns 60 --dangerously-skip-permissions
+          claude -p "$PROMPT" --max-turns 80 --dangerously-skip-permissions
 
       # 生成物がオントロジー規約に違反している場合、ここで止める（壊れたコミットをpushしない）
       - name: Cortexのスキーマ検証
