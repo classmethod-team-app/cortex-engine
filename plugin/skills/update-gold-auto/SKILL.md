@@ -158,11 +158,11 @@ sources:
 
 ## 新しい決定
 
-- [`YYYYMMDD-NNN` タイトル](<viewer_url>/?id=YYYYMMDD-NNN)（Phase Aで追加した Decision を列挙。無ければ「なし」）
+- [タイトル](<viewer_url>/?id=YYYYMMDD-NNN)（Phase Aで追加した Decision を列挙。表示はタイトルのみ・IDはURL内に。無ければ「なし」）
 
 ## 新しい用語 / メンバー
 
-- [`term:xxx` タイトル](<viewer_url>/?id=term%3Axxx)（同様に列挙。無ければ「なし」）
+- [タイトル](<viewer_url>/?id=term%3Axxx)（同様に列挙。無ければ「なし」）
 
 ## 動きのあった課題・会議
 
