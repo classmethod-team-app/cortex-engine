@@ -309,7 +309,9 @@ const pipelines = listPipelines();
 // ---------- リポ内同期ソース一覧（Gold昇格の読み取り対象の全体像） ----------
 // 夜間Gold昇格の差分ゲートはリポ全体の.md変更を見るため、実際の読み取り対象は外部ソースだけでなく
 // 同期ミラー（課題管理・会議・共有資料・デザイン）を含む。ビューアが全体像を表示するための一覧。
-// Home.md tools の宣言から列挙し（none は載せない）、ディレクトリ解決は既存の findDirByMarker を再利用。
+// Home.md tools の宣言から4能力（課題管理・会議・共有資料・デザイン）を常に列挙し、
+// none・未記載は enabled:false の非活性行として出す（アダプターの品揃えを隠さない）。
+// ディレクトリ解決は既存の findDirByMarker を再利用。
 // lastSync は取得済み pipelines の lastSuccess を対応付けて再利用（追加のAPI呼び出しをしない）。
 // 開発（github）とチャット（slack）は externalSources 側で表現済みのため載せない。
 function pipelineLastSuccess(id) {
@@ -403,12 +405,21 @@ function listInternalSources() {
   ];
   const out = [];
   for (const d of defs) {
-    // tools 宣言があればそれに従う（none・未記載は載せない）。未宣言（旧構成）の案件は既定ツールで推測
+    // tools 宣言があればそれに従う。未宣言（旧構成）の案件は既定ツールで推測
     // （デザインだけは figma.json の実値の有無で推測。既存チェックの usesFigmaInfer と同思想）。
     const tool = tools === null
       ? (d.kind === "デザイン" ? (usesFigmaInfer ? "figma" : null) : d.def)
       : tools[d.kind];
-    if (!tool || tool === "none") continue;
+    if (tools === null) {
+      // 旧構成: 推測できない能力は従来どおり載せない
+      if (!tool) continue;
+    } else if (!tool || tool === "none") {
+      // 「アダプターとして何があるか」を常に全部見せる方針: none・未記載でも行は出し、
+      // enabled:false で未使用（非活性）を表現する（url/lastSync/matchKeys 等の詳細は付けない）。
+      out.push({ kind: d.kind, tool: "none", label: d.kind, enabled: false });
+      continue;
+    }
+    // 有効エントリは enabled を付けない（省略＝true扱い）
     const item = { kind: d.kind, tool, label: d.label(tool) };
     const url = d.url ? d.url(tool) : undefined;
     if (url) item.url = url;
