@@ -249,7 +249,8 @@ const externalSources = resolveExternalSourcesAll().map((s) => {
 });
 
 // ---------- パイプライン一覧（エンジンreusableを uses しているスタブ） ----------
-// 「毎晩どの配管が動いているか」の宣言的な一覧。lastSuccess は gh で best-effort 取得
+// 「毎晩どの配管が動いているか」の宣言的な一覧。lastSuccess と直近completed runの成否
+// （lastConclusion/lastRun）を gh で best-effort 取得
 // （権限不足・取得失敗はフィールド省略で静かに続行。engine-migrate はデータ配管ではないので除外）。
 function listPipelines() {
   const dir = ".github/workflows";
@@ -267,6 +268,16 @@ function listPipelines() {
         { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 10000 });
       const arr = JSON.parse(runs);
       if (arr.length && arr[0].createdAt) p.lastSuccess = arr[0].createdAt;
+    } catch {}
+    // 直近の completed run の成否（in_progress しか無い場合に備え直近5件から探す）。＋1コール/パイプラインまで。
+    try {
+      const runs = execFileSync("gh", ["run", "list", "--workflow", f, "-L", "5", "--json", "status,conclusion,createdAt"],
+        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 10000 });
+      const done = JSON.parse(runs).find((r) => r.status === "completed");
+      if (done) {
+        if (done.conclusion) p.lastConclusion = done.conclusion;
+        if (done.createdAt) p.lastRun = done.createdAt;
+      }
     } catch {}
     out.push(p);
   }
@@ -302,6 +313,54 @@ function figmaFileUrl() {
     return `https://www.figma.com/design/${key}`;
   } catch { return undefined; }
 }
+/** 設定ファイルをリポ内から探す（ルート直下→1階層→2階層。notetakerのProjects.gsと同じ発想の探索） */
+function findConfigPath(marker) {
+  if (readText(marker) != null) return marker;
+  try {
+    for (const d of readdirSync(".", { withFileTypes: true })) {
+      if (!d.isDirectory() || d.name === "node_modules" || d.name.startsWith(".")) continue;
+      if (readText(`${d.name}/${marker}`) != null) return `${d.name}/${marker}`;
+      for (const sub of (listDir(d.name) || [])) {
+        if (readText(`${d.name}/${sub}/${marker}`) != null) return `${d.name}/${sub}/${marker}`;
+      }
+    }
+  } catch {}
+  return null;
+}
+/** Home.md frontmatter の client 名（会議照合の既定キー）。未記入・空は "" */
+const clientName = (() => {
+  const m = home && home.match(/^client:\s*["']?([^"'\n#]*?)["']?\s*(?:#.*)?$/m);
+  return m ? m[1].trim() : "";
+})();
+/** 会議の照合キー: client名 ＋ ingest-config.json の meetingNamePatterns（無効・未設置は undefined） */
+function meetingMatchKeys() {
+  const p = findConfigPath("ingest-config.json");
+  if (!p) return undefined;
+  try {
+    const cfg = JSON.parse(readText(p) || "");
+    if (!cfg.enabled) return undefined;
+    const keys = [clientName, ...(cfg.meetingNamePatterns || [])]
+      .map((s) => String(s).trim()).filter((s) => s && !/\{\{/.test(s));
+    return keys.length ? [...new Set(keys)] : undefined;
+  } catch { return undefined; }
+}
+/** 共有資料の Drive 同期状態: 有効なら url（先頭）＋複数時 urls、未設置/無効/空なら driveSync:false */
+function materialsExtras() {
+  const p = findConfigPath("materials-config.json");
+  if (p) {
+    try {
+      const cfg = JSON.parse(readText(p) || "");
+      const ids = (cfg.driveFolderIds || []).filter(Boolean);
+      if (cfg.enabled && ids.length) {
+        const urls = ids.map((id) => `https://drive.google.com/drive/folders/${id}`);
+        const ex = { url: urls[0] };
+        if (urls.length > 1) ex.urls = urls;
+        return ex;
+      }
+    } catch {}
+  }
+  return { driveSync: false };
+}
 function listInternalSources() {
   const defs = [
     { kind: "課題管理", def: "backlog",
@@ -309,9 +368,13 @@ function listInternalSources() {
       url: (t) => (t === "backlog" ? backlogProjectUrl() : undefined), pipeline: "sync-backlog" },
     { kind: "会議", def: "google-meet",
       label: (t) => (t === "google-meet" ? "会議の文字起こし・議事録" : `会議の文字起こし・議事録（${toolDisp(t)}）`),
+      // 取り込み対象の会議名の照合キー（ビューアが「この語が会議名に入れば取り込まれる」を表示）
+      extra: () => { const keys = meetingMatchKeys(); return keys ? { matchKeys: keys } : {}; },
       pipeline: "ingest-minutes" },
     { kind: "共有資料", def: "google-drive",
       label: (t) => (t === "google-drive" ? "共有資料（Drive同期・Markdown変換）" : `共有資料（Markdown変換）（${toolDisp(t)}）`),
+      // Drive自動同期の設定状態（未設定は driveSync:false でUIに正直に示す）
+      extra: () => materialsExtras(),
       pipeline: "sync-materials" },
     { kind: "デザイン", def: "figma",
       label: (t) => (t === "figma" ? "デザイン（画面インベントリ・DESIGN.md）" : `デザイン（${toolDisp(t)}）`),
@@ -328,6 +391,7 @@ function listInternalSources() {
     const item = { kind: d.kind, tool, label: d.label(tool) };
     const url = d.url ? d.url(tool) : undefined;
     if (url) item.url = url;
+    if (d.extra) Object.assign(item, d.extra(tool));
     const last = pipelineLastSuccess(d.pipeline);
     if (last) item.lastSync = last;
     out.push(item);
