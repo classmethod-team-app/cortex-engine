@@ -11,17 +11,18 @@
 # 出力: 取得できた外部コンテンツをソース見出し付きテキストで stdout に。何も無ければ空出力・exit 0。
 #
 # 設計メモ（重要・変えないこと）:
-# - 「登録する＝Gold昇格してよい」という人間の明示判断。record単位のvisibilityフラグは持たない。
+# - 既定ソースは既存宣言から自動導出する（チャット/channels.json の slack・.gitmodules の開発/配下submodule）。
+#   external-sources.json は特殊ソースの追加登録＋exclude 専用。導出・マージ・除外は resolve-external-sources.mjs が担う。
+# - 「（導出 or 登録された）＝Gold昇格してよい」という前提。record単位のvisibilityフラグは持たない。
 #   ただしAI抽出時の公開範囲フィルタ（内部限定情報をDecisionに書かない）はスキル側で維持する。
 # - 取得失敗（権限無し・graphql失敗等）はソース単位で warn してスキップし、他ソース・全体を止めない。
 #   失敗＝「活動なし」として扱い出力しない（＝差分ゲートで changed に寄与させない。空振りAI実行を避ける）。
-# - Cortex/external-sources.json が無ければ何も出力せず exit 0（未設定案件で無害）。
+# - 解決済みソースが 0 件なら何も出力せず exit 0（未設定案件で無害）。
 # - slack type は SLACK_BOT_TOKEN と bot 招待済みチャンネルのみ無人読み取り。トークン未設定/未招待/権限不足は
 #   「活動なし」として扱いスキップ（GHの権限エラーと同じ思想でゲートを膨らませない）。スレッド/ページングは安全上限付き。
 set -euo pipefail
 
-CONFIG="Cortex/external-sources.json"
-[ -e "$CONFIG" ] || exit 0
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 SINCE_RAW="${1:-}"
 # gh search は日付粒度（YYYY-MM-DD）。SINCE の日付部分を使う。
@@ -44,18 +45,22 @@ fi
 TMPDIR_EXT=$(mktemp -d)
 trap 'rm -rf "$TMPDIR_EXT"' EXIT
 
-# 設定を "type<TAB>ref" 行に正規化（jq非依存でpython3を使う。CIランナー・macに標準搭載）。
-# decisions は任意フィールド（"none" / 省略）。取得側では使わない（Decision化の可否は skill 側の判定責務）。
-SOURCES=$(CONFIG="$CONFIG" python3 <<'PY'
+# 導出＋明示登録をマージした解決済みソースを resolve-external-sources.mjs から得る（JSON配列）。
+# 導出・dedupe・除外の一元化ロジックは mjs 側。node が無い/失敗時は空配列にフォールバックし無害に終了。
+RESOLVED=$(node "$SCRIPT_DIR/resolve-external-sources.mjs") || RESOLVED="[]"
+
+# 解決済みリストを "type<TAB>ref" 行に正規化（jq非依存でpython3を使う。CIランナー・macに標準搭載）。
+# decisions 等の任意オプションは取得側では使わない（Decision化の可否は skill 側の判定責務）。
+SOURCES=$(RESOLVED="$RESOLVED" python3 <<'PY'
 import json, os, sys
 try:
-    data = json.load(open(os.environ["CONFIG"], encoding="utf-8"))
+    data = json.loads(os.environ.get("RESOLVED") or "[]")
 except Exception:
     sys.exit(0)
-for s in (data.get("sources") or []):
+for s in (data or []):
     t = s.get("type", "")
-    ref = s.get("repo") or s.get("channel") or ""
-    if t:
+    ref = s.get("ref") or ""
+    if t and ref:
         print(f"{t}\t{ref}")
 PY
 )

@@ -1,5 +1,5 @@
 {
-  "_note": "platform は slack | teams（省略時は slack）。Microsoft Teams のチャンネルは \"platform\": \"teams\" を指定する。\"notify\": true を付けたチャンネルには Cortex の自動通知（議事録レビュー依頼・Gold昇格サマリ）が届く（省略時は false=通知しない・複数指定可・現状 slack のみ対応）。前提: Slack App（Bot）に chat:write（メンションには users:read.email）を付与し、通知チャンネルに bot を招待しておくこと。通知先は公開範囲を考慮して選ぶ（顧客同席チャンネルに流すかは案件判断）",
+  "_note": "platform は slack | teams（省略時は slack）。Microsoft Teams のチャンネルは \"platform\": \"teams\" を指定する。\"notify\": true を付けたチャンネルには Cortex の自動通知（議事録レビュー依頼・Gold昇格サマリ）が届く（省略時は false=通知しない・複数指定可・現状 slack のみ対応）。前提: Slack App（Bot）に chat:write（メンションには users:read.email）を付与し、通知チャンネルに bot を招待しておくこと。通知先は公開範囲を考慮して選ぶ（顧客同席チャンネルに流すかは案件判断）。\"gold\"（既定 true）: 夜間Gold昇格(update-gold)がこのチャンネルを読み取り対象にするか。platform=slack のチャンネルは既定で自動的に読み取り対象になる（bot招待済みのものだけ実際に読める）。特定チャンネルを蒸留対象から外したいときだけ \"gold\": false を付ける（通知の notify とは独立のフラグ）。",
   "channels": [
     {
       "name": "社内議論",

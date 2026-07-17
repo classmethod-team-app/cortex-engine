@@ -199,22 +199,27 @@ git pull
 
 > どの案件にも一致しなかった文字起こしは中央 inbox（未仕分け）に入り、データは失われません。
 
-## ステップ11.5: 外部ソースの Gold 昇格対象登録（任意）
+## ステップ11.5: 外部ソースの Gold 昇格（既定は自動導出・追加登録は任意）
 
-夜間 Gold 昇格（update-gold）は、リポ内差分に加えて**外部ソース（GitHub Issues/Discussions・Slack）**からも決定・用語を抽出できます。開発リポの Issues/Discussions で仕様や決定を議論している案件、あるいは決定が Slack に集約される案件で使います。
+夜間 Gold 昇格（update-gold）は、リポ内差分に加えて**外部ソース（GitHub Issues/Discussions・Slack）**からも決定・用語を抽出します。**既定ソースは既存の宣言から自動導出される**ので、通常このステップで追加作業は要りません:
 
-> **登録＝Gold 昇格してよいという人間の明示判断**です。登録したソースの中身は Decision/用語（顧客可視の Gold 層）に昇格されます（AI は抽出時に内部限定情報を除くフィルタを維持しますが、そもそも顧客に見せてよいソースだけを登録してください）。
+- **Slack**: `チャット/channels.json` の `platform: slack` チャンネルが自動的に読み取り対象（`Home.md` の `tools` でチャットが `slack` のとき）。特定チャンネルを外したいときは、そのエントリに `"gold": false` を付ける（opt-out）。
+- **開発リポ Issues**: `.gitmodules` の `開発/` 配下 submodule（`開発/wiki` 除外）の GitHub Issues が自動的に読み取り対象（`tools` の開発が `github` のとき）。
 
-> 登録した外部ソースは**議事録・課題と同じ基準**で抽出されます（Decision=「〜で決定/合意した」等の確定表現のみ・未確定は除外／用語=広く／未登録の発言者はメンバーdraft起票）。Issue/Slack の全部が決定として取り込まれるわけではなく、確定した決定だけが昇格します。Decision を作りたくないソースは `decisions: "none"` を付けます。
+> **導出/登録＝Gold 昇格してよいという前提**です。中身は Decision/用語（顧客可視の Gold 層）に昇格されます。AI は抽出時に内部限定情報を除くフィルタを維持しますが、そもそも顧客に見せてよいソースだけを対象にしてください。**議事録・課題と同じ基準**で抽出されます（Decision=確定表現のみ・未確定は除外／用語=広く／未登録の発言者はメンバーdraft起票）。
 
-1. `Cortex/external-sources.json` の `sources` に登録する（既定は空）:
-   - `{ "type": "github-issues", "repo": "owner/repo" }`
-   - `{ "type": "github-issues", "repo": "owner/repo", "decisions": "none" }`（このソースからは Decision を作らない＝用語・参照のみ、にしたい場合）
-   - `{ "type": "github-discussions", "repo": "owner/repo" }`
-   - `{ "type": "slack", "channel": "C0XXXX" }`（チャンネルID。決定が Slack に集約される案件向け。チャットは高ノイズなので登録は絞る）
-2. **対象リポが非公開、または case repo と別リポ**なら、`EXTERNAL_SOURCES_TOKEN`（対象リポの Issues/Discussions: Read を持つ Fine-grained PAT）を repo secret に登録する（ステップ6の表）。未設定なら case repo の `github.token` で読める範囲（公開/同一リポ）に限られます。将来は `sync-fleet-secrets` の共有シークレット候補に載せてチーム配布することも可能です。
-3. **Slack を登録する場合**は `SLACK_BOT_TOKEN`（ステップ6の表・上記スコープ）を repo secret に登録し、**登録した各チャンネルに bot を招待**しておく（bot 招待済みチャンネルだけ読める＝公開範囲の境界）。中央 Bot Token を使う場合は `sync-fleet-secrets` で配布できます。未設定・未招待のチャンネルは「活動なし」として安全にスキップされます。
-4. 動作確認は `gh workflow run update-gold.yml`（外部に更新があれば差分ゲートが `changed=true` になり精製が走る）。
+**追加登録（任意）**: 既定の導出から外れる特殊ソースは `Cortex/external-sources.json` に登録します（github-discussions・導出対象外の追加リポ・channels.json に無い追加チャンネル等。既定は空でよい）:
+
+- `{ "type": "github-discussions", "repo": "owner/repo" }`
+- `{ "type": "github-issues", "repo": "owner/repo", "decisions": "none" }`（このソースからは Decision を作らない＝用語・参照のみ）
+- `{ "type": "slack", "channel": "C0XXXX" }`（channels.json に無い追加チャンネルを足す場合）
+- 導出された特定リポを Issues 抽出から外したいときは `"exclude": ["owner/repo"]` に列挙する。
+
+認証と前提:
+
+1. **対象リポが非公開、または case repo と別リポ**なら、`EXTERNAL_SOURCES_TOKEN`（対象リポの Issues/Discussions: Read を持つ Fine-grained PAT）を repo secret に登録する（ステップ6の表）。未設定なら case repo の `github.token` で読める範囲（公開/同一リポ）に限られます。将来は `sync-fleet-secrets` の共有シークレット候補に載せてチーム配布することも可能です。
+2. **Slack を対象にする場合**は `SLACK_BOT_TOKEN`（ステップ6の表・上記スコープ）を repo secret に登録し、**対象の各チャンネルに bot を招待**しておく（bot 招待済みチャンネルだけ読める＝公開範囲の境界）。中央 Bot Token を使う場合は `sync-fleet-secrets` で配布できます。未設定・未招待のチャンネルは「活動なし」として安全にスキップされます。
+3. 動作確認は `gh workflow run update-gold.yml`（外部に更新があれば差分ゲートが `changed=true` になり精製が走る）。
 
 ## ステップ13: README の仕上げ
 

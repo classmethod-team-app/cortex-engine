@@ -144,8 +144,9 @@ jobs:
       # ソース差分が無い夜はAI実行（Bedrock課金・Claudeインストール）を丸ごとスキップする。
       # 判定はスキルのステップ1と同一スクリプト（changed-sources.sh）で行い、二重定義を避ける。
       # ゲートはBacklog同期の後に置く（同期が持ち込む未コミット変更も検査対象に含めるため）。
-      # 差分ゲート: リポ内差分(changed-sources.sh)に加えて、Cortex/external-sources.json に
-      # 登録された外部ソース(GitHub Issues/Discussions)の活動(external-sources.sh)も見る。
+      # 差分ゲート: リポ内差分(changed-sources.sh)に加えて、外部ソース(GitHub Issues/Discussions・Slack)の
+      # 活動(external-sources.sh)も見る。対象は既定の自動導出(channels.json・.gitmodules)＋external-sources.jsonの
+      # 明示登録を resolve-external-sources.mjs が解決する。
       # どちらかが非空なら changed=true（リポが静かでも外部に動きがあれば夜間精製を走らせる）。
       # 差分ゼロ最適化は「リポも外部も動きなし」の夜だけスキップ、を維持する。
       # external-sources.sh は権限エラー等を「活動なし」として扱うため、権限不備で毎晩空振りAI実行にはならない。
