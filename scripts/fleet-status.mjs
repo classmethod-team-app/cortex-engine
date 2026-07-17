@@ -252,6 +252,26 @@ const externalSources = resolveExternalSourcesAll().map((s) => {
 // 「毎晩どの配管が動いているか」の宣言的な一覧。lastSuccess と直近completed runの成否
 // （lastConclusion/lastRun）を gh で best-effort 取得
 // （権限不足・取得失敗はフィールド省略で静かに続行。engine-migrate はデータ配管ではないので除外）。
+// applicable: Home.md tools の宣言からこの案件での適用可否を判定し、対象外だけ false を付ける
+// （適用対象はフィールド省略＝true扱い。tools 未宣言の案件は判定材料が無いので全て適用扱い）。
+// run結果（lastSuccess/lastConclusion）は対象外でもデータとして残す（過去に動いていた履歴の保全）。
+function pipelineApplicable(id) {
+  if (tools === null) return true;
+  switch (id) {
+    case "sync-designs":
+    case "update-design-notes":
+      return tools["デザイン"] !== "none";
+    case "sync-materials":
+      return tools["共有資料"] !== "none";
+    case "sync-backlog":
+    case "backlog-webhook-sync":
+      return tools["課題管理"] === "backlog";
+    case "ingest-minutes":
+      return tools["会議"] !== "none";
+    default:
+      return true; // update-gold / validate-cortex / fleet-status / weekly-report 等は常に適用
+  }
+}
 function listPipelines() {
   const dir = ".github/workflows";
   const out = [];
@@ -263,6 +283,7 @@ function listPipelines() {
     if (id === "engine-migrate") continue;
     const nameM = text.match(/^name:\s*["']?(.+?)["']?\s*$/m);
     const p = { id, label: nameM ? nameM[1] : id };
+    if (!pipelineApplicable(id)) p.applicable = false;
     try {
       const runs = execFileSync("gh", ["run", "list", "--workflow", f, "--status", "success", "-L", "1", "--json", "createdAt"],
         { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 10000 });
