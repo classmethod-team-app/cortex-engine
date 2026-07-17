@@ -266,7 +266,8 @@ const SCHEMAS = {
       "tools",
       // AIS Viewer のURL（任意。Slack通知のリンク先等に使う）
       "viewer_url",
-      // エンジン設定（schema_version はマイグレーションが管理・channel は配布チャンネルの表示）
+      // エンジン設定（schema_version はマイグレーションが管理・channel は配布チャンネルの表示・
+      // dev_dir は開発submoduleの置き場宣言＝外部ソース導出の対象範囲）
       "engine",
     ],
     validate(fm, _fileName, errors) {
@@ -274,12 +275,14 @@ const SCHEMAS = {
         errors.push(`Homeのidはoverview:home固定（実際: ${fm.id}）`);
       if (fm.engine != null) {
         if (typeof fm.engine !== "object" || Array.isArray(fm.engine))
-          errors.push("engineはマップで書く（schema_version / channel）");
+          errors.push("engineはマップで書く（schema_version / channel / dev_dir）");
         else {
           if (fm.engine.schema_version != null && !Number.isInteger(fm.engine.schema_version))
             errors.push(`engine.schema_versionは整数（実際: ${fm.engine.schema_version}）`);
           if (fm.engine.channel && !["stable", "canary"].includes(fm.engine.channel))
             errors.push(`engine.channelはstable|canary（実際: ${fm.engine.channel}）`);
+          if (fm.engine.dev_dir != null && typeof fm.engine.dev_dir !== "string")
+            errors.push(`engine.dev_dirは文字列（実際: ${fm.engine.dev_dir}）`);
         }
       }
       if (fm.kind && !["案件", "社内プロジェクト"].includes(fm.kind))

@@ -25,6 +25,9 @@ tools:
   デザイン: none # figma | none
   開発: none # github（ソースをsubmodule同梱） | none
 viewer_url: "" # AIS Viewer のURL（任意。ビューアデプロイ後に記入。Slack通知のリンク先等に使う）
+# エンジン設定（schema_version はマイグレーションが管理し手編集しない。dev_dir は任意・必要時のみ宣言）
+# engine:
+#   dev_dir: 開発 # 開発submoduleの置き場が「開発/」以外の場合に宣言（例: GitHub）。外部ソース導出（github-issues）の対象範囲になる
 ---
 
 # Home

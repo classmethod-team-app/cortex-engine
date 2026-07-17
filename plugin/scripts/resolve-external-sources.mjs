@@ -6,15 +6,19 @@
 // fetcher（external-sources.sh）はこの出力を回すだけになる。
 //
 // 入力: cwd（リポジトリルート）。読むもの:
-//   - Cortex/Home.md           の frontmatter tools（チャット/開発 のゲート判定）
+//   - Cortex/Home.md           の frontmatter tools（チャット/開発 のゲート判定）と
+//                              engine.dev_dir（開発submoduleの置き場の宣言。省略時は「開発」）
 //   - チャット/channels.json    （既定 slack チャンネルの導出元。gold:false は除外）
-//   - .gitmodules              （既定 github-issues の導出元。開発/配下のsubmoduleのみ・開発/wiki除外）
+//   - .gitmodules              （既定 github-issues の導出元。dev_dir 配下のsubmoduleのみ・wiki除外）
 //   - Cortex/external-sources.json（特殊ソースの明示登録＋exclude）
 // いずれも無ければその導出/マージをスキップする（1件も無ければ空配列）。
 //
 // 公開範囲の防衛線（重要・変えないこと）:
-//   - 開発リポの導出対象は path が「開発/」配下のsubmoduleに限定する。開発/外のsubmoduleは
-//     内部情報用privateリポの可能性があるため絶対に導出対象にしない。開発/wiki も除外。
+//   - 開発リポの導出対象は path が dev_dir（既定: 開発/）配下のsubmoduleに限定する。dev_dir 配下以外の
+//     submoduleは内部情報用privateリポの可能性があるため絶対に導出対象にしない。
+//     wiki（path末尾が /wiki・リポ名が .wiki で終わるもの）も除外する。
+//   - dev_dir に危険値（`/`始まり・`.`始まり・`..`セグメント等）が宣言されていたら無効として warn し、
+//     既定の「開発」にフォールバックする（宣言ミスで防衛線が広がらないようにする）。
 //   - 除外（gold:false チャンネル・exclude リポ）は最終フィルタとして常に効かせる（読まない側に倒す）。
 //
 // 設計メモ:
@@ -24,6 +28,8 @@
 //   - dedupe は type+ref 単位。明示登録を優先し、そのオプション（decisions 等）を保持する。
 
 import fs from "node:fs";
+
+const DEFAULT_DEV_DIR = "開発";
 
 const warn = (msg) => process.stderr.write(`::warning::resolve-external-sources: ${msg}\n`);
 
@@ -46,12 +52,12 @@ function readJsonOr(path) {
   }
 }
 
-// Home.md frontmatter の tools ブロックから チャット/開発 等の値を読む（YAML依存なしの最小パース）。
-function readTools(homePath) {
-  const raw = readFileOr(homePath);
-  if (raw === null) return {};
+// Home.md frontmatter から指定マップブロック（tools / engine 等）の key:value を読む（YAML依存なしの最小パース）。
+function readFrontmatterMap(raw, blockName) {
+  const map = {};
+  if (raw === null) return map;
   const lines = raw.split(/\r?\n/);
-  if (lines[0]?.trim() !== "---") return {};
+  if (lines[0]?.trim() !== "---") return map;
   // frontmatter（先頭 --- 〜 次の ---）を切り出す
   let end = -1;
   for (let i = 1; i < lines.length; i++) {
@@ -61,29 +67,50 @@ function readTools(homePath) {
     }
   }
   const fm = end === -1 ? lines.slice(1) : lines.slice(1, end);
-  const tools = {};
-  let inTools = false;
-  let toolsIndent = 0;
+  let inBlock = false;
+  let blockIndent = 0;
+  const blockRe = new RegExp(`^${blockName}:\\s*(#.*)?$`);
   for (const line of fm) {
     if (line.trim() === "" || line.trimStart().startsWith("#")) continue;
     const indent = line.length - line.trimStart().length;
-    if (!inTools) {
-      if (/^tools:\s*$/.test(line.trim()) || /^tools:\s*(#.*)?$/.test(line)) {
-        inTools = true;
-        toolsIndent = indent;
+    if (!inBlock) {
+      if (indent === 0 && blockRe.test(line)) {
+        inBlock = true;
+        blockIndent = indent;
       }
       continue;
     }
-    // tools ブロックはネスト（toolsIndentより深い）。同階層以下に戻ったら終了。
-    if (indent <= toolsIndent) break;
+    // ブロックはネスト（blockIndentより深い）。同階層以下に戻ったら終了。
+    if (indent <= blockIndent) break;
     const m = line.match(/^\s*([^:#]+):\s*(.*)$/);
     if (!m) continue;
     const key = m[1].trim();
     // インラインコメント除去 → クォート除去
     let val = m[2].split("#")[0].trim().replace(/^["']|["']$/g, "");
-    tools[key] = val;
+    map[key] = val;
   }
-  return tools;
+  return map;
+}
+
+// engine.dev_dir を検証して開発submodule置き場を決める。危険値・不正値は warn して既定にフォールバック。
+// 防衛線: 宣言ミス（絶対パス・上方参照等）で導出範囲が広がることを防ぐ（読まない側に倒す）。
+function resolveDevDir(engine) {
+  const declared = (engine.dev_dir || "").trim();
+  if (!declared) return DEFAULT_DEV_DIR;
+  // 末尾スラッシュだけは正規化として許容
+  const v = declared.replace(/\/+$/, "");
+  const segments = v.split("/");
+  const dangerous =
+    v === "" ||
+    v.startsWith("/") ||
+    v.startsWith(".") ||
+    v.includes("\\") ||
+    segments.some((s) => s === "" || s === "." || s === "..");
+  if (dangerous) {
+    warn(`engine.dev_dir '${declared}' は無効な値のため無視し、既定の「${DEFAULT_DEV_DIR}」を使います。`);
+    return DEFAULT_DEV_DIR;
+  }
+  return v;
 }
 
 // channels.json の slack チャンネルを {ref(ID), name, gold} に正規化。platform 省略時は slack。
@@ -117,8 +144,8 @@ function normalizeGithubRepo(url) {
   return null;
 }
 
-// .gitmodules から 開発/配下（開発/wiki除外）のsubmoduleを github-issues として導出。
-function deriveGithubRepos() {
+// .gitmodules から dev_dir 配下（wiki除外）のsubmoduleを github-issues として導出。
+function deriveGithubRepos(devDir) {
   const raw = readFileOr(".gitmodules");
   if (raw === null) return [];
   const out = [];
@@ -126,13 +153,16 @@ function deriveGithubRepos() {
   const flush = () => {
     if (!cur) return;
     const path = cur.path || "";
-    // 公開範囲の防衛線: 開発/配下のみ。開発/wiki は除外。開発/外は絶対に導出しない。
-    const underDev = path === "開発" || path.startsWith("開発/");
-    const isWiki = path === "開発/wiki" || path.startsWith("開発/wiki/");
-    if (underDev && !isWiki) {
+    // 公開範囲の防衛線: dev_dir 配下のみ。dev_dir 外は絶対に導出しない。
+    const underDev = path === devDir || path.startsWith(`${devDir}/`);
+    // wiki 除外: path 末尾が /wiki のもの（配下含む）
+    const isWikiPath = path === `${devDir}/wiki` || path.endsWith("/wiki") || path.includes("/wiki/");
+    if (underDev && !isWikiPath) {
       const repo = normalizeGithubRepo(cur.url || "");
       if (!repo) {
         warn(`submodule '${path}' の url (${cur.url || ""}) をGitHubリポとして解釈できません。導出をスキップします。`);
+      } else if (repo.endsWith(".wiki")) {
+        // wiki 除外: リポ名が .wiki で終わるもの（pathがwiki風でなくても除外）
       } else {
         out.push({ ref: repo, name: repo });
       }
@@ -163,7 +193,9 @@ function deriveGithubRepos() {
 }
 
 function main() {
-  const tools = readTools("Cortex/Home.md");
+  const home = readFileOr("Cortex/Home.md");
+  const tools = readFrontmatterMap(home, "tools");
+  const engine = readFrontmatterMap(home, "engine");
   const derived = [];
 
   // ゲート: チャット:slack のときだけ slack を導出
@@ -172,9 +204,10 @@ function main() {
       derived.push({ type: "slack", ref: ch.ref, name: ch.name, gold: ch.gold });
     }
   }
-  // ゲート: 開発:github のときだけ github-issues を導出
+  // ゲート: 開発:github のときだけ github-issues を導出（対象は dev_dir 配下のsubmodule）
   if ((tools["開発"] || "").toLowerCase() === "github") {
-    for (const r of deriveGithubRepos()) {
+    const devDir = resolveDevDir(engine);
+    for (const r of deriveGithubRepos(devDir)) {
       derived.push({ type: "github-issues", ref: r.ref, name: r.name });
     }
   }

@@ -275,6 +275,7 @@ stable ブランチ & v1 タグを前進 ──自動──> 全案件（plugin=
 engine:
   channel: stable        # stable | canary（表示用。実体は settings.json とスタブの ref）
   schema_version: 1      # データスキーマ版。マイグレーションが更新する（手編集しない）
+  # dev_dir: 開発        # 任意。開発submoduleの置き場（既定: 開発）。外部ソース導出（github-issues）の対象範囲
 ```
 
 `tools:` マップ（能力→ツール）は現行どおりで、**エンジン側スキル・ワークフローの分岐入力に昇格**する（例: `課題管理: jira` なら backlog 系スキルは Jira 実装で動く…は将来。本リリース時点では applicability 判定＝対象外スキップに使う現行機能を維持）。

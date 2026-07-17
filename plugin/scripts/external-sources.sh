@@ -11,7 +11,7 @@
 # 出力: 取得できた外部コンテンツをソース見出し付きテキストで stdout に。何も無ければ空出力・exit 0。
 #
 # 設計メモ（重要・変えないこと）:
-# - 既定ソースは既存宣言から自動導出する（チャット/channels.json の slack・.gitmodules の開発/配下submodule）。
+# - 既定ソースは既存宣言から自動導出する（チャット/channels.json の slack・.gitmodules の dev_dir（既定: 開発/）配下submodule）。
 #   external-sources.json は特殊ソースの追加登録＋exclude 専用。導出・マージ・除外は resolve-external-sources.mjs が担う。
 # - 「（導出 or 登録された）＝Gold昇格してよい」という前提。record単位のvisibilityフラグは持たない。
 #   ただしAI抽出時の公開範囲フィルタ（内部限定情報をDecisionに書かない）はスキル側で維持する。

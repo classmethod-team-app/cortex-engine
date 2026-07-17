@@ -30,7 +30,7 @@ bash "<SKILL_DIR>/../../scripts/changed-sources.sh" "${SINCE:-}" "Cortex/"
 
 - 出力された各行を「当日の対象リポ差分ソース」とする。
 
-**外部ソースの取得**: 外部ソース（GitHub Issues/Discussions/Slack）から、`SINCE` 以降に更新されたコンテンツを取得する。取得対象は既定の自動導出＋明示登録から `resolve-external-sources.mjs` が解決する——(1)`チャット/channels.json` の slack チャンネル（Home.md `tools` のチャットが slack のとき・`gold: false` は除外）(2)`.gitmodules` の `開発/` 配下 submodule（`開発/wiki` 除外・Home.md `tools` の開発が github のとき）(3)`Cortex/external-sources.json` の明示登録（github-discussions・追加リポ/チャンネル等）。差分ゲートと同一スクリプトを共有する（二重定義防止）。
+**外部ソースの取得**: 外部ソース（GitHub Issues/Discussions/Slack）から、`SINCE` 以降に更新されたコンテンツを取得する。取得対象は既定の自動導出＋明示登録から `resolve-external-sources.mjs` が解決する——(1)`チャット/channels.json` の slack チャンネル（Home.md `tools` のチャットが slack のとき・`gold: false` は除外）(2)`.gitmodules` の dev_dir（既定: `開発/`。Home.md の `engine.dev_dir` で変更可）配下 submodule（wiki 除外・Home.md `tools` の開発が github のとき）(3)`Cortex/external-sources.json` の明示登録（github-discussions・追加リポ/チャンネル等）。差分ゲートと同一スクリプトを共有する（二重定義防止）。
 
 ```bash
 # 出力（ソース見出し付きテキスト）を「当日の外部コンテンツ」とする。導出も登録も無い/活動なしなら空出力。
