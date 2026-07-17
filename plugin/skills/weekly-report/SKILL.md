@@ -80,6 +80,10 @@ git log --since="$period_start" --until="$period_end 23:59" --name-only --pretty
 - 保存後に `node "<SKILL_DIR>/../../scripts/validate-cortex.mjs"`（プラグイン同梱リンター） を実行し、規約違反があれば修正する（違反したまま保存・コミットしない）。
 - cron（無人）実行の場合は確認せず保存し、コミットまで行う（push は呼び出し側ワークフロー）。
 
+### レコードへのリンク
+
+本文（今週の総括・進捗と傾向）で Decision・用語・メンバーに言及する際は、`Cortex/Home.md` の `viewer_url` が設定されていれば AIS Viewer の個別ページへのMarkdownリンク `[タイトル]({viewer_url}/?id={レコードID})` にする（IDの `:` は `%3A` にエンコード）。未設定なら安定IDをバッククォートで記す。frontmatterにはURLを書かない。
+
 ## 注意事項
 
 - **見出し構造・frontmatterは固定**。案件ごとに独自項目を足さない（横断パースが壊れる）。該当が無いセクションは削除せず「なし」と書く。

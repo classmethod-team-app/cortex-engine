@@ -158,11 +158,11 @@ sources:
 
 ## 新しい決定
 
-- `YYYYMMDD-NNN` タイトル（Phase Aで追加した Decision を安定IDで列挙。無ければ「なし」）
+- [`YYYYMMDD-NNN` タイトル](<viewer_url>/?id=YYYYMMDD-NNN)（Phase Aで追加した Decision を列挙。無ければ「なし」）
 
 ## 新しい用語 / メンバー
 
-- `term:xxx` / `member:xxx`（同様に列挙。無ければ「なし」）
+- [`term:xxx` タイトル](<viewer_url>/?id=term%3Axxx)（同様に列挙。無ければ「なし」）
 
 ## 動きのあった課題・会議
 
@@ -170,6 +170,7 @@ sources:
 ```
 
 - **Phase A〜Cが全て追記なしでも、このフェーズは実行する**（対象ソースがあった夜の記録として `status: active` で生成する。概要にはその日の**プロジェクトの動き**を書く——課題でのやり取り・議論の内容など、昇格に至らなくても動き自体は必ずある。差分ソースが無い夜はAI実行ごとスキップされるため、このスキルが動いている時点で書くべき動きは必ずある）。
+- **レコードへのリンク**: `Cortex/Home.md` の識別カード `viewer_url` を読み（`grep -m1 '^viewer_url:' Cortex/Home.md`）、設定されていれば各レコードを AIS Viewer の個別ページ `{viewer_url}/?id={レコードID}` へのMarkdownリンクにする（IDの `:` は `%3A` にURLエンコード。例: `term:FDE` → `?id=term%3AFDE`）。**viewer_url が未設定の案件は、リンクなしで安定IDのみ**（`` - `YYYYMMDD-NNN` タイトル `` 形式）で列挙する。frontmatter の `relations` は従来どおり安定IDのみ（URLを書かない）——リンクは人間向けの本文だけ。
 - 見出しの構造・並びは固定（全案件横断で機械的に読めるように）。該当なしのセクションは「なし」と書く（削除しない）。
 - 出典・レコードは**安定ID**で記す（ファイルパスは書かない）。
 - 内部限定情報フィルタは概要にも適用する（注意事項参照）。
