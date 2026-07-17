@@ -238,6 +238,12 @@ const externalSources = resolveExternalSourcesAll().map((s) => {
   const gate = s.type === "slack" ? probeSlackGate(s.ref) : probeGithubGate(s.ref);
   const item = { type: s.type, name: s.name, ref: s.ref, gold: s.gold !== false };
   if (s.type === "slack") item.notify = s.notify === true;
+  // 表示用URL（判明する場合のみ付与）: slack=channels.json の url / github系=ref から機械導出
+  let url;
+  if (s.type === "slack") url = s.url;
+  else if (s.type === "github-issues") url = `https://github.com/${s.ref}`;
+  else if (s.type === "github-discussions") url = `https://github.com/${s.ref}/discussions`;
+  if (url) item.url = url;
   item.gate = gate;
   return item;
 });
@@ -268,6 +274,68 @@ function listPipelines() {
 }
 const pipelines = listPipelines();
 
+// ---------- リポ内同期ソース一覧（Gold昇格の読み取り対象の全体像） ----------
+// 夜間Gold昇格の差分ゲートはリポ全体の.md変更を見るため、実際の読み取り対象は外部ソースだけでなく
+// 同期ミラー（課題管理・会議・共有資料・デザイン）を含む。ビューアが全体像を表示するための一覧。
+// Home.md tools の宣言から列挙し（none は載せない）、ディレクトリ解決は既存の findDirByMarker を再利用。
+// lastSync は取得済み pipelines の lastSuccess を対応付けて再利用（追加のAPI呼び出しをしない）。
+// 開発（github）とチャット（slack）は externalSources 側で表現済みのため載せない。
+function pipelineLastSuccess(id) {
+  const p = pipelines.find((x) => x.id === id);
+  return p && p.lastSuccess ? p.lastSuccess : undefined;
+}
+const toolDisp = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
+/** backlog-settings.json からプロジェクトURLを機械導出（できない場合は undefined） */
+function backlogProjectUrl() {
+  try {
+    const j = JSON.parse(readText(`${issuesDir}/issues/backlog-settings.json`) || "");
+    if (!j.domain) return undefined;
+    return j.projectIdOrKey ? `https://${j.domain}/projects/${j.projectIdOrKey}` : `https://${j.domain}/`;
+  } catch { return undefined; }
+}
+/** figma.json の先頭ファイルキーからデザインファイルURLを導出（プレースホルダ・欠如は undefined） */
+function figmaFileUrl() {
+  try {
+    const j = JSON.parse(figmaJson || "");
+    const key = j.files && j.files[0] && j.files[0].key;
+    if (!key || /[{}\s]/.test(key)) return undefined;
+    return `https://www.figma.com/design/${key}`;
+  } catch { return undefined; }
+}
+function listInternalSources() {
+  const defs = [
+    { kind: "課題管理", def: "backlog",
+      label: (t) => (t === "backlog" ? "Backlog 課題・ドキュメント（同期ミラー）" : `課題・ドキュメント（同期ミラー）（${toolDisp(t)}）`),
+      url: (t) => (t === "backlog" ? backlogProjectUrl() : undefined), pipeline: "sync-backlog" },
+    { kind: "会議", def: "google-meet",
+      label: (t) => (t === "google-meet" ? "会議の文字起こし・議事録" : `会議の文字起こし・議事録（${toolDisp(t)}）`),
+      pipeline: "ingest-minutes" },
+    { kind: "共有資料", def: "google-drive",
+      label: (t) => (t === "google-drive" ? "共有資料（Drive同期・Markdown変換）" : `共有資料（Markdown変換）（${toolDisp(t)}）`),
+      pipeline: "sync-materials" },
+    { kind: "デザイン", def: "figma",
+      label: (t) => (t === "figma" ? "デザイン（画面インベントリ・DESIGN.md）" : `デザイン（${toolDisp(t)}）`),
+      url: (t) => (t === "figma" ? figmaFileUrl() : undefined), pipeline: "sync-designs" },
+  ];
+  const out = [];
+  for (const d of defs) {
+    // tools 宣言があればそれに従う（none・未記載は載せない）。未宣言（旧構成）の案件は既定ツールで推測
+    // （デザインだけは figma.json の実値の有無で推測。既存チェックの usesFigmaInfer と同思想）。
+    const tool = tools === null
+      ? (d.kind === "デザイン" ? (usesFigmaInfer ? "figma" : null) : d.def)
+      : tools[d.kind];
+    if (!tool || tool === "none") continue;
+    const item = { kind: d.kind, tool, label: d.label(tool) };
+    const url = d.url ? d.url(tool) : undefined;
+    if (url) item.url = url;
+    const last = pipelineLastSuccess(d.pipeline);
+    if (last) item.lastSync = last;
+    out.push(item);
+  }
+  return out;
+}
+const internalSources = listInternalSources();
+
 // ---------- 評価 ----------
 let okW = 0, denW = 0;
 const checks = CHECKS.map((c) => {
@@ -285,8 +353,8 @@ const out = {
   // エンジン分離の状態（巡回エージェントがフリートのバージョン分布・移行状況を見る）
   engine: { migrated: engineMigrated, version: engineVersion, channel: engineChannel, schemaVersion },
   score, checks, nextActions,
-  // 外部ソース接続状況（gate=物理ゲート実測）と夜間パイプライン一覧（AISビューア表示用）
-  externalSources, pipelines,
+  // 外部ソース接続状況（gate=物理ゲート実測）・リポ内同期ソース一覧・夜間パイプライン一覧（AISビューア表示用）
+  externalSources, internalSources, pipelines,
 };
 writeFileSync("fleet-status.json", JSON.stringify(out, null, 2) + "\n");
 

@@ -6,7 +6,7 @@
 // fetcher（external-sources.sh）はこの出力を回すだけになる。
 //
 // --all フラグ: 除外済み（gold:false チャンネル・exclude リポ）も落とさず、gold:true/false と
-// notify（slackのみ・channels.json由来）の注釈付きで全登録を出す。fleet-status の接続状況可視化用。
+// notify・url（slackのみ・channels.json由来）の注釈付きで全登録を出す。fleet-status の接続状況可視化用。
 // 既定動作（フィルタ済み＝update-gold の取得対象）には影響しない。
 //
 // 入力: cwd（リポジトリルート）。読むもの:
@@ -117,7 +117,7 @@ function resolveDevDir(engine) {
   return v;
 }
 
-// channels.json の slack チャンネルを {ref(ID), name, gold, notify} に正規化。platform 省略時は slack。
+// channels.json の slack チャンネルを {ref(ID), name, gold, notify, url} に正規化。platform 省略時は slack。
 function deriveSlackChannels() {
   const data = readJsonOr("チャット/channels.json");
   if (!data) return [];
@@ -132,7 +132,7 @@ function deriveSlackChannels() {
       warn(`チャンネル '${label}' の url からIDを抽出できません。スキップします。`);
       continue;
     }
-    out.push({ ref: m[1], name: c.name || m[1], gold: c.gold !== false, notify: c.notify === true });
+    out.push({ ref: m[1], name: c.name || m[1], gold: c.gold !== false, notify: c.notify === true, url });
   }
   return out;
 }
@@ -208,7 +208,7 @@ function main() {
   // ゲート: チャット:slack のときだけ slack を導出
   if ((tools["チャット"] || "").toLowerCase() === "slack") {
     for (const ch of deriveSlackChannels()) {
-      derived.push({ type: "slack", ref: ch.ref, name: ch.name, gold: ch.gold, notify: ch.notify });
+      derived.push({ type: "slack", ref: ch.ref, name: ch.name, gold: ch.gold, notify: ch.notify, url: ch.url });
     }
   }
   // ゲート: 開発:github のときだけ github-issues を導出（対象は dev_dir 配下のsubmodule）
@@ -219,14 +219,16 @@ function main() {
     }
   }
 
-  // 明示登録（external-sources.json）
+  // 明示登録（external-sources.json）。name は登録に書かれた場合だけ持つ
+  // （無い場合にここで ref を入れてしまうと、マージ時に導出側の表示名（channels.json の name）を潰すため）。
   const cfg = readJsonOr("Cortex/external-sources.json") || {};
   const explicit = [];
   for (const s of cfg.sources || []) {
     const type = s.type || "";
     const ref = s.repo || s.channel || "";
     if (!type || !ref) continue;
-    const item = { type, ref, name: s.name || ref };
+    const item = { type, ref };
+    if (s.name) item.name = s.name;
     if (s.decisions !== undefined) item.decisions = s.decisions;
     explicit.push(item);
   }
@@ -237,8 +239,9 @@ function main() {
     derived.filter((d) => d.type === "slack" && d.gold === false).map((d) => d.ref),
   );
 
-  // マージ＋dedupe（type+ref単位・明示登録優先）。まず導出→上書きで明示を反映
-  // （導出のメタ（notify等）は保持しつつ、明示登録のオプション（decisions等）を優先）。
+  // マージ＋dedupe（type+ref単位・明示登録優先）。まず導出→上書きで明示を反映。
+  // 明示側に無いフィールド（name・notify・url 等の表示系）は導出側から補完し、
+  // 明示側にあるフィールド（decisions 等の動作オプション・明示的な name）は明示を優先する。
   const byKey = new Map();
   const keyOf = (s) => `${s.type}\t${s.ref}`;
   for (const d of derived) {
@@ -254,16 +257,17 @@ function main() {
     const isGoldFalse = s.type === "slack" && goldFalseChannels.has(s.ref);
     const isExcluded = s.type.startsWith("github") && excludeRepos.has(s.ref);
     if (ALL) {
-      // --all: 除外も落とさず gold で表現。slack は notify（channels.json 由来・既定false）も注釈する。
-      const item = { type: s.type, ref: s.ref, name: s.name, gold: !(isGoldFalse || isExcluded) };
+      // --all: 除外も落とさず gold で表現。slack は notify（channels.json 由来・既定false）と url も注釈する。
+      const item = { type: s.type, ref: s.ref, name: s.name || s.ref, gold: !(isGoldFalse || isExcluded) };
       if (s.type === "slack") item.notify = s.notify === true;
+      if (s.url) item.url = s.url;
       if (s.decisions !== undefined) item.decisions = s.decisions;
       result.push(item);
       continue;
     }
-    // 既定: 最終フィルタ（opt-out は常に効かせる＝読まない側に倒す）。gold/notify は内部判定用なので出力に残さない。
+    // 既定: 最終フィルタ（opt-out は常に効かせる＝読まない側に倒す）。gold/notify/url は内部判定・表示用なので出力に残さない。
     if (isGoldFalse || isExcluded) continue;
-    const item = { type: s.type, ref: s.ref, name: s.name };
+    const item = { type: s.type, ref: s.ref, name: s.name || s.ref };
     if (s.decisions !== undefined) item.decisions = s.decisions;
     result.push(item);
   }
