@@ -264,9 +264,16 @@ jobs:
             count=$((count + 1))
             [ "$count" -ge 3 ] && break
           done <<< "$(printf '%s\n' "$DIFF" | grep '^Cortex/Decisions/records/')"
-          # 日次レポート（Phase D生成）の「今日の概要」を通知本文の先頭に載せる（無ければ件数のみ）
-          today=$(date -u -d '+9 hours' +%Y%m%d) # JST基準の当日
-          daily="Cortex/レポート/records/${today}-daily.md"
+          # 日次レポート（Phase D生成）の「今日の概要」を通知本文の先頭に載せる（無ければ件数のみ）。
+          # 対象ファイルは壁時計から計算せず「このrunが実際にコミットしたdailyファイル」をdiffから特定する
+          # （22時台に始まったrunが0時をまたぐと日付計算がズレて、生成したのに概要なし文面になるため）。
+          daily=$(printf '%s\n' "$DIFF" | grep -m1 -E '^Cortex/レポート/records/[0-9]{8}-daily\.md$' || true)
+          if [ -n "$daily" ]; then
+            today=$(basename "$daily" | grep -oE '^[0-9]{8}')
+          else
+            today=$(date -u -d '+9 hours' +%Y%m%d) # フォールバック: JST基準の当日（従来動作）
+            daily="Cortex/レポート/records/${today}-daily.md"
+          fi
           summary=""
           if [ -f "$daily" ]; then
             summary=$(awk '/^## 今日の概要/{flag=1;next}/^## /{flag=0}flag' "$daily" | sed '/^[[:space:]]*$/d' | head -6)
@@ -288,7 +295,8 @@ jobs:
           now=$(date -u +%s)
           POST_AT=$(date -u -d "$(date -u -d '+9 hours' +%Y-%m-%d) 00:00:00 UTC" +%s)
           [ $((POST_AT - now)) -gt 120 ] || POST_AT=$((POST_AT + 86400))
-          date_label=$(date -u -d '+9 hours' +%-m/%-d)
+          # 見出しの日付もレポートの日付（$today）に揃える（壁時計だと0時またぎでズレる）
+          date_label=$(date -u -d "${today:0:4}-${today:4:2}-${today:6:2}" +%-m/%-d)
           if [ -n "$summary" ]; then
             body=$(printf '📅 デイリーレポート（%s） → %s\n%s\n\n🌟 Gold昇格: Decision %s件 / 用語 %s件(draft) / メンバー %s件(draft)\n%sdraft のレビューをお願いします → %s' "$date_label" "$daily_link" "$summary" "$N" "$M" "$K" "$titles" "$link")
           else
