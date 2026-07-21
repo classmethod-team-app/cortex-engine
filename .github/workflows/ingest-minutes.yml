@@ -168,7 +168,16 @@ jobs:
             link="https://github.com/${REPO}/blob/main/${enc}"
             # 主催者メール: 同じディレクトリ内のファイルから最初の organizer を拾う
             email=$(grep -rhoE 'cortex: organizer=[^ >-]+' "$dir" 2>/dev/null | head -n1 | sed 's/^cortex: organizer=//' || true)
-            body=$(printf '📝 議事録が自動生成されました（AIレビュー前）\n%s → %s\n今晩のGold昇格前に内容の確認をお願いします（冒頭の⚠️行を削除するとレビュー済みの印になります）。' "$label" "$link")
+            # ingest-config.json の notifyMention が設定されていれば主催者より優先（固定の宛先に上書き）
+            cfg=$(find . -maxdepth 3 -name ingest-config.json -not -path './.cortex-engine/*' -not -path './.git/*' 2>/dev/null | head -1)
+            if [ -n "$cfg" ]; then
+              override=$(python3 -c 'import json,sys
+try: print(json.load(open(sys.argv[1])).get("notifyMention") or "")
+except Exception: print("")' "$cfg")
+              [ -z "$override" ] || email="$override"
+            fi
+            # リンクは mrkdwn の埋め込み形式 <URL|テキスト>（生URLが長くてチャンネルの表示を折るため）
+            body=$(printf '📝 議事録が自動生成されました\n%s → <%s|議事録を開く>\n今晩のGold昇格前に内容の確認をお願いします（冒頭の⚠️行を削除するとレビュー済みの印になります）。' "$label" "$link")
             if [ -n "$email" ]; then
               printf '%s' "$body" | bash .cortex-engine/plugin/scripts/notify-slack.sh --mention-email "$email" || true
             else
