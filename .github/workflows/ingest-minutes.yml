@@ -171,9 +171,7 @@ jobs:
             # ingest-config.json の notifyMention が設定されていれば主催者より優先（固定の宛先に上書き）
             cfg=$(find . -maxdepth 3 -name ingest-config.json -not -path './.cortex-engine/*' -not -path './.git/*' 2>/dev/null | head -1)
             if [ -n "$cfg" ]; then
-              override=$(python3 -c 'import json,sys
-try: print(json.load(open(sys.argv[1])).get("notifyMention") or "")
-except Exception: print("")' "$cfg")
+              override=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("notifyMention") or "")' "$cfg" 2>/dev/null || true)
               [ -z "$override" ] || email="$override"
             fi
             # リンクは mrkdwn の埋め込み形式 <URL|テキスト>（生URLが長くてチャンネルの表示を折るため）
