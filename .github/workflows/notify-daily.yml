@@ -1,0 +1,70 @@
+name: 日次レポート通知
+
+# 昨晩の日次レポート（Cortex/レポート/records/{日付}-daily.md）を読み、親メッセージ（短い案内＋埋め込みリンク）を
+# Slack に即時投稿し、詳細（概要・Gold昇格サマリ）を同メッセージのスレッド返信に送る。
+# 朝9:00 JST の cron で動く（親tsが必要なスレッド化は予約投稿では不可能なため、update-gold の夜間予約から分離した）。
+# レポートを読むだけで Push しない。必要 secret は SLACK_BOT_TOKEN のみ（未設定なら notify-slack が無害に exit 0）。
+on:
+  workflow_call:
+    inputs:
+      engine_ref:
+        description: "エンジン（スクリプト等）のcheckout ref。スタブのチャンネルと揃える（stable=v1 / canary=main）"
+        required: false
+        type: string
+        default: "v1"
+      target_date:
+        description: "対象日 YYYYMMDD（巻き取り・再送用。空なら前日JST）"
+        required: false
+        type: string
+        default: ""
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: notify-daily-${{ github.repository }}
+      cancel-in-progress: false
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: エンジンをチェックアウト（このワークフローと同一バージョン）
+        uses: actions/checkout@v4
+        with:
+          repository: classmethod-team-app/cortex-engine
+          ref: ${{ github.job_workflow_sha || inputs.engine_ref }}
+          path: .cortex-engine
+          token: ${{ secrets.ENGINE_REPO_TOKEN || github.token }}
+
+      - name: エンジンをGit管理対象外にする
+        run: echo ".cortex-engine/" >> .git/info/exclude
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 昨晩のレポートから親／スレッド本文を再構成。best-effort（例外時は skip を返し job を落とさない）。
+      - name: 日次通知本文を組み立て
+        id: compose
+        env:
+          TARGET_DATE: ${{ inputs.target_date }}
+          PARENT_OUT: ${{ runner.temp }}/daily-parent.txt
+          THREAD_OUT: ${{ runner.temp }}/daily-thread.txt
+        run: |
+          RESULT=$(node .cortex-engine/plugin/scripts/compose-daily-notification.mjs 2>/dev/null || echo skip)
+          echo "result=$RESULT" >> "$GITHUB_OUTPUT"
+          if [ "$RESULT" != "notify" ]; then
+            echo "::notice::notify-daily: 対象レポートが無い/skip のため通知しません。"
+          fi
+
+      # 親を stdin・スレッドを --thread-file で notify-slack へ。通知失敗で job は落とさない（best-effort）。
+      - name: Slackへ通知（親→スレッド）
+        if: steps.compose.outputs.result == 'notify'
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          PARENT_OUT: ${{ runner.temp }}/daily-parent.txt
+          THREAD_OUT: ${{ runner.temp }}/daily-thread.txt
+        run: |
+          cat "$PARENT_OUT" | bash .cortex-engine/plugin/scripts/notify-slack.sh --thread-file "$THREAD_OUT" || true

@@ -4,11 +4,15 @@
 # 議事録レビュー依頼(ingest-minutes)・Gold昇格サマリ(update-gold)の通知に使う。
 #
 # 使い方:
-#   echo "<本文（mrkdwn）>" | notify-slack.sh [--mention-email <email>] [--post-at <unix秒>]
-#   - 本文は stdin から受ける（クォート地獄回避）。
-#   - --mention-email があれば users.lookupByEmail で <@Uxxxx> を解決し本文の先頭行に付加。
+#   echo "<本文（mrkdwn）>" | notify-slack.sh [--mention-email <email>] [--post-at <unix秒>] [--thread-file <path>]
+#   - 本文（親メッセージ）は stdin から受ける（クォート地獄回避）。
+#   - --mention-email があれば users.lookupByEmail で <@Uxxxx> を解決し親本文の先頭行に付加。
 #   - --post-at があれば chat.scheduleMessage で予約投稿する（例: 夜間生成の通知を翌朝9時に配達）。
 #     不正値（過去時刻等）はチャンネル単位で warn スキップ（best-effort は不変）。
+#   - --thread-file <path> があれば、各チャンネルで ①親（stdin本文）を即時投稿して .ts を取得 →
+#     ②同チャンネルに thread_ts=<親ts> でスレッド本文（ファイル内容）を投稿、の2段で送る。
+#     親tsが取れなければそのチャンネルはスレッド送信をスキップ（親だけは残す）し warn。
+#     予約投稿ではスレッド化できないため、--post-at と併用不可（両方来たら --thread-file を優先し post-at は無視）。
 #
 # 認証: SLACK_BOT_TOKEN（xoxb-）を Bearer で Slack Web API に渡す。
 #   スコープ chat:write（メンションには users:read.email）と、通知チャンネルへの bot 招待が前提。
@@ -29,15 +33,18 @@ if [ -z "$BODY" ]; then
   exit 0
 fi
 
-# 引数（--mention-email / --post-at）をパース。
+# 引数（--mention-email / --post-at / --thread-file）をパース。
 MENTION_EMAIL=""
 POST_AT=""
+THREAD_FILE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --mention-email)
       MENTION_EMAIL="${2:-}"; shift 2 ;;
     --post-at)
       POST_AT="${2:-}"; shift 2 ;;
+    --thread-file)
+      THREAD_FILE="${2:-}"; shift 2 ;;
     *)
       echo "::warning::notify-slack: 未知の引数 '$1' を無視します。" >&2; shift ;;
   esac
@@ -46,6 +53,20 @@ done
 if [ -n "$POST_AT" ] && ! printf '%s' "$POST_AT" | grep -qE '^[0-9]+$'; then
   echo "::warning::notify-slack: --post-at '$POST_AT' が不正なため即時投稿します。" >&2
   POST_AT=""
+fi
+# スレッド化は予約投稿と両立しない。両方来たら --thread-file を優先し post-at を無効化。
+if [ -n "$THREAD_FILE" ] && [ -n "$POST_AT" ]; then
+  echo "::warning::notify-slack: --post-at と --thread-file は併用不可。--thread-file を優先し予約投稿を無効化します。" >&2
+  POST_AT=""
+fi
+# スレッド本文を読む（読めなければ親のみ送信＝best-effort）。
+THREAD_BODY=""
+if [ -n "$THREAD_FILE" ]; then
+  if [ -f "$THREAD_FILE" ]; then
+    THREAD_BODY=$(cat "$THREAD_FILE")
+  else
+    echo "::warning::notify-slack: --thread-file '$THREAD_FILE' が読めません。スレッド返信なしで親のみ送信します。" >&2
+  fi
 fi
 
 # トークン未設定 → notice して exit 0（best-effort）。
@@ -151,14 +172,26 @@ sys.stdout.write("\n".join(lines))
   fi
 fi
 
+# レスポンスから ok / error / ts を1回のpythonで取り出す（tab区切り "ok\terror\tts"）。
+parse_resp() {
+  printf '%s' "$1" | python3 -c 'import json,sys
+try:
+    d=json.load(sys.stdin)
+except Exception:
+    print("false\tunknown\t"); sys.exit(0)
+print(("true" if d.get("ok") else "false")+"\t"+(str(d.get("error") or "unknown"))+"\t"+(str(d.get("ts") or "")))
+' 2>/dev/null || printf 'false\tunknown\t'
+}
+
 # 各チャンネルへ投稿（POST JSON: channel, text）。--post-at があれば chat.scheduleMessage で予約投稿。
-# ok:false はチャンネル単位で warn スキップ。
+# --thread-file 時は親を即時投稿→.tsを取得→thread_tsでスレッド本文を投稿の2段。ok:false はチャンネル単位で warn スキップ。
 METHOD="chat.postMessage"
 [ -z "$POST_AT" ] || METHOD="chat.scheduleMessage"
 payloadf="$TMPDIR_NS/payload.json"
+threadf="$TMPDIR_NS/thread.json"
 while IFS= read -r ch; do
   [ -n "$ch" ] || continue
-  # channel/text（＋予約時は post_at）を JSON payload に組み立て（本文のエスケープを python に任せる）。
+  # 親: channel/text（＋予約時は post_at）を JSON payload に組み立て（本文のエスケープを python に任せる）。
   PAYLOAD="$payloadf" CH="$ch" POST_AT="$POST_AT" python3 -c 'import json,os,sys
 body=sys.stdin.read()
 p={"channel": os.environ["CH"], "text": body}
@@ -167,21 +200,26 @@ if os.environ.get("POST_AT"):
 json.dump(p, open(os.environ["PAYLOAD"], "w", encoding="utf-8"))
 ' <<< "$BODY" 2>/dev/null || { echo "::warning::notify-slack: payload組み立て失敗（$ch）。スキップします。" >&2; continue; }
   resp=$(slack_api "$METHOD" POST --data-binary "@$payloadf")
-  ok=$(printf '%s' "$resp" | python3 -c 'import json,sys
-try:
-    print("true" if json.load(sys.stdin).get("ok") else "false")
-except Exception:
-    print("false")
-' 2>/dev/null)
+  IFS=$'\t' read -r ok err ts <<< "$(parse_resp "$resp")"
   if [ "$ok" != "true" ]; then
-    err=$(printf '%s' "$resp" | python3 -c 'import json,sys
-try:
-    print(json.load(sys.stdin).get("error") or "unknown")
-except Exception:
-    print("unknown")
-' 2>/dev/null)
     echo "::warning::notify-slack: チャンネル $ch への投稿に失敗: ${err}。スキップします。" >&2
     continue
+  fi
+  # スレッド返信（--thread-file 指定時のみ）。親tsが無ければこのチャンネルはスレッドを送らず親のみ残す。
+  [ -n "$THREAD_BODY" ] || continue
+  if [ -z "$ts" ]; then
+    echo "::warning::notify-slack: チャンネル $ch の親メッセージ ts が取得できずスレッド返信をスキップします（親は投稿済み）。" >&2
+    continue
+  fi
+  PAYLOAD="$threadf" CH="$ch" TS="$ts" python3 -c 'import json,os,sys
+body=sys.stdin.read()
+p={"channel": os.environ["CH"], "text": body, "thread_ts": os.environ["TS"]}
+json.dump(p, open(os.environ["PAYLOAD"], "w", encoding="utf-8"))
+' <<< "$THREAD_BODY" 2>/dev/null || { echo "::warning::notify-slack: スレッドpayload組み立て失敗（$ch）。親のみ残します。" >&2; continue; }
+  tresp=$(slack_api chat.postMessage POST --data-binary "@$threadf")
+  IFS=$'\t' read -r tok terr _tts <<< "$(parse_resp "$tresp")"
+  if [ "$tok" != "true" ]; then
+    echo "::warning::notify-slack: チャンネル $ch へのスレッド返信に失敗: ${terr}。親は投稿済みです。" >&2
   fi
 done <<< "$CHANNELS"
 

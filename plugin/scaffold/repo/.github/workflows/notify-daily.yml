@@ -1,0 +1,24 @@
+name: 日次レポート通知
+# 実体はエンジン
+on:
+  schedule:
+    # 毎日 朝9:00 JST（UTC 0:00）。前日夜間の Gold 昇格（update-gold・22:30 JST）の確定結果を読んで配信する
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: "対象日 YYYYMMDD（巻き取り・再送用。空なら前日JST）"
+        required: false
+        type: string
+        default: ""
+concurrency:
+  group: notify-daily
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  notify:
+    uses: classmethod-team-app/cortex-engine/.github/workflows/notify-daily.yml@v1
+    secrets: inherit
+    with:
+      target_date: ${{ inputs.target_date || '' }}

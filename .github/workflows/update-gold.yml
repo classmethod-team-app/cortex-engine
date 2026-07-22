@@ -175,12 +175,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      # 通知（後段）で「このrunで昇格したファイル」を検出するための基準コミットを記録
-      - name: 通知用の基準コミットを記録
-        id: prehead
-        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
       - name: AWS認証（OIDC）
         if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
         uses: aws-actions/configure-aws-credentials@v4
@@ -232,78 +226,8 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # このrunで昇格した Decision/用語/メンバーの件数とDecisionタイトルを Slack に通知（draftレビュー導線）。
-      # メンション無し。best-effort＝失敗しても job を落とさない。
-      - name: Gold昇格サマリを通知（best-effort）
-        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
-        env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-          PRE_HEAD: ${{ steps.prehead.outputs.sha }}
-          REPO: ${{ github.repository }}
-        run: |
-          [ -n "$PRE_HEAD" ] || exit 0
-          DIFF=$(git -c core.quotepath=false diff --name-only "$PRE_HEAD"..HEAD || true)
-          [ -n "$DIFF" ] || { echo "::notice::Gold差分なし。通知しません。"; exit 0; }
-          # フェーズ別の新規件数
-          N=$(printf '%s\n' "$DIFF" | grep -c '^Cortex/Decisions/records/' || true)
-          M=$(printf '%s\n' "$DIFF" | grep -c '^Cortex/用語集/records/' || true)
-          K=$(printf '%s\n' "$DIFF" | grep -c '^Cortex/メンバー/records/' || true)
-          if [ "$N" -eq 0 ] && [ "$M" -eq 0 ] && [ "$K" -eq 0 ]; then
-            echo "::notice::Gold昇格ファイルなし（他の差分のみ）。通知しません。"
-            exit 0
-          fi
-          # Decision の新規ファイルから title を最大3件抽出
-          titles=""
-          count=0
-          while IFS= read -r f; do
-            [ -n "$f" ] || continue
-            [ -f "$f" ] || continue
-            t=$(grep -m1 -E '^title:' "$f" | sed -E 's/^title:[[:space:]]*//; s/^"//; s/"$//' || true)
-            [ -n "$t" ] || continue
-            titles="${titles}・${t}"$'\n'
-            count=$((count + 1))
-            [ "$count" -ge 3 ] && break
-          done <<< "$(printf '%s\n' "$DIFF" | grep '^Cortex/Decisions/records/')"
-          # 日次レポート（Phase D生成）の「今日の概要」を通知本文の先頭に載せる（無ければ件数のみ）。
-          # 対象ファイルは壁時計から計算せず「このrunが実際にコミットしたdailyファイル」をdiffから特定する
-          # （22時台に始まったrunが0時をまたぐと日付計算がズレて、生成したのに概要なし文面になるため）。
-          daily=$(printf '%s\n' "$DIFF" | grep -m1 -E '^Cortex/レポート/records/[0-9]{8}-daily\.md$' || true)
-          if [ -n "$daily" ]; then
-            today=$(basename "$daily" | grep -oE '^[0-9]{8}')
-          else
-            today=$(date -u -d '+9 hours' +%Y%m%d) # フォールバック: JST基準の当日（従来動作）
-            daily="Cortex/レポート/records/${today}-daily.md"
-          fi
-          summary=""
-          if [ -f "$daily" ]; then
-            summary=$(awk '/^## 今日の概要/{flag=1;next}/^## /{flag=0}flag' "$daily" | sed '/^[[:space:]]*$/d' | head -6)
-          fi
-          # リンク先: Home.md 識別カードの viewer_url（AIS Viewer）があればそちら、無ければ GitHub。
-          # 日次レポートがあれば、その個別ページ（Viewerは ?id=<レコードID> 形式）へ直リンクする。
-          base=$(grep -m1 -E '^viewer_url:' Cortex/Home.md 2>/dev/null | sed -E 's/^viewer_url:[[:space:]]*//; s/^"//; s/"[[:space:]]*(#.*)?$//; s/[[:space:]]*#.*$//' || true)
-          if [ -n "$base" ]; then
-            link="$base"
-            daily_link="${base}/?id=report%3A${today}-daily"
-          else
-            link="https://github.com/${REPO}/tree/main/Cortex"
-            daily_link="https://github.com/${REPO}/blob/main/$(python3 -c 'import urllib.parse,sys; print("/".join(urllib.parse.quote(p) for p in sys.argv[1].split("/")))' "$daily")"
-          fi
-          # 配達は翌朝9時(JST)の予約投稿（夜中に鳴らさない）。予約時点でViewerの再ビルドは
-          # とうに完了しているため、旧実装の「反映待ちループ」は不要になった。
-          # 「次の9:00 JST」を計算。9:00 JST は同じ暦日の 0:00 UTC に等しい。
-          # 過去（またはバッファ2分未満）なら翌日9:00 JSTへ。
-          now=$(date -u +%s)
-          POST_AT=$(date -u -d "$(date -u -d '+9 hours' +%Y-%m-%d) 00:00:00 UTC" +%s)
-          [ $((POST_AT - now)) -gt 120 ] || POST_AT=$((POST_AT + 86400))
-          # 見出しの日付もレポートの日付（$today）に揃える（壁時計だと0時またぎでズレる）
-          date_label=$(date -u -d "${today:0:4}-${today:4:2}-${today:6:2}" +%-m/%-d)
-          if [ -n "$summary" ]; then
-            body=$(printf '📅 デイリーレポート（%s） → %s\n%s\n\n🌟 Gold昇格: Decision %s件 / 用語 %s件(draft) / メンバー %s件(draft)\n%sdraft のレビューをお願いします → %s' "$date_label" "$daily_link" "$summary" "$N" "$M" "$K" "$titles" "$link")
-          else
-            body=$(printf '🌟 Gold昇格（%s）: Decision %s件 / 用語 %s件(draft) / メンバー %s件(draft)\n%sdraft のレビューをお願いします → %s' "$date_label" "$N" "$M" "$K" "$titles" "$link")
-          fi
-          echo "通知を翌朝9時(JST)に予約: $(date -u -d "@$POST_AT" +%Y-%m-%dT%H:%M:%SZ)"
-          printf '%s' "$body" | bash .cortex-engine/plugin/scripts/notify-slack.sh --post-at "$POST_AT" || true
+      # 日次レポートの通知は朝9:00 JSTの別ワークフロー（notify-daily）が担う。
+      # スレッド化には配達後にしか確定しない親メッセージのtsが必要で、夜間の予約投稿ではスレッド化できないため分離した。
 
       # 差分ゼロの夜: AI実行はスキップされるが、日次レポートの連続性のため status: skip のレコードを機械生成して積む。
       # frontmatterのsources件数が全て0＝AI(概要)不要。読み手（AI/巡回）は status: skip を見てボディを読まずに飛ばせる。
