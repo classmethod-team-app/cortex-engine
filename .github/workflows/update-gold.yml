@@ -187,6 +187,12 @@ jobs:
         if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
         run: npm i -g @anthropic-ai/claude-code
 
+      # シャドー比較用: 本番（claude -p）が起票したファイルを後段で git diff から機械取得するための基準コミット
+      - name: シャドー比較用の基準コミットを記録
+        id: goldprehead
+        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Gold昇格自動更新（Claude / Bedrock）
         if: steps.pre.outputs.run == 'true' && steps.schema.outputs.current == 'true' && steps.gate.outputs.changed == 'true'
         env:
@@ -226,6 +232,23 @@ jobs:
         uses: classmethod-team-app/cortex-engine/.github/actions/robust-push@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 【移行①シャドーモード】決定的パイプライン＋LLM関数化の新実装を、本番(claude -p)の後に「観察だけ」実行する。
+      # リポジトリの変更・コミット・pushは一切しない（起票するはずだった生成物をrun log / Step Summaryに出すのみ）。
+      # 本番の後・Pushの後に置くことで、同一runの中で「本番が実際に起票したもの」（GOLD_PRE_HEAD..HEADのgit diff）と
+      # 「シャドーが起票するはずだったもの」を突き合わせられる。失敗しても run を落とさない（continue-on-error）。
+      # カナリア切替は数晩の突き合わせ結果を見て別途。
+      - name: Goldパイプライン（シャドー・観察のみ）
+        if: steps.pre.outputs.run == 'true' && steps.schema.outputs.current == 'true' && steps.gate.outputs.changed == 'true'
+        continue-on-error: true
+        env:
+          GOLD_PIPELINE_MODE: shadow
+          ANTHROPIC_MODEL: global.anthropic.claude-sonnet-5 # 本番ステップと同一モデル
+          SINCE: ${{ steps.win.outputs.since }} # 本番と同じ増分起点
+          GOLD_PRE_HEAD: ${{ steps.goldprehead.outputs.sha }} # 本番の起票分を比較表示するための基準
+          GH_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }} # external-sources.sh 用（本番と同一）
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} # external-sources.sh の slack ソース用（未設定なら活動なし扱い）
+        run: node .cortex-engine/plugin/scripts/update-gold-pipeline.mjs
 
       # 日次レポートの通知は朝9:00 JSTの別ワークフロー（notify-daily）が担う。
       # スレッド化には配達後にしか確定しない親メッセージのtsが必要で、夜間の予約投稿ではスレッド化できないため分離した。
