@@ -343,7 +343,7 @@ function callLLM(phase, { system, user, maxTokens, timeoutMs }) {
     "--model-id", MODEL,
     "--region", REGION,
     "--messages", JSON.stringify([{ role: "user", content: [{ text: user }] }]),
-    "--inference-config", JSON.stringify({ maxTokens, temperature: 0 }),
+    "--inference-config", JSON.stringify({ maxTokens }), // temperature はSonnet 5で廃止（指定するとValidationException）
   ];
   if (system) args.push("--system", JSON.stringify([{ text: system }]));
   const r = spawnSync("aws", args, {
