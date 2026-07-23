@@ -192,6 +192,7 @@ jobs:
         env:
           CLAUDE_CODE_USE_BEDROCK: "1" # APIキーの代わりに Bedrock を使用
           ANTHROPIC_MODEL: global.anthropic.claude-sonnet-5 # Sonnet 5。jp.（日本国内推論）に未提供のため当面global.で運用し、jp.anthropic.claude-sonnet-5 が提供され次第そちらへ切り替える（Bedrockで該当モデルのアクセス有効化が必要）
+          API_TIMEOUT_MS: "600000" # Bedrockの長いリクエスト（大コンテキスト読み）がCLI既定タイムアウトで「API Error: The operation timed out」死するのを防ぐ（2026-07-23に2連続発生）
           SINCE: ${{ steps.win.outputs.since }} # 増分起点（前回成功以降）。スキルの git log --since に渡す
           GH_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }} # スキルが external-sources.sh で外部ソース(Issues/Discussions)を取得するため
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} # スキルが external-sources.sh で slack ソースを取得するため（未設定なら slack はスキップ）
