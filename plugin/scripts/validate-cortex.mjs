@@ -20,21 +20,30 @@ import yaml from "./vendor/js-yaml.mjs"; // vendor同梱（プラグインキャ
 
 const KNOWLEDGE_DIR = "Cortex";
 const META_FILES = new Set(["readme.md", "template.md"]);
-const RELS = new Set(["based_on", "derived_from", "relates_to", "supersedes"]);
+const RELS = new Set([
+  "based_on",
+  "derived_from",
+  "relates_to",
+  "supersedes",
+  "resolves",
+]);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // relations.target のうち、実在を検証する型のパターン（= Gold層エンティティのみ）。
-// frontmatterを持つのはGold層（Cortex/配下）だけなので、実在検証できるのは decision / term / report / overview。
+// frontmatterを持つのはGold層（Cortex/配下）だけなので、実在検証できるのは
+// decision / term / rule / open_question / member / report / overview。
 // Silver/Bronzeへの参照（minute:・material:・design:・課題キー・ドキュメントID等）は
 // 「規約ベースのID文字列」であり、参照先にfrontmatterアンカーを要求しない＝実在検証しない（オントロジー規約参照）。
 const CHECKABLE_TARGET =
-  /^(\d{8}-\d{3}$|term:|member:|report:|overview:)/;
+  /^(\d{8}-\d{3}$|term:|rule:|question:|member:|report:|overview:)/;
 
 /** ディレクトリ名 → 期待されるtype */
 const DIR_TYPE = {
   Decisions: "decision",
-  用語集: "term",
-  メンバー: "member",
+  Glossary: "term",
+  Rules: "rule",
+  OpenQuestions: "open_question",
+  Members: "member",
   レポート: "report",
 };
 
@@ -132,6 +141,30 @@ const SCHEMAS = {
         errors.push("synonymsはリストで書く");
       if (fm.date && !DATE_RE.test(String(fm.date)))
         errors.push(`dateがYYYY-MM-DD形式ではない: ${fm.date}`);
+    },
+  },
+  rule: {
+    required: ["type", "id", "title", "description", "status"],
+    allowed: ["type", "id", "title", "description", "status", "relations"],
+    validate(fm, _fileName, errors) {
+      if (fm.id && !/^rule:.+/.test(String(fm.id))) {
+        errors.push(`idはrule:{slug}（実際: ${fm.id}）`);
+      }
+      if (fm.status && !["draft", "active"].includes(fm.status)) {
+        errors.push(`statusはdraft|active（実際: ${fm.status}）`);
+      }
+    },
+  },
+  open_question: {
+    required: ["type", "id", "title", "description", "status"],
+    allowed: ["type", "id", "title", "description", "status", "relations"],
+    validate(fm, _fileName, errors) {
+      if (fm.id && !/^question:\d{8}-\d{3}$/.test(String(fm.id))) {
+        errors.push(`idはquestion:{YYYYMMDD}-{NNN}形式（実際: ${fm.id}）`);
+      }
+      if (fm.status && !["open", "resolved"].includes(fm.status)) {
+        errors.push(`statusはopen|resolved（実際: ${fm.status}）`);
+      }
     },
   },
   member: {
@@ -337,6 +370,11 @@ function validateCommon(fm, expectedType, errors) {
         if (!RELS.has(r.rel))
           errors.push(
             `relations[${i}].rel「${r.rel}」は未定義（${[...RELS].join(" / ")}）`,
+          );
+        // resolves は decision → open_question のみ（未決を閉じるのは決定側からだけ）
+        if (r.rel === "resolves" && (fm.type ?? expectedType) !== "decision")
+          errors.push(
+            `relations[${i}].rel resolves は decision からのみ張れる（実際のtype: ${fm.type ?? expectedType}）`,
           );
         if (!r.target || String(r.target).trim() === "")
           errors.push(`relations[${i}].target がない`);

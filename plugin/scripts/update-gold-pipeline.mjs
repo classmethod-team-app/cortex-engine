@@ -281,10 +281,10 @@ function loadExistingDecisions() {
 function loadExistingTerms() {
   const titles = [];
   const sigs = new Set();
-  for (const e of listDir("Cortex/用語集/records") || []) {
+  for (const e of listDir("Cortex/Glossary/records") || []) {
     if (!e.isFile() || !e.name.endsWith(".md") || e.name.includes("{{")) continue;
-    if (PROD_NEW_FILES.has(`Cortex/用語集/records/${e.name}`)) continue; // 本番が今run起票した分は既存扱いしない
-    const fm = frontmatterOf(readText(`Cortex/用語集/records/${e.name}`) || "");
+    if (PROD_NEW_FILES.has(`Cortex/Glossary/records/${e.name}`)) continue; // 本番が今run起票した分は既存扱いしない
+    const fm = frontmatterOf(readText(`Cortex/Glossary/records/${e.name}`) || "");
     const t = fmField(fm, "title");
     if (t) {
       titles.push(t);
@@ -297,7 +297,7 @@ function loadExistingTerms() {
 
 // 用語集 README の「除外用語」（過去にレビューで却下された語の再追加防止）
 function loadExcludedTerms() {
-  const raw = readText("Cortex/用語集/README.md") || "";
+  const raw = readText("Cortex/Glossary/README.md") || "";
   const m = raw.match(/^#{2,3}\s*除外用語\s*$([\s\S]*?)(?=^#{1,3}\s|\n*$(?![\s\S]))/m);
   const result = { raw: [], sigs: new Set() };
   if (!m) return result;
@@ -315,10 +315,10 @@ function loadExcludedTerms() {
 function loadRoster() {
   const names = [];
   const sigs = new Set();
-  for (const e of listDir("Cortex/メンバー/records") || []) {
+  for (const e of listDir("Cortex/Members/records") || []) {
     if (!e.isFile() || !e.name.endsWith(".md") || e.name.includes("{{")) continue;
-    if (PROD_NEW_FILES.has(`Cortex/メンバー/records/${e.name}`)) continue; // 本番が今run起票した分は既存扱いしない
-    const fm = frontmatterOf(readText(`Cortex/メンバー/records/${e.name}`) || "");
+    if (PROD_NEW_FILES.has(`Cortex/Members/records/${e.name}`)) continue; // 本番が今run起票した分は既存扱いしない
+    const fm = frontmatterOf(readText(`Cortex/Members/records/${e.name}`) || "");
     const t = fmField(fm, "title");
     if (t) {
       names.push(t);
@@ -326,7 +326,7 @@ function loadRoster() {
     }
     for (const a of fmListField(fm, "aliases")) sigs.add(normalizeSig(a));
   }
-  return { names, sigs, dirExists: listDir("Cortex/メンバー/records") !== null };
+  return { names, sigs, dirExists: listDir("Cortex/Members/records") !== null };
 }
 
 // ---------- LLM 呼び出し（ingest-minutes-pipeline と同じヘルパ流儀） ----------
@@ -663,7 +663,7 @@ function buildTermFiles(extracted, existingTerms, excludedSigs, batchSigs, dateH
       "---",
     ].join("\n");
     files.push({
-      path: `Cortex/用語集/records/${safe}.md`,
+      path: `Cortex/Glossary/records/${safe}.md`,
       id: `term:${safe}`,
       title: safe,
       content: fm + `\n\n${definition}\n`,
@@ -677,7 +677,7 @@ function buildMemberFiles(extracted, roster, batchSigs) {
   const files = [];
   const skipped = [];
   if (!roster.dirExists) {
-    if (extracted.length) skipped.push({ item: null, reason: "Cortex/メンバー/records が無い案件のためフェーズごとスキップ" });
+    if (extracted.length) skipped.push({ item: null, reason: "Cortex/Members/records が無い案件のためフェーズごとスキップ" });
     return { files, skipped };
   }
   for (const m of extracted) {
@@ -715,7 +715,7 @@ function buildMemberFiles(extracted, roster, batchSigs) {
       "---",
     ].join("\n");
     files.push({
-      path: `Cortex/メンバー/records/${sanitizeName(compact)}.md`,
+      path: `Cortex/Members/records/${sanitizeName(compact)}.md`,
       id: `member:${sanitizeName(compact)}`,
       title: name,
       content: fm + `\n\n${description}\n`,
@@ -1029,8 +1029,8 @@ function applyReal(r) {
   };
   const phases = [
     { files: r.dec.files, dir: "Cortex/Decisions/", msg: "Decisionsに当日の決定事項を自動追記" },
-    { files: r.term.files, dir: "Cortex/用語集/", msg: "用語集に新規用語をdraftで自動追記" },
-    { files: r.mem.files, dir: "Cortex/メンバー/", msg: "メンバー名簿に新規参加者をdraftで自動追記" },
+    { files: r.term.files, dir: "Cortex/Glossary/", msg: "用語集に新規用語をdraftで自動追記" },
+    { files: r.mem.files, dir: "Cortex/Members/", msg: "メンバー名簿に新規参加者をdraftで自動追記" },
     { files: [r.daily], dir: "Cortex/レポート/", msg: "日次レポートを生成" },
   ];
   for (const phase of phases) {
