@@ -533,7 +533,7 @@ def main() -> int:
             continue
 
         # サムネイルはバッチ取得（一度に多すぎると Figma 側で "Render timeout" になるため分割）
-        BATCH = 20
+        BATCH = 8  # 20だと重い画面のレンダリングがFigma側でタイムアウトする実績があるため小さめに
         images: dict = {}
         all_ids = [c["id"] for _, c in frames]
         for i in range(0, len(all_ids), BATCH):
@@ -542,8 +542,11 @@ def main() -> int:
                 images.update(
                     api(f"/images/{key}?ids={urllib.parse.quote(batch_ids)}&format=png&scale=1").get("images", {})
                 )
-            except urllib.error.HTTPError as e:
-                print(f"  バッチ {i // BATCH + 1} のサムネイル取得失敗: HTTP {e.code} {e.reason} — スキップして続行", file=sys.stderr)
+            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as e:
+                # 特定バッチのレンダリングが繰り返しタイムアウトしても全体を殺さない（毒バッチのスキップ。
+                # 該当画面のサムネイルだけ欠け、翌晩の同期で再試行される）
+                detail = f"HTTP {e.code} {e.reason}" if isinstance(e, urllib.error.HTTPError) else str(getattr(e, "reason", e))
+                print(f"  バッチ {i // BATCH + 1} のサムネイル取得失敗: {detail} — スキップして続行", file=sys.stderr)
 
         out_dir = INVENTORY_DIR / slugify(file_name)
         out_dir.mkdir(parents=True, exist_ok=True)

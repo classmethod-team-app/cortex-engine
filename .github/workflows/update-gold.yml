@@ -241,6 +241,7 @@ jobs:
       - name: Goldパイプライン（シャドー・観察のみ）
         if: steps.pre.outputs.run == 'true' && steps.schema.outputs.current == 'true' && steps.gate.outputs.changed == 'true'
         continue-on-error: true
+        timeout-minutes: 15 # 観察用なので打ち切ってよい。大窓の夜に本番完走後のジョブ残時間を食い潰してrunごとcancelledにしない（実績: 大窓で本番50分+シャドーがジョブ60分を超過）
         env:
           GOLD_PIPELINE_MODE: shadow
           ANTHROPIC_MODEL: global.anthropic.claude-sonnet-5 # 本番ステップと同一モデル
