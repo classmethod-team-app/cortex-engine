@@ -9,14 +9,15 @@
 | `decision` | 意思決定レコード（`Cortex/Decisions/records/`） | `YYYYMMDD-NNN` | `20260610-001` |
 | `term` | 用語（`Cortex/Glossary/records/`） | `term:{slug}` | `term:コンテキスト` |
 | `rule` | 継続的に守る制約・規約（`Cortex/Rules/records/`） | `rule:{slug}` | `rule:本番リリース-金曜禁止` |
-| `open_question` | 未決事項（`Cortex/OpenQuestions/records/`） | `question:{YYYYMMDD}-{NNN}` | `question:20260724-001` |
 | `member` | プロジェクト関係者（1人1ファイル、`Cortex/Members/records/`） | `member:{氏名（スペース無し）}` | `member:山田太郎` |
 | `report` | レポート（`Cortex/レポート/`）。週次（週の振り返り・日次の集約）と日次（当日のGold昇格ダイジェスト＋概要。動きのない日は `status: skip`） | `report:{YYYYMMDD}-weekly` / `report:{YYYYMMDD}-daily` | `report:20260608-weekly` / `report:20260716-daily` |
 | `overview` | Cortexのホームページ（1案件1ファイル） | `overview:home`（固定） | `overview:home` |
 
-Gold層のエンティティは**判断材料**（decision・term・rule・open_question・report・overview）と**台帳的レコード**（member）に大別される。巡回エージェント・AISの横断走査は判断材料を優先し、台帳は人物を特定する必要が生じたときに辞書的に引く。
+Gold層のエンティティは**判断材料**（decision・term・rule・report・overview）と**台帳的レコード**（member）に大別される。巡回エージェント・AISの横断走査は判断材料を優先し、台帳は人物を特定する必要が生じたときに辞書的に引く。
 
-`rule` は Decision と役割が異なる。**Decision は「経緯のある一回の決定」**（過去の出来事・追記型）、**Rule は「継続的に守る制約」**（今も効いている規範）。Decision から蒸留された Rule は `derived_from` で元 Decision を指す。`open_question` は「内容は未確定だが、未決であること自体は確定した事実」を記録し、AI が未決を推測で補完する幻覚を防ぐ。決定で閉じる際は decision 側が `resolves` でその question を指し、question の `status` を `resolved` にする（この status 更新は人間または明示的スキル操作で行う）。
+`rule` は Decision と役割が異なる。**Decision は「経緯のある一回の決定」**（過去の出来事・追記型）、**Rule は「継続的に守る制約」**（今も効いている規範）。Decision から蒸留された Rule は `derived_from` で元 Decision を指す。
+
+> 未決事項は Gold 層のエンティティにしない。開閉が頻繁なフロー性の情報を「Goldにある＝確定」の層に置くと、古びた未決が逆にAIを誤らせ層の信頼を壊すため。未決の正本は議事録のTODO・課題管理ツールの協議中課題という生きた場所に置き、一覧が必要なときはPMハーネス側のスキルが要求時に横断発見する（かつて `open_question` エンティティ案があったが撤収した）。
 
 バリデーション（`validate-cortex`）はGold層のfrontmatterのみを検証し、`relations.target` の実在解決もGold型のID（上記7種）に限って行う。
 
@@ -53,7 +54,6 @@ Gold層の `source` / `relations.target` からSilver/Bronzeを参照すると�
 | `derived_from` | 〜から生成された | report → 集計元 |
 | `relates_to` | 〜に関連する | 汎用 |
 | `supersedes` | 〜を置き換える・無効化する | decision → decision（決定の変更履歴） |
-| `resolves` | 〜を解決する（未決を閉じる） | decision → open_question |
 
 ### frontmatter共通フィールド
 
