@@ -160,6 +160,8 @@ git pull
 
 > ドキュメントは Backlog 側に更新イベントが無いため、毎時の定期同期が担当します。定期同期はリアルタイムの取りこぼしを回収する安全網として併走します。
 
+> **環境変数なしで記票（`/backlog-push`）できるようにする場合（任意）**: fleet管理者に `cortex-tools` の `scripts/put-backlog-push-tokens.mjs` を実行してもらい、その出力を `課題管理/backlog-proxy.json`（雛形は `backlog-proxy.json.example`）に配置してコミットします。これで手元にAPIキーが無い利用者（PM・非エンジニア・顧客）も中央プロキシ経由で記票でき、書き込みはこの案件に強制されます。
+
 ## ステップ9: デザイン同期（Figma を使う案件のみ）
 
 1. `デザイン/figma.json` の `key` に対象 Figma ファイルのキー（`figma.com/design/<この部分>/...`）を記入

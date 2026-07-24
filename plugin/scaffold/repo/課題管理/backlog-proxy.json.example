@@ -1,0 +1,5 @@
+{
+  "url": "https://<intake-lambda-function-url>.lambda-url.<region>.on.aws/",
+  "projectKey": "<cortex案件キー>",
+  "token": "<この案件のプロキシトークン>"
+}

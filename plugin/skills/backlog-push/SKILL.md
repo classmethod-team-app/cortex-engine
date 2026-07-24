@@ -10,10 +10,17 @@ description: >-
 
 ## 前提
 
-- `DOMAIN`, `PROJECT_KEY`, `BACKLOG_API_KEY` が**環境変数として参照できる**こと（ローカルCLIなら `.env`、デスクトップはローカル環境エディタ、Webはクラウド環境設定の環境変数。どこに入れるかは動作環境で変わる → `credentials` ルール参照）
-- APIキーに更新権限があること（読み取り専用キーでは反映できません）
+反映の前に、**どの経路で認証を解決するか**を次の順で判定します。
 
-すべての手順で、先頭に以下を実行して認証情報を読み込みます。**環境変数が既にあればそれを使い、無ければ `.env` にフォールバック**します（1Password連携のfifo対応のため `source` は使いません）。
+1. **環境変数（直接API経路・従来どおり）**: `DOMAIN` / `PROJECT_KEY` / `BACKLOG_API_KEY` が**環境変数として参照できる**（ローカルCLIなら `.env`、デスクトップはローカル環境エディタ、Webはクラウド環境設定の環境変数。どこに入れるかは動作環境で変わる → `credentials` ルール参照）なら、Backlog REST API を直接呼び出します（エンジニア向け・従来の経路）
+2. **プロキシ経路**: 環境変数が無く、`課題管理/backlog-proxy.json` があれば、中央プロキシ（Lambda）経由でBacklogに記票します。**手元にBacklog APIキーは不要**で、リポジトリにアクセスできる人なら誰でも使えます（PM・非エンジニア・顧客向け）。書き込み先はファイル内の案件に強制されます
+3. **どちらも無い場合**: 認証情報の入れ場所を案内します（`credentials` ルール参照）。動作環境（CLI／デスクトップ／Web）ごとに入れ場所が変わります
+
+環境変数経路では、APIキーに更新権限があること（読み取り専用キーでは反映できません）。
+
+### 環境変数経路の読み込み
+
+環境変数経路では、すべての手順の先頭で以下を実行して認証情報を読み込みます。**環境変数が既にあればそれを使い、無ければ `.env` にフォールバック**します（1Password連携のfifo対応のため `source` は使いません）。
 
 ```bash
 set -a; [ -e .env ] && eval "$(grep -v '^#' .env)"; set +a
@@ -21,6 +28,15 @@ set -a; [ -e .env ] && eval "$(grep -v '^#' .env)"; set +a
 : "${DOMAIN:?未設定。動作環境に応じた環境変数の入れ場所は credentials ルール参照}"
 : "${PROJECT_KEY:?未設定。同上}"
 : "${BACKLOG_API_KEY:?未設定。同上}"
+```
+
+### プロキシ経路の読み込み
+
+プロキシ経路では、`課題管理/backlog-proxy.json`（接続先URL・案件キー・案件別トークン。配置方法はセットアップ手順参照）を読み込みます。手元にBacklog APIキーは不要です。
+
+```bash
+CONF=課題管理/backlog-proxy.json
+URL=$(jq -r .url "$CONF"); PKEY=$(jq -r .projectKey "$CONF"); TOKEN=$(jq -r .token "$CONF")
 ```
 
 ## 対応範囲（重要）
@@ -69,9 +85,13 @@ Backlogへの書き込みは顧客にも見える慎重な操作のため、承�
 この内容でBacklogに反映してよろしいですか？
 ```
 
-### 3. Backlog REST APIで反映
+### 3. Backlog へ反映
 
-承認後、種別に応じて以下のいずれかを実行します。`BACKLOG_API_KEY` はクエリパラメータ `apiKey` で渡します。本文は `--data-urlencode` で安全にエンコードします。
+承認後、判定した認証経路に応じて実行します。**環境変数経路は 3-A**、**プロキシ経路は 3-B** を使います。
+
+#### 3-A. 環境変数経路（Backlog REST API を直接呼び出す）
+
+種別に応じて以下のいずれかを実行します。`BACKLOG_API_KEY` はクエリパラメータ `apiKey` で渡します。本文は `--data-urlencode` で安全にエンコードします。
 
 **課題にコメントを追加**
 
@@ -115,9 +135,73 @@ curl -sS -X POST "https://$DOMAIN/api/v2/documents?apiKey=$BACKLOG_API_KEY" \
 - Wiki: `https://{DOMAIN}/alias/wiki/{Wiki ID}`
 - ドキュメント（新規追加時）: `https://{DOMAIN}/document/{PROJECT_KEY}/{ドキュメントID}`（ドキュメントIDはレスポンスの `id`）
 
+#### 3-B. プロキシ経路（中央プロキシ Lambda 経由）
+
+プロキシ経由の投稿は、Backlog上の投稿者が**共有ボットアカウント**になります。誰の記票かを残すため、**本文末尾に `---` 区切りの記名を必ず付け**、`author` フィールドにも同じ名前を入れます（監査ログ用）。利用者名は `git config user.name` 等から推定し、**手順2の🚨承認プレビューで確認**してください。
+
+```bash
+AUTHOR="$(git config user.name)"   # 推定した利用者名。承認プレビューで確認する
+# 本文末尾に記名を付す（実際の本文を BODY に入れる）
+BODY="コメント本文"
+CONTENT="$(printf '%s\n\n---\n_投稿: %s（Cortex経由）_' "$BODY" "$AUTHOR")"
+```
+
+各アクションは JSON ボディを組み立て、`?op=backlog&t=${TOKEN}` に POST します。`projectKey` は必ず添え、`projectId` はプロキシ側が案件から解決・強制注入するため送りません（送っても案件に強制されます）。
+
+**課題にコメントを追加**（`comment`）
+
+```bash
+curl -sS -X POST "${URL}?op=backlog&t=${TOKEN}" \
+  -H "content-type: application/json" \
+  -d "$(jq -n --arg pk "$PKEY" --arg author "$AUTHOR" --arg content "$CONTENT" \
+    '{projectKey:$pk, author:$author, action:"comment", issueKey:"PROJ-123", content:$content}')"
+```
+
+**課題の本文・属性を更新**（`issue-update`。`params` に `summary`/`description`/`statusId`/`assigneeId` 等を透過で渡す）
+
+```bash
+curl -sS -X POST "${URL}?op=backlog&t=${TOKEN}" \
+  -H "content-type: application/json" \
+  -d "$(jq -n --arg pk "$PKEY" --arg author "$AUTHOR" --arg desc "$CONTENT" \
+    '{projectKey:$pk, author:$author, action:"issue-update", issueKey:"PROJ-123", params:{description:$desc}}')"
+```
+
+**課題を新規作成**（`issue-create`。`params.summary` 必須・`description` 等任意。`issueTypeId`/`priorityId` 未指定はプロキシが補完）
+
+```bash
+curl -sS -X POST "${URL}?op=backlog&t=${TOKEN}" \
+  -H "content-type: application/json" \
+  -d "$(jq -n --arg pk "$PKEY" --arg author "$AUTHOR" --arg summary "新規課題の件名" --arg desc "$CONTENT" \
+    '{projectKey:$pk, author:$author, action:"issue-create", params:{summary:$summary, description:$desc}}')"
+```
+
+**Wikiを更新**（`wiki-update`。`params` に `name`/`content` を渡す。いずれも任意）
+
+```bash
+curl -sS -X POST "${URL}?op=backlog&t=${TOKEN}" \
+  -H "content-type: application/json" \
+  -d "$(jq -n --arg pk "$PKEY" --arg author "$AUTHOR" --arg content "$CONTENT" \
+    '{projectKey:$pk, author:$author, action:"wiki-update", wikiId:"12345", params:{content:$content}}')"
+```
+
+**ドキュメントを新規追加**（`document-create`。`params.title`/`content` を渡す。`parentId` は任意。`projectId` はプロキシが解決）
+
+```bash
+curl -sS -X POST "${URL}?op=backlog&t=${TOKEN}" \
+  -H "content-type: application/json" \
+  -d "$(jq -n --arg pk "$PKEY" --arg author "$AUTHOR" --arg title "新規ドキュメントのタイトル" --arg content "$CONTENT" \
+    '{projectKey:$pk, author:$author, action:"document-create", params:{title:$title, content:$content}}')"
+```
+
+既存ドキュメントの**本文更新**はプロキシ経路でも行いません（APIなし・「対応範囲」参照）。プロキシは削除系アクションを持ちません（記票のみ）。
+
+レスポンスは `{ "result": …Backlogレスポンス…, "url": "…閲覧URL…" }` の形で返り、`url` はプロキシが組み立て済みです。手順5の報告ではこの `url` をそのまま使います。
+
 ### 4. 該当項目のみ再同期
 
-反映後、更新した項目だけをローカルへ取り直します。`update` コマンドは対象ディレクトリの `backlog-settings.json` からドメイン・プロジェクト・APIキーを読み込みます。
+再同期は認証経路で分岐します。
+
+**環境変数経路（3-A）**: 反映後、更新した項目だけをローカルへ取り直します。`update` コマンドは対象ディレクトリの `backlog-settings.json` からドメイン・プロジェクト・APIキーを読み込みます。
 
 ```bash
 # 課題（課題キーまたは課題ID。カンマ区切りで複数可）
@@ -132,9 +216,14 @@ pnpm dlx backlog-exporter@1 update --documentId abc123 --force ./課題管理/do
 
 これらのID指定フラグは全件差分更新ではないため、設定ファイルの最終更新日時（`lastUpdated`）は更新されず、次回の通常の差分更新に影響を与えません。
 
+**プロキシ経路（3-B）**: 手元での再同期は**行いません**。プロキシ経由の書き込みは Backlog の Webhook → リアルタイム同期が**自動でミラーに反映**します（通常1分前後）。読み取りキーを持たない利用者でも、起票からミラー反映まで完結します。
+
 ### 5. 結果の確認と報告
 
-`git diff` で該当項目のファイルのみが更新されたこと（他のファイルに影響がないこと）を確認し、結果を報告します。報告には手順3で控えた**書き込んだ課題・コメント・WikiのURL**を必ず含め、ユーザーがワンクリックでBacklog上の反映結果を確認できるようにします。
+結果を報告します。報告には手順3で控えた**書き込んだ課題・コメント・WikiのURL**を必ず含め、ユーザーがワンクリックでBacklog上の反映結果を確認できるようにします。
+
+- **環境変数経路（3-A）**: `git diff` で該当項目のファイルのみが更新されたこと（他のファイルに影響がないこと）を確認してから報告します。
+- **プロキシ経路（3-B）**: 手元のファイルは変わりません。報告には「ミラー（`課題管理/`）へは約1分で自動反映されます」と添えます。
 
 ## 注意事項
 
