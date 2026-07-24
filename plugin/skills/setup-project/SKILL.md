@@ -203,7 +203,7 @@ git pull
 
 ## ステップ11.5: 外部ソースの Gold 昇格（既定は自動導出・追加登録は任意）
 
-夜間 Gold 昇格（update-gold）は、リポ内差分に加えて**外部ソース（GitHub Issues/Discussions・Slack）**からも決定・用語を抽出します。**既定ソースは既存の宣言から自動導出される**ので、通常このステップで追加作業は要りません:
+夜間 Gold 昇格（update-gold）は、リポ内差分に加えて**外部ソース（GitHub Issues/Discussions・Slack）**からも決定・用語・ルールを抽出します。**既定ソースは既存の宣言から自動導出される**ので、通常このステップで追加作業は要りません:
 
 - **Slack**: `チャット/channels.json` の `platform: slack` チャンネルが自動的に読み取り対象（`Home.md` の `tools` でチャットが `slack` のとき）。特定チャンネルを外したいときは、そのエントリに `"gold": false` を付ける（opt-out）。
 - **開発リポ Issues**: `.gitmodules` の dev_dir（既定: `開発/`）配下 submodule（wiki＝path 末尾 `/wiki`・リポ名 `.wiki` は除外）の GitHub Issues が自動的に読み取り対象（`tools` の開発が `github` のとき）。開発 submodule の置き場が `開発/` 以外の案件は `Cortex/Home.md` のエンジン設定で `engine.dev_dir` を宣言する（例: `dev_dir: GitHub`）。
