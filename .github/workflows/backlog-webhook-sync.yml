@@ -1,6 +1,10 @@
 name: Backlogリアルタイム同期（webhook受信）
 
-# cortex-tools の Backlog Webhook Lambda から案件リポへ repository_dispatch → スタブが本ワークフローを呼ぶ。
+# cortex-tools の Backlog Webhook 基盤（受信Lambda→DynamoDBバッファ→1分ディスパッチャ）から
+# 案件リポへ repository_dispatch → スタブが本ワークフローを呼ぶ。
+# 1分ミニバッチで集約されたイベントを受けるため、client_payload は「複数キーの配列」を運ぶ:
+#   issueKeys: ["PJ-1","PJ-2"] / wikiIds: ["12","13"] / issuesFull|wikisFull: true（スコープ全体差分）
+# 旧形式（単一キー: kind/issueKey/wikiId・full）も後方互換で受ける。
 # github.event.client_payload は呼び出し元（案件リポ）のイベントがそのまま見える。
 # ドキュメントは Backlog webhook 非対応のため対象外（cron側で同期継続）。
 on:
@@ -30,47 +34,96 @@ jobs:
         with:
           node-version: 22 # backlog-exporter@1 が node>=22 を要求
 
-      - name: 対象（課題 or Wiki）を単体同期
+      - name: 対象（課題／Wiki・複数キー可）をまとめて同期
         env:
           BACKLOG_API_KEY: ${{ secrets.BACKLOG_API_KEY }}
           DOMAIN: ${{ secrets.BACKLOG_DOMAIN }}
           PROJECT_KEY: ${{ secrets.BACKLOG_PROJECT_KEY }}
+          # client_payload はシェルへ直接展開せず env 経由で受ける（スクリプトインジェクション対策）。
+          # 新形式（1分ミニバッチ）: 課題キー／Wiki ID を配列で受け、カンマ結合して1回で同期する。
+          ISSUE_KEYS: ${{ join(github.event.client_payload.issueKeys, ',') }}
+          WIKI_IDS: ${{ join(github.event.client_payload.wikiIds, ',') }}
+          ISSUES_FULL: ${{ github.event.client_payload.issuesFull }}
+          WIKIS_FULL: ${{ github.event.client_payload.wikisFull }}
+          # 旧形式（単一イベント）後方互換: kind と単一キー・全体差分フラグ。
           KIND: ${{ github.event.client_payload.kind }}
           ISSUE_KEY: ${{ github.event.client_payload.issueKey }}
           WIKI_ID: ${{ github.event.client_payload.wikiId }}
+          FULL: ${{ github.event.client_payload.full }}
+          ISSUE_KEY_FILENAME: ${{ inputs.issue_key_filename }}
         run: |
-          # v1.0.0 から update がキー単体指定（--issueIdOrKey / --wikiId）に対応した。
+          set -euo pipefail
+          # v1.0.0 から update がキー指定（--issueIdOrKey / --wikiId）とカンマ区切りの複数指定に対応した。
           # webhook payload のキーで該当項目だけを再取得し、APIリクエストを最小化する。
-          # 単体指定時は lastUpdated が更新されないため、夜間の増分全体同期（sync-backlog）の窓は壊れない。
-          # キーが payload に無い場合は従来どおりスコープ増分（--issuesOnly / --wikisOnly）にフォールバックする。
-          if [ "$KIND" = "issue" ]; then
-            if [ -n "$ISSUE_KEY" ]; then
-              echo "課題を単体同期（$ISSUE_KEY）"
-              npx --yes backlog-exporter@1 update --issueIdOrKey "$ISSUE_KEY" --force ${{ inputs.issue_key_filename && '--issueKeyFileName' || '' }}
-            else
-              echo "課題キーがpayloadに無いため増分同期にフォールバック"
-              npx --yes backlog-exporter@1 update --issuesOnly --force ${{ inputs.issue_key_filename && '--issueKeyFileName' || '' }}
-            fi
+          # 単体/複数指定時は lastUpdated が更新されないため、夜間の増分全体同期（sync-backlog）の窓は壊れない。
+          # キーが無い/番兵の場合はスコープ増分（--issuesOnly / --wikisOnly）にフォールバックする。
+          FN_FLAG=""
+          [ "$ISSUE_KEY_FILENAME" = "true" ] && FN_FLAG="--issueKeyFileName"
+
+          # 課題スコープの決定（全体差分フラグ > 複数キー > 旧単一キー）
+          run_issue=false
+          issue_full=false
+          issue_arg=""
+          if [ "$ISSUES_FULL" = "true" ] || [ "$FULL" = "true" ]; then
+            run_issue=true; issue_full=true
+          elif [ -n "$ISSUE_KEYS" ]; then
+            run_issue=true; issue_arg="--issueIdOrKey $ISSUE_KEYS"
+          elif [ "$KIND" = "issue" ]; then
+            run_issue=true
+            if [ -n "$ISSUE_KEY" ]; then issue_arg="--issueIdOrKey $ISSUE_KEY"; else issue_full=true; fi
+          fi
+
+          # Wikiスコープの決定（同上）
+          run_wiki=false
+          wiki_full=false
+          wiki_arg=""
+          if [ "$WIKIS_FULL" = "true" ] || [ "$FULL" = "true" ]; then
+            run_wiki=true; wiki_full=true
+          elif [ -n "$WIKI_IDS" ]; then
+            run_wiki=true; wiki_arg="--wikiId $WIKI_IDS"
           elif [ "$KIND" = "wiki" ]; then
-            if [ -n "$WIKI_ID" ]; then
-              echo "Wikiを単体同期（wiki $WIKI_ID）"
-              npx --yes backlog-exporter@1 update --wikiId "$WIKI_ID" --force ${{ inputs.issue_key_filename && '--issueKeyFileName' || '' }}
-            else
-              echo "Wiki IDがpayloadに無いため増分同期にフォールバック"
-              npx --yes backlog-exporter@1 update --wikisOnly --force ${{ inputs.issue_key_filename && '--issueKeyFileName' || '' }}
-            fi
-          else
-            echo "::warning::未対応の client_payload（kind=$KIND）。スキップ"
+            run_wiki=true
+            if [ -n "$WIKI_ID" ]; then wiki_arg="--wikiId $WIKI_ID"; else wiki_full=true; fi
+          fi
+
+          if [ "$run_issue" = false ] && [ "$run_wiki" = false ]; then
+            echo "::warning::同期対象がpayloadに無い（kind=$KIND）。スキップ"
             exit 0
           fi
 
-      - name: コミット・プッシュ（未pushコミット判定・rebase再試行）
+          if [ "$run_issue" = true ]; then
+            if [ "$issue_full" = true ]; then
+              echo "課題を増分全体同期（--issuesOnly）"
+              npx --yes backlog-exporter@1 update --issuesOnly --force $FN_FLAG
+            else
+              echo "課題を同期（$ISSUE_KEYS$ISSUE_KEY）"
+              npx --yes backlog-exporter@1 update $issue_arg --force $FN_FLAG
+            fi
+          fi
+          if [ "$run_wiki" = true ]; then
+            if [ "$wiki_full" = true ]; then
+              echo "Wikiを増分全体同期（--wikisOnly）"
+              npx --yes backlog-exporter@1 update --wikisOnly --force $FN_FLAG
+            else
+              echo "Wikiを同期（wiki $WIKI_IDS$WIKI_ID）"
+              npx --yes backlog-exporter@1 update $wiki_arg --force $FN_FLAG
+            fi
+          fi
+
+          # コミットメッセージ用のラベルを次ステップへ引き渡す。
+          label_i=""; label_w=""
+          if [ "$run_issue" = true ]; then
+            if [ "$issue_full" = true ]; then label_i="issues全体"; else label_i="issues:${ISSUE_KEYS}${ISSUE_KEY}"; fi
+          fi
+          if [ "$run_wiki" = true ]; then
+            if [ "$wiki_full" = true ]; then label_w="wikis全体"; else label_w="wikis:${WIKI_IDS}${WIKI_ID}"; fi
+          fi
+          echo "SYNC_LABEL=${label_i}${label_i:+${label_w:+ / }}${label_w}" >> "$GITHUB_ENV"
+
+      - name: コミット（未pushコミット判定）
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # client_payload はシェルへ直接展開しない（スクリプトインジェクション対策）
-          KIND: ${{ github.event.client_payload.kind }}
-          ISSUE_KEY: ${{ github.event.client_payload.issueKey }}
-          WIKI_ID: ${{ github.event.client_payload.wikiId }}
+          # SYNC_LABEL は前ステップが生成した安全な要約（client_payload の生値は展開しない）。
+          SYNC_LABEL: ${{ env.SYNC_LABEL }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -83,7 +136,7 @@ jobs:
             echo "変更なし。スキップ"
             exit 0
           fi
-          git commit -m "Backlogをリアルタイム同期（${KIND}: ${ISSUE_KEY}${WIKI_ID}）"
+          git commit -m "Backlogをリアルタイム同期（${SYNC_LABEL:-1分バッチ}）"
 
       - name: 堅牢push（未ステージ畳み込み・衝突自動解決・リトライ）
         uses: classmethod-team-app/cortex-engine/.github/actions/robust-push@v1
