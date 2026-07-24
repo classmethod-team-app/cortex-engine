@@ -1,0 +1,223 @@
+name: ハーネススキル実行（汎用ディスパッチ）
+
+# 案件リポのスタブから workflow_call で呼ばれる汎用ディスパッチ。
+#
+# 役割: Cortex（エンジン）はコンテキストレイヤーを「構築」するまで。レイヤーを「消費」して価値を出す仕事は
+# ドメインの専門ハーネス（PMハーネス等）の責務。本ワークフローは、案件リポ＋エンジン＋指定ハーネスを
+# 1つのランナーに揃え、ハーネスのスキル（例: daily-report / weekly-report）をヘッドレスで実行する土台を提供する。
+#
+# サイドロードのパス契約（docs/harness-dispatch.md の正本と一致させること）:
+#   - エンジン: `.cortex-engine/`（ハーネスのスキルは notify-slack.sh 等をこのパスで参照する）
+#   - ハーネス: `.harness/`（スキル本体 `.harness/skills/<skill>/` とプレイブック `.harness/playbook/`）
+#   - 実行時の cwd は案件リポのルート。
+#
+# 境界の規律: Gold層（Cortex/）に書き込めるのはエンジンの精製ワークフローだけ。ハーネスは自分の責務領域
+# （Slack通知・Issue起票等）にだけ書く。本ワークフローは push しない（レポート系スキルはSlackへBest-effort投稿するだけ）。
+on:
+  workflow_call:
+    inputs:
+      harness_repo:
+        description: "ハーネスのリポジトリ（owner/repo）。既定はPMハーネス"
+        required: false
+        type: string
+        default: "classmethod-team-app/pm-harness"
+      harness_ref:
+        description: "ハーネスのcheckout ref（移動タグ運用。既定 v1）"
+        required: false
+        type: string
+        default: "v1"
+      skill:
+        description: "実行するスキル名（例: daily-report / weekly-report）。.harness/skills/<skill>/SKILL.md を指す"
+        required: true
+        type: string
+      args:
+        description: "スキルへの追加指示（任意の自由文字列。プロンプト末尾に添える）"
+        required: false
+        type: string
+        default: ""
+      engine_ref:
+        description: "エンジン（スクリプト等）のcheckout ref。スタブのチャンネルと揃える（stable=v1 / canary=main）"
+        required: false
+        type: string
+        default: "v1"
+      aws_role_arn:
+        description: "Bedrock用IAMロールARN。別org等で secrets: inherit が届かない場合にスタブから明示的に渡す（空なら secrets.AWS_ROLE_TO_ASSUME を使う）"
+        required: false
+        type: string
+        default: ""
+      model:
+        description: "Bedrockモデル。既定は精製系と同じ Sonnet 5（global.）"
+        required: false
+        type: string
+        default: "global.anthropic.claude-sonnet-5"
+      since:
+        description: "差分起点をISO8601で上書き（バックフィル・再送用。空なら前回成功以降＝スキル既定にフォールバック）"
+        required: false
+        type: string
+        default: ""
+      target_date:
+        description: "対象日 YYYYMMDD（巻き取り・再送用。空ならスキルが実行日を使う）"
+        required: false
+        type: string
+        default: ""
+      max_turns:
+        description: "claude -p の max-turns（スキルの規模に応じて調整）"
+        required: false
+        type: number
+        default: 60
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    # 同一スタブ（＝同一ハーネス×スキル）の多重起動を避ける。レポート系はリポに書かないため
+    # cortex-repo-write グループには入れない（同期系と直列化する必要がない）。
+    concurrency:
+      group: run-harness-skill-${{ github.workflow }}-${{ github.repository }}
+      cancel-in-progress: false
+    timeout-minutes: 25
+    env:
+      AWS_REGION: ap-northeast-1 # Claude を有効化したリージョン（東京）
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # スキルの差分読み（git log --since）に履歴が必要
+
+      - name: エンジンをチェックアウト（このワークフローと同一バージョン）
+        uses: actions/checkout@v4
+        with:
+          repository: classmethod-team-app/cortex-engine
+          ref: ${{ github.job_workflow_sha || inputs.engine_ref }}
+          path: .cortex-engine
+          # private エンジンの checkout には読み取りトークンが必要（org secret）。
+          # エンジンが public/内部公開なら github.token でも通るためフォールバックする。
+          token: ${{ secrets.ENGINE_REPO_TOKEN || github.token }}
+
+      - name: ハーネスをチェックアウト（指定ref・サイドロード）
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.harness_repo }}
+          ref: ${{ inputs.harness_ref }}
+          path: .harness
+          # ハーネスも組織内 private/internal 想定。専用トークンが無ければエンジン用トークン→github.token の順にフォールバック。
+          token: ${{ secrets.HARNESS_REPO_TOKEN || secrets.ENGINE_REPO_TOKEN || github.token }}
+
+      - name: エンジン・ハーネスをGit管理対象外にする
+        run: |
+          echo ".cortex-engine/" >> .git/info/exclude
+          echo ".harness/" >> .git/info/exclude
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 案件のデータ版(schema_version)がエンジン最新より古い（未適用マイグレーション保留中）なら実行をスキップ
+      - name: スキーマ版チェック
+        id: schema
+        run: |
+          if node .cortex-engine/scripts/schema-current.mjs; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "current=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）なら丸ごとスキップ（セットアップ途中の案件で毎回failしない）。
+      # ハーネススキルは claude -p で走るため Bedrock ロールが要る（SLACK_BOT_TOKEN の有無はスキルが自分でbest-effort判定する）。
+      - name: 前提チェック（Bedrockロールの有無）
+        id: pre
+        env:
+          ROLE: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
+        run: |
+          if [ -z "$ROLE" ]; then
+            echo "::notice::AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）。ハーネススキル実行をスキップします。"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # スキル本体の存在確認（refやスキル名の誤りを早期に検出する）
+      - name: スキルの存在確認
+        id: skill
+        if: steps.pre.outputs.run == 'true' && steps.schema.outputs.current == 'true'
+        env:
+          SKILL: ${{ inputs.skill }}
+        run: |
+          SKILL_MD=".harness/skills/${SKILL}/SKILL.md"
+          if [ ! -f "$SKILL_MD" ]; then
+            echo "::error::指定スキルが見つかりません: $SKILL_MD（harness_repo=${{ inputs.harness_repo }} harness_ref=${{ inputs.harness_ref }} skill=${SKILL}）"
+            exit 1
+          fi
+          echo "path=$SKILL_MD" >> "$GITHUB_OUTPUT"
+
+      # 増分の起点(SINCE)を「このスタブ（呼び出し元ワークフロー）の直近成功run」に置く。
+      # 失敗runは成功扱いされないので、連続失敗しても次の成功実行で失敗分まで窓が自動で遡る（巻き取り）。
+      # 汎用ディスパッチのため対象ワークフロー名は呼び出し元スタブの basename から機械導出する（gh run list --workflow=<basename>）。
+      # 手動 since 上書き（バックフィル）があればそちらを優先。取得できなければ空のままスキル既定（daily=24h / weekly=7日）にフォールバック。
+      - name: 増分窓の起点(SINCE)を算出（前回成功以降・14日キャップ）
+        id: win
+        if: steps.pre.outputs.run == 'true' && steps.schema.outputs.current == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OVERRIDE_SINCE: ${{ inputs.since }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          if [ -n "$OVERRIDE_SINCE" ]; then
+            echo "since=$OVERRIDE_SINCE" >> "$GITHUB_OUTPUT"
+            echo "::notice::SINCE を手動上書き（バックフィル）: $OVERRIDE_SINCE"
+            exit 0
+          fi
+          # github.workflow_ref 例: owner/repo/.github/workflows/pm-daily.yml@refs/heads/main
+          WF_PATH="${WORKFLOW_REF%@*}"
+          WF="$(basename "$WF_PATH")"
+          CAP=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          LAST=$(gh run list --workflow="$WF" --status success --limit 1 --json createdAt --jq '.[0].createdAt // empty' 2>/dev/null || true)
+          SINCE="$LAST"
+          if [ -n "$SINCE" ] && [[ "$SINCE" < "$CAP" ]]; then
+            echo "::warning::増分起点 $SINCE が14日上限より古いため $CAP に丸めます（未処理分はsince入力で個別バックフィルを）"
+            SINCE="$CAP"
+          fi
+          echo "since=$SINCE" >> "$GITHUB_OUTPUT"
+          echo "増分起点 SINCE=${SINCE:-（未取得・スキル既定にフォールバック）}"
+
+      - name: AWS認証（OIDC）
+        if: steps.pre.outputs.run == 'true' && steps.schema.outputs.current == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # cortex-tools/infra の GithubActionsOidc が作成したロールARN（精製系と共用）
+          role-to-assume: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Claude Code をインストール
+        if: steps.pre.outputs.run == 'true' && steps.schema.outputs.current == 'true'
+        run: npm i -g @anthropic-ai/claude-code
+
+      - name: ハーネススキルを実行（Claude / Bedrock）
+        if: steps.pre.outputs.run == 'true' && steps.schema.outputs.current == 'true'
+        env:
+          CLAUDE_CODE_USE_BEDROCK: "1" # APIキーの代わりに Bedrock を使用
+          ANTHROPIC_MODEL: ${{ inputs.model }}
+          API_TIMEOUT_MS: "600000" # Bedrockの長いリクエスト（大コンテキスト読み）がCLI既定タイムアウトで死ぬのを防ぐ
+          SINCE: ${{ steps.win.outputs.since }} # 差分起点（前回成功以降）。スキルの git log --since に渡す（空ならスキル既定）
+          TARGET_DATE: ${{ inputs.target_date }} # 対象日（巻き取り・再送用。空ならスキルが実行日を使う）
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} # スキルが notify-slack.sh でSlack投稿するため（未設定ならスキルが無害終了）
+          GH_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }} # スキルが外部ソース/リンク解決に使う場合のため
+          SKILL_MD: ${{ steps.skill.outputs.path }}
+          SKILL_NAME: ${{ inputs.skill }}
+          EXTRA_ARGS: ${{ inputs.args }}
+        run: |
+          PROMPT=$(cat <<EOF
+          サイドロードされたハーネスのスキル「${SKILL_NAME}」を実行してください。
+
+          - スキル本体: ${SKILL_MD} の指示に厳密に従う（frontmatter の playbook_refs が指すプレイブックは .harness/playbook/ 配下にある。必ず読んでから進める）。
+          - 実行環境: cwd は案件リポのルート。エンジンは .cortex-engine/（notify-slack.sh 等の共有ユーティリティ）、ハーネスは .harness/（スキル・アセット・プレイブック）に配置済み。
+          - ヘッドレス実行: 人に聞き返さず、env（SINCE / TARGET_DATE / SLACK_BOT_TOKEN 等）と差分から全部を判断して最後まで走り切る。
+          - 境界の規律: リポジトリ（Cortex/ 含む）にファイルを書かない。成果物はスキルが規定する外部先（Slack等）へ。best-effort（env未設定・スクリプト不在・API失敗でハードに落とさない）。
+          - .cortex-engine/ 配下（エンジン）・.harness/ 配下（ハーネス）は変更・コミットしない。
+          ${EXTRA_ARGS:+
+          追加指示: ${EXTRA_ARGS}}
+          EOF
+          )
+          # 無人実行（ephemeralなCIランナー）のため権限確認はスキップする
+          claude -p "$PROMPT" --max-turns ${{ inputs.max_turns }} --dangerously-skip-permissions

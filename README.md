@@ -38,9 +38,9 @@ cortex-engine/
 │   ├── agents/  hooks/  .mcp.json
 │   └── scripts/validate-cortex.mjs   # オントロジー検証（js-yaml は vendor 同梱・インストール不要）
 ├── .github/workflows/                # reusable workflows（案件リポのスタブから workflow_call で呼ばれる）
-│   ├── sync-backlog / backlog-webhook-sync / ingest-minutes / update-decision-log /
-│   │   update-glossary / weekly-report / sync-designs / fleet-status / validate-cortex /
-│   │   engine-migrate                 # データスキーマ追随
+│   ├── sync-backlog / backlog-webhook-sync / ingest-minutes / update-gold /
+│   │   run-harness-skill / sync-designs / fleet-status / validate-cortex /
+│   │   engine-migrate                 # run-harness-skill: ハーネススキル汎用ディスパッチ（日次/週次レポート等）
 │   └── release.yml                   # stable ブランチ＋v1 タグを同一コミットに前進（リリースは必ずこれ経由）
 ├── scripts/                          # GHA 用（fleet-status.mjs / engine-migrate.mjs）
 ├── migrations/                       # データスキーマのマイグレーション（migrations/README.md 参照）

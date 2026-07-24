@@ -37,7 +37,7 @@
 │   ├── Glossary/                # 案件固有の用語・定義（毎晩draft自動追記→人間レビュー）
 │   ├── Members/                 # プロジェクト関係者の名簿
 │   ├── Rules/                   # 継続的に守る制約・規約
-│   └── レポート/                 # 週次レポート（毎週金曜自動生成）
+│   └── レポート/                 # 日次/週次レポートの歴史（生成終了・凍結。以後のレポートはPMハーネスがSlack配信）
 │
 ├── 課題管理/                     # 顧客とのやり取り（Backlog等の同期ミラー。手編集しない）
 ├── 会議/                         # MTG議事録・文字起こし（cortex-notetakerが自動取り込み）
@@ -86,7 +86,6 @@
 | `/create-minute` / `/post-meeting` | 文字起こしから議事録を生成 |
 | `/update-decision-log` | 課題・議事録から Decision Log を更新 |
 | `/update-glossary` | 案件固有の用語を用語集に登録・更新 |
-| `/weekly-report` | 週次レポートを生成 |
 | `/catch-up-recent-status` | 直近の状況をキャッチアップ |
 | `/cortex-grep` | Gold起点で frontmatter を辿り関連レコードを一括取得 |
 | `/sync-materials` | 共有資料を Markdown に変換して同期 |
@@ -103,7 +102,7 @@
 1. 会議     → cortex-notetaker が文字起こしを自動取り込み → 議事録を自動生成（repository_dispatch 即時＋夜間cron保険）
 2. 課題管理 → Webhookリアルタイム同期（数十秒）＋平日毎時cron → 課題管理/ に同期
 3. 精製     → 毎晩、議事録・課題から Decisions / 用語集を自動追記（用語はdraft→人間レビュー）
-4. レポート → 毎週金曜、週次レポートを自動生成
+4. レポート → 日次（毎朝）・週次（毎週金曜）の進捗レポートを Slack に配信（PMハーネス。リポジトリには書かない）
 5. 検証     → Cortex/ への変更はオントロジー規約で自動検証（validate-cortex）
 ```
 

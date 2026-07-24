@@ -14,7 +14,7 @@ Cortex/
 ├── Glossary/         # 案件固有の用語・定義（type: term）
 ├── Members/          # プロジェクト関係者の名簿（type: member）
 ├── Rules/            # 継続的に守る制約・規約（type: rule）
-├── レポート/          # 週次レポート等（type: report）
+├── レポート/          # 日次/週次レポートの歴史（生成終了・凍結／type: report。以後はPMハーネスがSlack配信）
 └── Home.md           # Cortexの入口（type: overview / 唯一の単独ページ）
 ```
 
@@ -30,7 +30,7 @@ Cortex直下の単独ページは **`Home.md` のみ**とする。「とりあ�
 
 | 依存しているもの | 壊れ方 |
 | --- | --- |
-| 生成スキル（update-decision-log系 / update-glossary系 / weekly-report） | 書き込み先・重複照合のパスがズレ、誤った場所に生成される |
+| 生成スキル（update-decision-log系 / update-glossary系） | 書き込み先・重複照合のパスがズレ、誤った場所に生成される |
 | 夜間cron（`.github/workflows/` の自動更新3本） | 走査・コミット対象が空になり、静かに何も生成されなくなる |
 | AIS Viewer（`@takagaki/cortex-decisions-viewer`） | 自動検出（`Cortex/Decisions/records` → `Cortex/Decisions` → `Decisions`）から外れ、Amplifyのビルドが失敗する |
 | 巡回エージェント・AIS | Gold層の読み取り入口・顧客開放単位として本構造を前提とする |
@@ -42,5 +42,5 @@ Cortex直下の単独ページは **`Home.md` のみ**とする。「とりあ�
 - frontmatterのスキーマは**リンターで機械検証される**（エンジンの `validate-cortex`）。pre-commitとCI（PR・mainへのpush）で自動実行され、規約違反はマージできない
 
 - 配下のすべてのMarkdownはオントロジー規約（cortex-engine の `docs/ontology.md`）に従ったfrontmatterを持つ
-- 手で直接書くのではなく、原則としてスキル（`/update-decision-log` `/update-glossary` `/weekly-report` 等）経由で生成・更新する
+- 手で直接書くのではなく、原則としてスキル（`/update-decision-log` `/update-glossary` 等）経由で生成・更新する（`レポート/` は生成終了・凍結。以後の日次/週次レポートはPMハーネスがSlackに配信する）
 - 生データ（課題管理/・会議/の文字起こし等）はここに置かない

@@ -206,15 +206,15 @@ jobs:
           PROMPT=$(cat <<'EOF'
           .cortex-engine/plugin/skills/update-gold-auto/SKILL.md の指示に従い、
           前回実行以降に追加・更新されたコンテキスト（その日の議事録・課題等）から
-          Gold層（Decisions・用語集・メンバーdraft）への昇格と日次レポートの生成を1セッションで行ってください。
-          ソースは1回だけ読み、その読みを決定・用語・メンバー・日次レポートの各フェーズで共有してください。
+          Gold層（Decisions・用語集・メンバーdraft）への昇格を1セッションで行ってください。
+          ソースは1回だけ読み、その読みを決定・用語・メンバーの各フェーズで共有してください。
 
           注意:
           - 増分方式です。フル走査せず、環境変数 SINCE 以降（前回成功以降）に追加・更新されたソースだけを対象にしてください。git log は --since="$SINCE" を使うこと（SINCEが空なら約25時間がデフォルト）。
           - Backlog同期は既にワークフロー側で実行済みなのでスキップしてください。
-          - フェーズごと（決定→用語→メンバー→日次レポート）に、対象ディレクトリだけを git add して逐次コミットしてください（push は行わない）。
+          - フェーズごと（決定→用語→メンバー）に、対象ディレクトリだけを git add して逐次コミットしてください（push は行わない）。
           - Cortex/ 配下・.cortex-engine/ 配下（エンジン）は抽出源から除外してください（自己参照防止・エンジン不変更）。ただし本セッションの Phase A で自分が作成した Decision を用語フェーズの抽出源に含めるのは例外です（スキルの指示どおり）。
-          - Phase A〜C は昇格すべき候補が無ければコミット不要です（毎晩走るため、これは通常の状態です）。ただし **Phase D（日次レポート）は昇格ゼロの夜でも必ず生成・コミットしてください**（差分ソースがあった日の記録として。概要にはソースの動き＝何が更新されたが昇格には至らなかったか、を書く）。
+          - 昇格すべき候補が無ければコミット不要です（毎晩走るため、これは通常の状態です）。日報・週報の生成はこのワークフローの責務ではありません（PMハーネスが Slack に配信します）。
           EOF
           )
           # 無人実行（ephemeralなCIランナー）のため権限確認はスキップする
@@ -234,6 +234,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # 【移行①シャドーモード】決定的パイプライン＋LLM関数化の新実装を、本番(claude -p)の後に「観察だけ」実行する。
+      # ※注: 本ワークフローは日次/週次レポートを生成しない（レポートはPMハーネスが run-harness-skill 経由でSlackに配信する）。
       # リポジトリの変更・コミット・pushは一切しない（起票するはずだった生成物をrun log / Step Summaryに出すのみ）。
       # 本番の後・Pushの後に置くことで、同一runの中で「本番が実際に起票したもの」（GOLD_PRE_HEAD..HEADのgit diff）と
       # 「シャドーが起票するはずだったもの」を突き合わせられる。失敗しても run を落とさない（continue-on-error）。
@@ -250,47 +251,3 @@ jobs:
           GH_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }} # external-sources.sh 用（本番と同一）
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} # external-sources.sh の slack ソース用（未設定なら活動なし扱い）
         run: node .cortex-engine/plugin/scripts/update-gold-pipeline.mjs
-
-      # 日次レポートの通知は朝9:00 JSTの別ワークフロー（notify-daily）が担う。
-      # スレッド化には配達後にしか確定しない親メッセージのtsが必要で、夜間の予約投稿ではスレッド化できないため分離した。
-
-      # 差分ゼロの夜: AI実行はスキップされるが、日次レポートの連続性のため status: skip のレコードを機械生成して積む。
-      # frontmatterのsources件数が全て0＝AI(概要)不要。読み手（AI/巡回）は status: skip を見てボディを読まずに飛ばせる。
-      - name: 差分ゼロ日の日次レポート（skipレコード・機械生成）
-        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed != 'true'
-        run: |
-          today=$(date -u -d '+9 hours' +%Y%m%d)
-          date_h=$(date -u -d '+9 hours' +%Y-%m-%d)
-          f="Cortex/レポート/records/${today}-daily.md"
-          [ -d "Cortex/レポート/records" ] || { echo "::notice::Cortex/レポート/records が無いためskipレコードを生成しません。"; exit 0; }
-          [ ! -f "$f" ] || { echo "::notice::本日の日次レポートは既に存在します。"; exit 0; }
-          cat > "$f" <<EOF
-          ---
-          type: report
-          id: "report:${today}-daily"
-          title: "${date_h} デイリーレポート"
-          description: "ソース差分なし（動きのなかった日）"
-          date: ${date_h}
-          status: skip
-          sources:
-            changed_files: 0
-            decisions_added: 0
-            terms_added: 0
-            members_added: 0
-          ---
-
-          # ${date_h} デイリーレポート
-
-          ソース差分なし（この日は対象ソースの更新がありませんでした）。
-          EOF
-          node .cortex-engine/plugin/scripts/validate-cortex.mjs
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "Cortex/レポート/"
-          git commit -m "日次レポートを生成（差分なし・skip）"
-
-      - name: 差分ゼロ日のPush
-        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed != 'true'
-        uses: classmethod-team-app/cortex-engine/.github/actions/robust-push@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}

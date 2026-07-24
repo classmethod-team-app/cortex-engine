@@ -1,0 +1,33 @@
+name: PMハーネス日報（Slack配信）
+# 実体はエンジンの汎用ディスパッチ（run-harness-skill）。PMハーネスの daily-report スキルをヘッドレス実行し、
+# 当日の日報を Slack に配信する。レポートはリポジトリに書かない（Gold層に書けるのはエンジンの精製WFだけ）。
+# ※ファイル名を変えないこと（増分起点SINCEの算出が gh run list --workflow=このファイル名 に依存）
+on:
+  schedule:
+    # 毎日 朝9:00 JST（UTC 0:00）。前日夜間の Gold 昇格（update-gold・22:00 JST）の確定結果を読んで配信する
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: "対象日 YYYYMMDD（巻き取り・再送用。空なら実行日）"
+        required: false
+        default: ""
+      since:
+        description: "差分起点をISO8601で上書き（バックフィル用。空なら前回成功以降）"
+        required: false
+        default: ""
+concurrency:
+  group: pm-daily
+  cancel-in-progress: false
+permissions:
+  contents: read
+  id-token: write # AWS OIDC 認証に必須（スキルは claude -p / Bedrock で走る）
+  actions: read   # SINCE算出（gh run list）に必要
+jobs:
+  daily:
+    uses: classmethod-team-app/cortex-engine/.github/workflows/run-harness-skill.yml@v1
+    secrets: inherit
+    with:
+      skill: daily-report
+      target_date: ${{ github.event.inputs.target_date || '' }}
+      since: ${{ github.event.inputs.since || '' }}
