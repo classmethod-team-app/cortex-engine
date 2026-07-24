@@ -3,10 +3,10 @@ name: Backlogリアルタイム同期（webhook受信）
 # cortex-tools の Backlog Webhook 基盤（受信Lambda→DynamoDBバッファ→1分ディスパッチャ）から
 # 案件リポへ repository_dispatch → スタブが本ワークフローを呼ぶ。
 # 1分ミニバッチで集約されたイベントを受けるため、client_payload は「複数キーの配列」を運ぶ:
-#   issueKeys: ["PJ-1","PJ-2"] / wikiIds: ["12","13"] / issuesFull|wikisFull: true（スコープ全体差分）
+#   issueKeys: ["PJ-1","PJ-2"] / wikiIds: ["12","13"] / documentIds: ["019f..."]
+#   issuesFull|wikisFull|documentsFull: true（スコープ全体差分）
 # 旧形式（単一キー: kind/issueKey/wikiId・full）も後方互換で受ける。
 # github.event.client_payload は呼び出し元（案件リポ）のイベントがそのまま見える。
-# ドキュメントは Backlog webhook 非対応のため対象外（cron側で同期継続）。
 on:
   workflow_call:
     inputs:
@@ -43,8 +43,10 @@ jobs:
           # 新形式（1分ミニバッチ）: 課題キー／Wiki ID を配列で受け、カンマ結合して1回で同期する。
           ISSUE_KEYS: ${{ join(github.event.client_payload.issueKeys, ',') }}
           WIKI_IDS: ${{ join(github.event.client_payload.wikiIds, ',') }}
+          DOCUMENT_IDS: ${{ join(github.event.client_payload.documentIds, ',') }}
           ISSUES_FULL: ${{ github.event.client_payload.issuesFull }}
           WIKIS_FULL: ${{ github.event.client_payload.wikisFull }}
+          DOCUMENTS_FULL: ${{ github.event.client_payload.documentsFull }}
           # 旧形式（単一イベント）後方互換: kind と単一キー・全体差分フラグ。
           KIND: ${{ github.event.client_payload.kind }}
           ISSUE_KEY: ${{ github.event.client_payload.issueKey }}
@@ -53,10 +55,10 @@ jobs:
           ISSUE_KEY_FILENAME: ${{ inputs.issue_key_filename }}
         run: |
           set -euo pipefail
-          # v1.0.0 から update がキー指定（--issueIdOrKey / --wikiId）とカンマ区切りの複数指定に対応した。
+          # v1.0.0 から update がキー指定（--issueIdOrKey / --wikiId / --documentId）とカンマ区切りの複数指定に対応した。
           # webhook payload のキーで該当項目だけを再取得し、APIリクエストを最小化する。
           # 単体/複数指定時は lastUpdated が更新されないため、夜間の増分全体同期（sync-backlog）の窓は壊れない。
-          # キーが無い/番兵の場合はスコープ増分（--issuesOnly / --wikisOnly）にフォールバックする。
+          # キーが無い/番兵の場合はスコープ増分（--issuesOnly / --wikisOnly / --documentsOnly）にフォールバックする。
           FN_FLAG=""
           [ "$ISSUE_KEY_FILENAME" = "true" ] && FN_FLAG="--issueKeyFileName"
 
@@ -86,7 +88,17 @@ jobs:
             if [ -n "$WIKI_ID" ]; then wiki_arg="--wikiId $WIKI_ID"; else wiki_full=true; fi
           fi
 
-          if [ "$run_issue" = false ] && [ "$run_wiki" = false ]; then
+          # ドキュメントスコープの決定（全体差分フラグ > 複数ID）。ドキュメントはwebhook起点が新しく旧単一形式は無い。
+          run_doc=false
+          doc_full=false
+          doc_arg=""
+          if [ "$DOCUMENTS_FULL" = "true" ] || [ "$FULL" = "true" ]; then
+            run_doc=true; doc_full=true
+          elif [ -n "$DOCUMENT_IDS" ]; then
+            run_doc=true; doc_arg="--documentId $DOCUMENT_IDS"
+          fi
+
+          if [ "$run_issue" = false ] && [ "$run_wiki" = false ] && [ "$run_doc" = false ]; then
             echo "::warning::同期対象がpayloadに無い（kind=$KIND）。スキップ"
             exit 0
           fi
@@ -109,16 +121,29 @@ jobs:
               npx --yes backlog-exporter@1 update $wiki_arg --force $FN_FLAG
             fi
           fi
+          if [ "$run_doc" = true ]; then
+            if [ "$doc_full" = true ]; then
+              echo "ドキュメントを増分全体同期（--documentsOnly）"
+              npx --yes backlog-exporter@1 update --documentsOnly --force $FN_FLAG
+            else
+              echo "ドキュメントを同期（doc $DOCUMENT_IDS）"
+              npx --yes backlog-exporter@1 update $doc_arg --force $FN_FLAG
+            fi
+          fi
 
-          # コミットメッセージ用のラベルを次ステップへ引き渡す。
-          label_i=""; label_w=""
+          # コミットメッセージ用のラベルを次ステップへ引き渡す（同期したスコープのみを " / " で連結）。
+          labels=""
+          add_label() { [ -n "$1" ] && labels="${labels:+$labels / }$1"; }
           if [ "$run_issue" = true ]; then
-            if [ "$issue_full" = true ]; then label_i="issues全体"; else label_i="issues:${ISSUE_KEYS}${ISSUE_KEY}"; fi
+            if [ "$issue_full" = true ]; then add_label "issues全体"; else add_label "issues:${ISSUE_KEYS}${ISSUE_KEY}"; fi
           fi
           if [ "$run_wiki" = true ]; then
-            if [ "$wiki_full" = true ]; then label_w="wikis全体"; else label_w="wikis:${WIKI_IDS}${WIKI_ID}"; fi
+            if [ "$wiki_full" = true ]; then add_label "wikis全体"; else add_label "wikis:${WIKI_IDS}${WIKI_ID}"; fi
           fi
-          echo "SYNC_LABEL=${label_i}${label_i:+${label_w:+ / }}${label_w}" >> "$GITHUB_ENV"
+          if [ "$run_doc" = true ]; then
+            if [ "$doc_full" = true ]; then add_label "docs全体"; else add_label "docs:${DOCUMENT_IDS}"; fi
+          fi
+          echo "SYNC_LABEL=${labels}" >> "$GITHUB_ENV"
 
       - name: コミット（未pushコミット判定）
         env:
