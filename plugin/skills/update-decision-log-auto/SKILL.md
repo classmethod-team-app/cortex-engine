@@ -106,7 +106,7 @@ grep -hE '^(id|title|description):' Cortex/Decisions/records/20260626-*.md 2>/de
   - `type`: `decision`（固定）
   - `id`: `YYYYMMDD-NNN`
   - `title` / `date` / `category`（README のカテゴリー一覧から）/ `deciders` / `description`
-    - `deciders` は名簿（`Cortex/メンバー/records/` の `title`）の正式表記に正規化する。名簿に無い人名は推測で確定させず `（要確認）` を付けて記載する
+    - `deciders` は名簿（`Cortex/Members/records/` の `title`）の正式表記に正規化する。名簿に無い人名は推測で確定させず `（要確認）` を付けて記載する
   - `sprint`: スプリント運用している案件のみ記入（無ければ省略可）
   - `relations`: 抽出元への型付き関係を安定IDで記載（議事録: `rel: based_on, target: "minute:{定例名}:{YYYYMMDD}"`、課題: `rel: based_on, target: "{課題キー}"`。過去の決定の変更なら `rel: supersedes, target: "{決定ID}"`）。**ファイルパスは使わない**
   - `references`: 抽出元（議事録パス・課題キー＋コメント・外部リンク等）を必ず記載（人間向けの併記）

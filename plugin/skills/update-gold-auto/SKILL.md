@@ -2,7 +2,7 @@
 name: update-gold-auto
 description: >-
   その日に追加・更新されたコンテキスト（議事録・課題・その他）を1セッションで走査し、確定した意思決定・案件固有の新規用語・名簿未登録メンバーを、
-  Cortex/Decisions/・Cortex/用語集/・Cortex/メンバー/ へフェーズごとに逐次コミットで自動追記し、最後に当日の日次レポート（Cortex/レポート/）を生成する（人手承認なし・夜間cron想定）
+  Cortex/Decisions/・Cortex/Glossary/・Cortex/Members/ へフェーズごとに逐次コミットで自動追記し、最後に当日の日次レポート（Cortex/レポート/）を生成する（人手承認なし・夜間cron想定）
 ---
 
 `update-decision-log-auto` と `update-glossary-auto` の自律実行版を**1セッションに統合したオーケストレータ**です。夜間の Gold 昇格を2本の別ワークフロー（＝2つのBedrockセッション）に分けると、同じ差分ソース（議事録・課題）を二重に読むことになります。本スキルはソースを**1回だけ読み**、その読みを4フェーズ（決定・用語・メンバーdraft・日次レポート）で共有して、重複した読み込みを排除します。
@@ -76,7 +76,7 @@ fi
 
 ### Phase B: 用語（用語集）
 
-`update-glossary-auto/SKILL.md` の**ステップ2〜4**（既存用語・除外リストの読み込み・新規用語候補の抽出・ファイル作成/synonyms追記）に従って `Cortex/用語集/records/` に `status: draft` で新規用語を追加、または既存用語へ synonyms を追記する。ソースの読みはステップ2の結果を使う。
+`update-glossary-auto/SKILL.md` の**ステップ2〜4**（既存用語・除外リストの読み込み・新規用語候補の抽出・ファイル作成/synonyms追記）に従って `Cortex/Glossary/records/` に `status: draft` で新規用語を追加、または既存用語へ synonyms を追記する。ソースの読みはステップ2の結果を使う。
 
 **加えて、Phase A で本セッションが作成した Decision も用語の抽出源に含める**（従来は翌晩の glossary が拾っていた分を、その場で拾う）。**外部コンテンツも議事録・課題と同等の抽出源として扱う**（`decisions` 設定にも縛られない。Issue の議論・Slack の会話からも案件固有の語彙・略語・外部サービス名を通常どおり拾う）。出典が外部 Issue/Discussion なら、その番号・URL を安定な参照として用いる。**ただし内部限定情報フィルタは維持**（下記「注意事項」。売上・工数・単価・人事評価等は用語にも書かない）。
 
@@ -84,7 +84,7 @@ fi
 
 ```bash
 node "<SKILL_DIR>/../../scripts/validate-cortex.mjs"
-git add Cortex/用語集/
+git add Cortex/Glossary/
 if git diff --staged --quiet; then
   echo "用語集: 追記なし"
 else
@@ -94,9 +94,9 @@ fi
 
 ### Phase C: メンバーdraft
 
-`Cortex/メンバー/` ディレクトリが存在しない案件（マイグレーション未適用）は**このフェーズをスキップ**する。
+`Cortex/Members/` ディレクトリが存在しない案件（マイグレーション未適用）は**このフェーズをスキップ**する。
 
-存在する場合、ステップ2で読んだソース（議事録の参加者欄・文字起こし・**外部ソースの発言者**）に登場するが `Cortex/メンバー/records/` に無い人物がいれば、`Cortex/メンバー/README.md` の運用規約に従い **`status: draft` で新規レコードのみ**追加する。
+存在する場合、ステップ2で読んだソース（議事録の参加者欄・文字起こし・**外部ソースの発言者**）に登場するが `Cortex/Members/records/` に無い人物がいれば、`Cortex/Members/README.md` の運用規約に従い **`status: draft` で新規レコードのみ**追加する。
 
 - **Slack の発言者**（`[表示名 時刻]` 形式で出力に含まれる）も候補にする。表示名から氏名の見当がつくもの（例: 「山田太郎」「Taro Yamada」）は draft 起票し、ハンドルネームのみで氏名の確証が持てない場合は起票しない（過剰起票はノイズ）。
 - **GitHub の author**（login のみ）は氏名の確証が持てないことが多いので、login から実名が明らかな場合を除き起票しない。
@@ -107,14 +107,14 @@ fi
 - 既存メンバーの照合は frontmatter の grep で行う（全文 Read しない）：
 
 ```bash
-grep -hE '^(title|aliases):' Cortex/メンバー/records/*.md 2>/dev/null || true
+grep -hE '^(title|aliases):' Cortex/Members/records/*.md 2>/dev/null || true
 ```
 
 作成後、コミット前に検証してからコミットする：
 
 ```bash
 node "<SKILL_DIR>/../../scripts/validate-cortex.mjs"
-git add Cortex/メンバー/
+git add Cortex/Members/
 if git diff --staged --quiet; then
   echo "メンバー: 追記なし"
 else
