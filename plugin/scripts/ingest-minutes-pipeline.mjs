@@ -90,12 +90,12 @@ function loadIssueKeys(issuesDir) {
   return keys;
 }
 
-// 名簿（Cortex/メンバー/records/*.md）の title 一覧。人名の正規化・突合の材料。
+// 名簿（Cortex/Members/records/*.md）の title 一覧。人名の正規化・突合の材料。
 function loadRosterTitles() {
   const titles = [];
-  for (const e of listDir("Cortex/メンバー/records") || []) {
+  for (const e of listDir("Cortex/Members/records") || []) {
     if (!e.isFile() || !e.name.endsWith(".md")) continue;
-    const raw = readText(`Cortex/メンバー/records/${e.name}`) || "";
+    const raw = readText(`Cortex/Members/records/${e.name}`) || "";
     const m = raw.match(/^title:\s*["']?([^"'\n#]+?)["']?\s*$/m);
     if (m && !/\{\{/.test(m[1])) titles.push(m[1].trim());
   }

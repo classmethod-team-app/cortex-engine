@@ -5,7 +5,7 @@
 #
 # 使い方: changed-sources.sh <SINCE> [除外pathspec...]
 #   $1: git log --since に渡す起点（空なら "25 hours ago"）
-#   $2以降: 追加の除外パス（自出力のGold層。例: "Cortex/" や "Cortex/用語集/"）
+#   $2以降: 追加の除外パス（自出力のGold層。例: "Cortex/" や "Cortex/Glossary/"）
 # 出力: 対象ファイルを1行1件（コミット済み差分＋未コミットの作業ツリー変更の和集合）。
 #       対象が無ければ出力なしで exit 0。
 #
