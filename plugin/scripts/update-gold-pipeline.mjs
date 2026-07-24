@@ -7,12 +7,15 @@
 // 本スクリプトのスコープはシャドーモードまで（REAL モードはコードとして実装するがワークフローからは呼ばない）。
 //
 // 実行モード（env GOLD_PIPELINE_MODE。既定 shadow）:
-//   - shadow: リポジトリを一切変更しない。起票するはずだった Decision/用語/メンバー/日次レポートの全文を
+//   - shadow: リポジトリを一切変更しない。起票するはずだった Decision/用語/メンバーの全文を
 //             1つの Markdown レポートにまとめ、$GITHUB_STEP_SUMMARY にサマリ表、全文を /tmp と run log に出す。
 //             env GOLD_PRE_HEAD があれば「本番（claude -p）が実際に起票したファイル一覧」を git diff から
 //             機械取得して併記する（同一 run 内でシャドーと本番を突き合わせるため）。
-//   - real:   validate-cortex.mjs による検証→ファイル書込→フェーズ別コミット（Decisions→用語集→メンバー→レポート）。
+//   - real:   validate-cortex.mjs による検証→ファイル書込→フェーズ別コミット（Decisions→用語集→メンバー）。
 //             push はワークフロー側（本スクリプトはしない）。
+//
+// 日報・週報は本スクリプトの責務ではない（レポートはPMハーネスが run-harness-skill 経由でSlackに配信する。
+// Gold層 Cortex/ に書けるのはエンジンの精製ワークフローだけ、という境界の規律に従う）。
 //
 // 各フェーズの規律は既存スキル（update-gold-auto / update-decision-log-auto / update-glossary-auto）に従う:
 //   - ソース列挙は changed-sources.sh / external-sources.sh と同一スクリプト（二重定義によるドリフト防止）
@@ -506,16 +509,14 @@ function llmExtractMembers(source, rosterNames) {
   return callJSON("member", { system: SYS_COMMON, user, maxTokens: 1024, timeoutMs: 120_000 });
 }
 
-// D: バッチ統合パス（1回だけ）: 全ソースの抽出結果を横断チェックし、重複統合・supersedes候補の指摘と
-//    「今日の概要」（日次レポート用3-6行）を生成する。指摘は報告用（採番済みファイルは変更しない）。
+// 横断チェック（1回だけ）: 全ソースの抽出結果を横断し、重複統合・supersedes候補を指摘する（Gold品質の観察）。
+//   指摘は報告用（採番済みファイルは変更しない）。日報の「今日の概要」生成は廃止（レポートはPMハーネスの責務）。
 function llmBatchReview(decisions, terms, members, sourceLabels) {
   const user = [
     "夜間Gold昇格の当日抽出結果一式です。横断チェックを行ってください。",
     "",
     "1. duplicates: 抽出結果の中で実質同一の決定があれば、そのタイトルの組を指摘する（統合の提案。ファイル操作はしない）。",
     "2. supersedes_candidates: 過去の決定を置き換えていそうな決定があれば「新タイトル → 置き換え対象の既存タイトル/ID」を指摘する。",
-    "3. summary: 「今日の概要」を3〜6行で。プロジェクトに何が起きたか（顧客とのやり取り・議論の進展・決まったこと・進行中の作業・浮上した課題）を書く。",
-    "   書かないこと: Gold昇格の件数・「差分ソースがN件だった」等のシステム内部動作。",
     PRIVACY_RULE,
     "",
     "=== 当日の差分ソース一覧 ===",
@@ -531,7 +532,7 @@ function llmBatchReview(decisions, terms, members, sourceLabels) {
     JSON.stringify(members, null, 1),
     "",
     'JSONのみを出力:',
-    '{"duplicates": [["タイトルA", "タイトルB"], ...], "supersedes_candidates": ["新タイトル → 既存タイトル/ID", ...], "summary": "..."}',
+    '{"duplicates": [["タイトルA", "タイトルB"], ...], "supersedes_candidates": ["新タイトル → 既存タイトル/ID", ...]}',
   ].join("\n");
   return callJSON("batch", { system: SYS_COMMON, user, maxTokens: 2048, timeoutMs: 180_000 });
 }
@@ -724,54 +725,6 @@ function buildMemberFiles(extracted, roster, batchSigs) {
   return { files, skipped };
 }
 
-// 日次レポートの組み立て（テンプレ準拠・件数は機械集計・概要はバッチ統合パスDの出力）
-function buildDailyReport({ ymd, dateH }, counts, summary, decisionFiles, termFiles, memberFiles, sourceLabels, viewerUrl) {
-  const linkOf = (id, title) => {
-    if (viewerUrl) return `[${title}](${viewerUrl}/?id=${encodeURIComponent(id)})`;
-    return `\`${id}\` ${title}`;
-  };
-  const summaryText = String(summary || "").trim() || "（概要生成に失敗。当日のソース一覧を参照）";
-  const fm = [
-    "---",
-    "type: report",
-    `id: ${yq(`report:${ymd}-daily`)}`,
-    `title: ${yq(`${dateH} デイリーレポート`)}`,
-    `description: ${yq(summaryText.split("\n")[0].slice(0, 120))}`,
-    `date: ${dateH}`,
-    "status: active",
-    "sources:",
-    `  changed_files: ${counts.changedFiles}`,
-    `  decisions_added: ${decisionFiles.length}`,
-    `  terms_added: ${termFiles.length}`,
-    `  members_added: ${memberFiles.length}`,
-    "---",
-  ].join("\n");
-  const body = [
-    "",
-    `# ${dateH} デイリーレポート`,
-    "",
-    "## 今日の概要",
-    "",
-    summaryText,
-    "",
-    "## 新しい決定",
-    "",
-    decisionFiles.length ? decisionFiles.map((f) => `- ${linkOf(f.id, f.title)}`).join("\n") : "- なし",
-    "",
-    "## 新しい用語 / メンバー",
-    "",
-    termFiles.length || memberFiles.length
-      ? [...termFiles, ...memberFiles].map((f) => `- ${linkOf(f.id, f.title)}`).join("\n")
-      : "- なし",
-    "",
-    "## 動きのあった課題・会議",
-    "",
-    sourceLabels.length ? sourceLabels.map((s) => `- ${s}`).join("\n") : "- なし",
-    "",
-  ].join("\n");
-  return { path: `Cortex/レポート/records/${ymd}-daily.md`, id: `report:${ymd}-daily`, title: `${dateH} デイリーレポート`, content: fm + body };
-}
-
 // ---------- メイン ----------
 
 function main() {
@@ -867,7 +820,7 @@ function main() {
   const term = buildTermFiles(allTerms, existingTerms, excludedTerms.sigs, new Set(), today.dateH);
   const mem = buildMemberFiles(allMembers, roster, new Set());
 
-  // [バッチ統合パスD・1回だけ] 横断チェック（重複統合・supersedes候補の指摘＋今日の概要）
+  // [横断チェック・1回だけ] 重複統合・supersedes候補の指摘（Gold品質の観察。ファイルは変更しない）
   const batch = llmBatchReview(
     dec.files.map((f) => ({ id: f.id, title: f.title })),
     term.files.map((f) => f.title),
@@ -875,24 +828,7 @@ function main() {
     sources.map((s) => s.label),
   );
 
-  // [決定的] 日次レポートの組み立て
-  const viewerUrl = (() => {
-    const m = (readText("Cortex/Home.md") || "").match(/^viewer_url:\s*["']?([^"'\n#]+?)["']?\s*(?:#.*)?$/m);
-    const v = m ? m[1].trim() : "";
-    return v && !/\{\{/.test(v) ? v.replace(/\/+$/, "") : "";
-  })();
-  const daily = buildDailyReport(
-    today,
-    { changedFiles: sources.length },
-    batch && batch.summary,
-    dec.files,
-    term.files,
-    mem.files,
-    sources.map((s) => s.label),
-    viewerUrl,
-  );
-
-  const result = { sources, perSource, dec, term, mem, batch, daily };
+  const result = { sources, perSource, dec, term, mem, batch };
 
   // [決定的] モード分岐
   if (MODE === "real") {
@@ -918,7 +854,7 @@ function buildShadowSummary(r) {
   const lines = [];
   lines.push("## Goldパイプライン（シャドー）");
   lines.push("");
-  lines.push(`- 対象ソース: ${r.sources.length}件 / 起票予定: Decision ${r.dec.files.length}・用語 ${r.term.files.length}・メンバー ${r.mem.files.length}・日次レポート 1`);
+  lines.push(`- 対象ソース: ${r.sources.length}件 / 起票予定: Decision ${r.dec.files.length}・用語 ${r.term.files.length}・メンバー ${r.mem.files.length}`);
   lines.push("");
   lines.push("| ソース | A:決定 | B:用語 | C:メンバー | 備考 |");
   lines.push("| --- | --- | --- | --- | --- |");
@@ -954,7 +890,7 @@ function buildShadowReport(r) {
   }
   out.push("");
 
-  out.push("## バッチ統合パス（D）の指摘");
+  out.push("## 横断チェックの指摘");
   out.push("");
   if (r.batch) {
     const dups = Array.isArray(r.batch.duplicates) ? r.batch.duplicates : [];
@@ -977,7 +913,7 @@ function buildShadowReport(r) {
   out.push("");
 
   out.push("## 起票するはずだったファイル（全文）");
-  for (const f of [...r.dec.files, ...r.term.files, ...r.mem.files, r.daily]) {
+  for (const f of [...r.dec.files, ...r.term.files, ...r.mem.files]) {
     out.push("");
     out.push(`### ${f.path}`);
     out.push("");
@@ -1013,7 +949,7 @@ function writeShadowOutputs(report, summary) {
 
 // ---------- REAL モード（コードとして実装・ワークフローからは未呼び出し） ----------
 
-// フェーズ別コミット（Decisions→用語集→メンバー→レポート）。各フェーズでファイル書込→validate-cortex.mjs→
+// フェーズ別コミット（Decisions→用語集→メンバー）。各フェーズでファイル書込→validate-cortex.mjs→
 // 検証OKならコミット・NGならそのフェーズの書込を取り消して警告（壊れたレコードをコミットしない）。
 // push はワークフロー側。
 function applyReal(r) {
@@ -1031,15 +967,14 @@ function applyReal(r) {
     { files: r.dec.files, dir: "Cortex/Decisions/", msg: "Decisionsに当日の決定事項を自動追記" },
     { files: r.term.files, dir: "Cortex/Glossary/", msg: "用語集に新規用語をdraftで自動追記" },
     { files: r.mem.files, dir: "Cortex/Members/", msg: "メンバー名簿に新規参加者をdraftで自動追記" },
-    { files: [r.daily], dir: "Cortex/レポート/", msg: "日次レポートを生成" },
   ];
   for (const phase of phases) {
     if (!phase.files.length) continue;
     const written = [];
     try {
       for (const f of phase.files) {
-        // 既存レコードは書き換えない（新規追加のみ）。日次レポートだけは当日再実行での上書きを許す（スキルと同じ）。
-        if (fs.existsSync(f.path) && !f.path.includes("-daily.md")) {
+        // 既存レコードは書き換えない（新規追加のみ）。
+        if (fs.existsSync(f.path)) {
           warn(`既存ファイルのためスキップ（書き換えない規律）: ${f.path}`);
           continue;
         }

@@ -10,8 +10,10 @@
 | `term` | 用語（`Cortex/Glossary/records/`） | `term:{slug}` | `term:コンテキスト` |
 | `rule` | 継続的に守る制約・規約（`Cortex/Rules/records/`） | `rule:{slug}` | `rule:本番リリース-金曜禁止` |
 | `member` | プロジェクト関係者（1人1ファイル、`Cortex/Members/records/`） | `member:{氏名（スペース無し）}` | `member:山田太郎` |
-| `report` | レポート（`Cortex/レポート/`）。週次（週の振り返り・日次の集約）と日次（当日のGold昇格ダイジェスト＋概要。動きのない日は `status: skip`） | `report:{YYYYMMDD}-weekly` / `report:{YYYYMMDD}-daily` | `report:20260608-weekly` / `report:20260716-daily` |
+| `report` | **（deprecated: 生成停止）** レポート（`Cortex/レポート/`）。既存レコードは読み取り専用の歴史として残す | `report:{YYYYMMDD}-weekly` / `report:{YYYYMMDD}-daily` | `report:20260608-weekly` / `report:20260716-daily` |
 | `overview` | Cortexのホームページ（1案件1ファイル） | `overview:home`（固定） | `overview:home` |
+
+> **`report` は deprecated（生成停止）**。日次/週次レポートは「コンテキストレイヤーの**消費**」であってGold層への蓄積ではないため、PMハーネスが Slack に配信する責務に移した（`Cortex/レポート/` への新規生成は行わない）。既存の `report` レコードは凍結された歴史として読み取り専用で残り、validator も引き続き受理する（既存レコードが赤くならないため削除はしない）。
 
 Gold層のエンティティは**判断材料**（decision・term・rule・report・overview）と**台帳的レコード**（member）に大別される。巡回エージェント・AISの横断走査は判断材料を優先し、台帳は人物を特定する必要が生じたときに辞書的に引く。
 
@@ -52,8 +54,19 @@ Gold層の `source` / `relations.target` からSilver/Bronzeを参照すると�
 | --- | --- | --- |
 | `based_on` | 〜を根拠とする | decision → minute / issue |
 | `derived_from` | 〜から生成された | report → 集計元 |
-| `relates_to` | 〜に関連する | 汎用 |
+| `relates_to` | 〜に関連する | 汎用（ドメイン間の横の関連もこれを使う） |
 | `supersedes` | 〜を置き換える・無効化する | decision → decision（決定の変更履歴） |
+| `is_a` | 〜の一種である（分類・縦の関係） | **term → term のみ** |
+| `part_of` | 〜の一部である（構成・縦の関係） | **term → term のみ** |
+
+`is_a` / `part_of` は用語集を「目次」から「ドメインの地図」へ拡張するための**縦の関係**で、`term` から `term`（`target` が `term:` で始まるID）へのみ張れる（validator が source/target を制限する）。ドメイン間の**横の関連**は既存の `relates_to` を使う（`depends_on` 等の型付き横関係は語彙爆発とLLM抽出ノイズを避けるため作らない）。
+
+### 用語（term）のドメイン第一級市民化（任意フィールド `kind`）
+
+`term` は任意フィールド `kind` を持てる。値は `domain` のみ許可（ドメイン級の用語のマーカー。他の値は validator がエラーにする＝語彙を意図的に絞る）。
+
+- `kind: domain` を付けた用語を列挙し、その間の `relates_to`（横）と `is_a` / `part_of`（縦）を辿ると、**ドメイン関連図が機械的に得られる**（`cortex-grep` のホップ走査で辿れる）。
+- **運用はまだ艦隊展開しない**: cortex-context 1案件でパイロットし、ドメイン関連図の抽出とAI回答（影響範囲・関連領域の質問）の改善を実測してから、自動抽出への組み込み等の艦隊運用ルールを判断する（機構だけ先に入れる）。
 
 ### frontmatter共通フィールド
 
@@ -92,6 +105,7 @@ relations:              # 他エンティティとの関係（任意）
 
 ### 運用原則
 
+- **Gold層に書き込めるのはエンジンの精製ワークフローだけ**: `Cortex/` へ新規レコードを書くのは、エンジンの精製ワークフロー（Gold昇格＝Decision・用語・メンバー）に限る。ハーネス（PM・デザイン・運用等）は「コンテキストレイヤーの消費」側であり、自分の責務領域（Slack通知・`デザイン/DESIGN.md`・Issue起票等）にだけ書く。日次/週次レポートは Slack 配信物であってGoldレコードではない（`report` 型は deprecated・生成停止）。詳細は [`harness-dispatch.md`](./harness-dispatch.md)
 - **frontmatterはGold層の生成スキルだけが付与する**: Silver/Bronze（同期ミラー・議事録・変換資料・デザインinventory・`課題管理/` `開発/` 等）にはfrontmatterを付けない・後から書き足さない。Silver/Bronzeの参照IDはパス・ファイル名の規約から導出される
 - **関係は安定IDで張る**: `relations` の `target` にはファイルパスではなく上記の安定ID（Gold型ID・規約ID・正本ツールのネイティブ識別子）を使う。同期による上書き・ファイル名変更に耐えるため
 - **派生物は再生成可能にする**: 横断インデックス等はfrontmatterから機械生成し、手では編集しない

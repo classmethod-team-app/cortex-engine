@@ -20,7 +20,17 @@ import yaml from "./vendor/js-yaml.mjs"; // vendor同梱（プラグインキャ
 
 const KNOWLEDGE_DIR = "Cortex";
 const META_FILES = new Set(["readme.md", "template.md"]);
-const RELS = new Set(["based_on", "derived_from", "relates_to", "supersedes"]);
+// is_a（分類）・part_of（構成）は term→term のみ許可（縦の関係。下の validateCommon で source/target を制限）。
+const RELS = new Set([
+  "based_on",
+  "derived_from",
+  "relates_to",
+  "supersedes",
+  "is_a",
+  "part_of",
+]);
+// term→term に限定するリレーション（用語をドメインの地図に拡張するための縦の関係）
+const TERM_ONLY_RELS = new Set(["is_a", "part_of"]);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // relations.target のうち、実在を検証する型のパターン（= Gold層エンティティのみ）。
@@ -106,8 +116,16 @@ const SCHEMAS = {
       "source",
       "references",
       "relations",
+      // ドメイン級の用語のマーカー（任意。値は domain のみ許可）
+      "kind",
     ],
     validate(fm, fileName, errors) {
+      // kind はドメインの第一級市民化マーカー。付ける場合の値は domain のみ（語彙爆発を避ける）。
+      if (fm.kind != null && fm.kind !== "domain") {
+        errors.push(
+          `term の kind は domain のみ許可（ドメイン級用語のマーカー。実際: ${fm.kind}）`,
+        );
+      }
       if (fm.title && fm.id !== `term:${fm.title}`) {
         errors.push(
           `idはterm:{代表表記}（期待値: term:${fm.title} / 実際: ${fm.id}）`,
@@ -361,6 +379,18 @@ function validateCommon(fm, expectedType, errors) {
           errors.push(
             `relations[${i}].target にファイルパスらしき値（${r.target}）。安定IDを使う`,
           );
+        }
+        // is_a / part_of は term→term のみ許可（用語間の分類・構成の縦関係）
+        if (TERM_ONLY_RELS.has(r.rel)) {
+          if (fm.type !== "term") {
+            errors.push(
+              `relations[${i}].rel「${r.rel}」はterm→termのみ許可（このエンティティは type: ${fm.type}）`,
+            );
+          } else if (r.target && !/^term:/.test(String(r.target).trim())) {
+            errors.push(
+              `relations[${i}].rel「${r.rel}」のtargetはterm:で始まる用語IDにする（term→termのみ）`,
+            );
+          }
         }
       });
     }

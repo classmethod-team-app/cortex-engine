@@ -269,7 +269,7 @@ function pipelineApplicable(id) {
     case "ingest-minutes":
       return tools["会議"] !== "none";
     default:
-      return true; // update-gold / validate-cortex / fleet-status / weekly-report 等は常に適用
+      return true; // update-gold / validate-cortex / fleet-status / run-harness-skill(pm-daily/pm-weekly) 等は常に適用
   }
 }
 function listPipelines() {

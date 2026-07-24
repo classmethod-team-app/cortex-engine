@@ -85,7 +85,7 @@ cortex-engine/
 │   ├── skills/                   # 現行 .rulesync/skills の25本を移設
 │   │   ├── setup-project/        # 新規案件のscaffold（旧テンプレの役割を吸収）
 │   │   ├── backlog-pull/  backlog-push/  post-meeting/  create-minute/
-│   │   ├── update-decision-log/  update-glossary/  weekly-report/
+│   │   ├── update-decision-log/  update-glossary/   # 日次/週次レポートはPMハーネス（別プラグイン）へ移設
 │   │   ├── catch-up-recent-status/  cortex-grep/  onboard-member/
 │   │   ├── sync-materials/  sync-designs/  read-chat/  clone-dev-repos/
 │   │   ├── git-save/  git-pull/  git-fix-push/
@@ -97,7 +97,7 @@ cortex-engine/
 │   └── scripts/                  # スキルが使うスクリプト（${CLAUDE_PLUGIN_ROOT} で参照）
 ├── .github/workflows/            # reusable workflows（on: workflow_call）
 │   ├── sync-backlog.yml  backlog-webhook-sync.yml  ingest-minutes.yml
-│   ├── update-gold.yml  weekly-report.yml
+│   ├── update-gold.yml  run-harness-skill.yml   # run-harness-skill: ハーネススキル汎用ディスパッチ（日次/週次レポート等）
 │   ├── sync-designs.yml  fleet-status.yml  validate-cortex.yml
 │   └── engine-migrate.yml        # 【新規】スキーママイグレーション実行
 ├── scripts/                      # GHA用スクリプト（validate-cortex.mjs / fleet-status.mjs）

@@ -24,7 +24,7 @@ cat .gitignore | head -20
 
 **特に確認すること:**
 
-- **テンプレ由来でない独自ワークフロー**（標準9本: sync-backlog / backlog-webhook-sync / ingest-minutes / update-decision-log / update-glossary / weekly-report / sync-designs / fleet-status / validate-cortex 以外）→ **撤去せず残す**
+- **テンプレ由来でない独自ワークフロー**（標準の同期・精製系: sync-backlog / backlog-webhook-sync / ingest-minutes / update-gold / sync-designs / fleet-status / validate-cortex / engine-migrate、およびハーネス配信スタブ pm-daily / pm-weekly 以外）→ **撤去せず残す**
 - **`.rulesync/skills/` に案件独自のカスタムスキル**が無いか → あればユーザーに確認し、退避（後で案件リポの `.claude/skills/` にローカルスキルとして復元＝eject 方式）
 - 旧 `CLAUDE.md` の**案件固有の記述**（概要・体制・リポ構成・注意事項）→ ステップ4で新 CLAUDE.md に移植するため控えておく
 

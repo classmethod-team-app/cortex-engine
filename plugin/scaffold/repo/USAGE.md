@@ -37,7 +37,7 @@
 | 決まったこと（意思決定）を記録したい | 毎晩自動で追記される。今すぐなら `/update-decision-log` |
 | 用語の定義を揃えたい | 毎晩自動で draft が追記される（**人間が確認して active に変える**）。手動なら `/update-glossary` |
 | 最近の状況をざっと把握したい | `/catch-up-recent-status` |
-| 週次の進捗をまとめたい | 毎週金曜に自動生成。手動なら `/weekly-report` |
+| 週次の進捗をまとめたい | PMハーネス導入時、毎週金曜に週次レポートを Slack へ自動配信（リポジトリには書かない） |
 | ソースコード・Wiki を手元で見たい | `/clone-dev-repos`（submodule として取得） |
 | 変更を保存／最新化したい（非エンジニア向け） | `/git-save`（保存）・`/git-pull`（最新化）・`/git-fix-push`（push 失敗時の復旧） |
 | Backlog/Figma/GitHub 以外のツールを使っている | `/customize-tooling`（別ツールで同等の仕組みを設計・実装） |
