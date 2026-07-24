@@ -247,12 +247,28 @@ function fmListField(fmText, field) {
     .filter(Boolean);
 }
 
+// シャドー比較の公平性: 本番（claude -p）が同一runで起票したファイルは「既存」として扱わない。
+// 同一ジョブで本番→シャドーの順に走るため、作業ツリーには本番の新規レコードが既に存在する。
+// これをそのまま重複照合に使うと、本番が拾った決定をシャドーが常に「重複」として見送り、
+// 取りこぼしに見えてしまう（比較手法の欠陥）。GOLD_PRE_HEAD..HEAD の新規分を除外して
+// 本番実行前の状態を再現する（GOLD_PRE_HEAD はシャドーステップだけが渡すので REAL には影響しない）。
+const PROD_NEW_FILES = (() => {
+  const preHead = process.env.GOLD_PRE_HEAD || "";
+  if (!preHead) return new Set();
+  const g = spawnSync("git", ["-c", "core.quotepath=false", "diff", "--name-only", `${preHead}..HEAD`, "--", "Cortex/"], {
+    encoding: "utf-8",
+  });
+  if (g.status !== 0) return new Set();
+  return new Set((g.stdout || "").split("\n").map((s) => s.trim()).filter(Boolean));
+})();
+
 // 既存 Decision: 採番用のファイル名一覧＋重複照合用の title 一覧
 function loadExistingDecisions() {
   const fileNames = [];
   const titles = [];
   for (const e of listDir("Cortex/Decisions/records") || []) {
     if (!e.isFile() || !e.name.endsWith(".md") || e.name.includes("{{")) continue;
+    if (PROD_NEW_FILES.has(`Cortex/Decisions/records/${e.name}`)) continue; // 本番が今run起票した分は既存扱いしない
     fileNames.push(e.name);
     const fm = frontmatterOf(readText(`Cortex/Decisions/records/${e.name}`) || "");
     const t = fmField(fm, "title");
@@ -267,6 +283,7 @@ function loadExistingTerms() {
   const sigs = new Set();
   for (const e of listDir("Cortex/用語集/records") || []) {
     if (!e.isFile() || !e.name.endsWith(".md") || e.name.includes("{{")) continue;
+    if (PROD_NEW_FILES.has(`Cortex/用語集/records/${e.name}`)) continue; // 本番が今run起票した分は既存扱いしない
     const fm = frontmatterOf(readText(`Cortex/用語集/records/${e.name}`) || "");
     const t = fmField(fm, "title");
     if (t) {
@@ -300,6 +317,7 @@ function loadRoster() {
   const sigs = new Set();
   for (const e of listDir("Cortex/メンバー/records") || []) {
     if (!e.isFile() || !e.name.endsWith(".md") || e.name.includes("{{")) continue;
+    if (PROD_NEW_FILES.has(`Cortex/メンバー/records/${e.name}`)) continue; // 本番が今run起票した分は既存扱いしない
     const fm = frontmatterOf(readText(`Cortex/メンバー/records/${e.name}`) || "");
     const t = fmField(fm, "title");
     if (t) {
