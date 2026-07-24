@@ -11,7 +11,7 @@
 //             1つの Markdown レポートにまとめ、$GITHUB_STEP_SUMMARY にサマリ表、全文を /tmp と run log に出す。
 //             env GOLD_PRE_HEAD があれば「本番（claude -p）が実際に起票したファイル一覧」を git diff から
 //             機械取得して併記する（同一 run 内でシャドーと本番を突き合わせるため）。
-//   - real:   validate-cortex.mjs による検証→ファイル書込→フェーズ別コミット（Decisions→用語集→メンバー）。
+//   - real:   validate-cortex.mjs による検証→ファイル書込→フェーズ別コミット（Decisions→用語集→メンバー→ルール）。
 //             push はワークフロー側（本スクリプトはしない）。
 //
 // 日報・週報は本スクリプトの責務ではない（レポートはPMハーネスが run-harness-skill 経由でSlackに配信する。
@@ -300,8 +300,36 @@ function loadExistingTerms() {
 
 // 用語集 README の「除外用語」（過去にレビューで却下された語の再追加防止）
 function loadExcludedTerms() {
-  const raw = readText("Cortex/Glossary/README.md") || "";
-  const m = raw.match(/^#{2,3}\s*除外用語\s*$([\s\S]*?)(?=^#{1,3}\s|\n*$(?![\s\S]))/m);
+  return loadExclusionList("Cortex/Glossary/README.md", "除外用語");
+}
+
+// 既存 Rule: 重複照合用の title の集合（用語と同型。synonyms は持たない）
+function loadExistingRules() {
+  const titles = [];
+  const sigs = new Set();
+  for (const e of listDir("Cortex/Rules/records") || []) {
+    if (!e.isFile() || !e.name.endsWith(".md") || e.name.includes("{{")) continue;
+    if (PROD_NEW_FILES.has(`Cortex/Rules/records/${e.name}`)) continue; // 本番が今run起票した分は既存扱いしない
+    const fm = frontmatterOf(readText(`Cortex/Rules/records/${e.name}`) || "");
+    const t = fmField(fm, "title");
+    if (t) {
+      titles.push(t);
+      sigs.add(normalizeSig(t));
+    }
+  }
+  return { titles, sigs, dirExists: listDir("Cortex/Rules/records") !== null };
+}
+
+// Rules README の「除外ルール」（過去にレビューで却下された制約の再追加防止。用語の除外リストと同型）
+function loadExcludedRules() {
+  return loadExclusionList("Cortex/Rules/README.md", "除外ルール");
+}
+
+// README の「## 除外XXX」節から 1行1件のリストを読む（自動追加してはいけないものの一覧）。
+// 節が無ければ空（除外なし）。編集は人間のみ・自動更新は読むだけ。
+function loadExclusionList(readmePath, heading) {
+  const raw = readText(readmePath) || "";
+  const m = raw.match(new RegExp(`^#{2,3}\\s*${heading}\\s*$([\\s\\S]*?)(?=^#{1,3}\\s|\\n*$(?![\\s\\S]))`, "m"));
   const result = { raw: [], sigs: new Set() };
   if (!m) return result;
   for (const line of m[1].split("\n")) {
@@ -417,7 +445,7 @@ function callJSON(phase, opts) {
   return null;
 }
 
-// ---------- LLM 関数群（A: Decision / B: 用語 / C: メンバー / D: バッチ統合） ----------
+// ---------- LLM 関数群（A: Decision / B: 用語 / C: メンバー / D: Rule / 横断チェック） ----------
 
 const SYS_COMMON =
   "あなたはCortex（案件コンテキスト基盤）の夜間Gold昇格パイプラインの一部です。指示に厳密に従い、JSONのみを出力してください。";
@@ -507,6 +535,38 @@ function llmExtractMembers(source, rosterNames) {
     '[{"name": "氏名", "yomi": "よみ", "org": "所属組織", "side": "cm|client|vendor|", "role": "役割"}]',
   ].join("\n");
   return callJSON("member", { system: SYS_COMMON, user, maxTokens: 1024, timeoutMs: 120_000 });
+}
+
+// Rule 抽出（Rules/README.md の規律を転記。用語より一段保守的に）。
+// Rule は AI の行動を直接制約する（禁止曜日にデプロイ案内をしない等）ため、誤起票のコストが用語より高い。
+function llmExtractRules(source, existingRuleTitles, excludedList) {
+  const user = [
+    "次のソースから、案件で継続的に守るべき制約・運用ルールとして明示的に合意されたものだけを抽出してください。",
+    "",
+    "対象: 「今後も守る」「常に〜する」「〜は禁止」「〜してはいけない」「原則〜する」等、その後もずっと効き続ける約束事・規範。",
+    "  例: 「本番リリースは金曜・祝前日に行わない」「決済処理は必ず二重確認を通す」。",
+    "除外するもの（重要）:",
+    "  - 一回きりの意思決定（＝Decision。「Next.jsを採用した」等の過去の選択）。RuleはDecisionと違い、今も効き続ける規範だけ。",
+    "  - 単発のTODO・アクションアイテム・期限付きの依頼（「今週中に〜する」等）。",
+    "  - 推測・ニュアンス。ソース中に制約として明示的に合意された根拠が無いもの。",
+    "**確信が持てなければ抽出しない**（Rules は AI の行動を直接制約するため、誤起票のコストが用語より高い。直コミットされるので保守的に判断する）。",
+    PRIVACY_RULE,
+    "",
+    "既存Ruleのタイトル一覧（これらと同一・実質同一の制約は抽出しない＝重複回避）:",
+    existingRuleTitles.length ? existingRuleTitles.map((t) => `- ${t}`).join("\n") : "(なし)",
+    excludedList.length ? "除外ルール（過去にレビューで却下。再追加しない）:\n" + excludedList.map((t) => `- ${t}`).join("\n") : "",
+    "",
+    "出典（rel/target）: このソースが既存のDecisionを制約として立てているなら rel=derived_from・target=そのDecisionのID（YYYYMMDD-NNN）。",
+    "議事録・課題から直接読み取れる制約なら rel=based_on・target=安定ID（議事録: minute:{定例名}:{YYYYMMDD}、課題: 課題キー、外部: owner/repo#N）。",
+    "安定IDが分からなければ rel/target は空文字にする（relations無しで起票する。ファイルパスは書かない）。",
+    "",
+    `=== ソース: ${source.label} ===`,
+    source.content,
+    "",
+    'JSON配列のみを出力（0件なら []）:',
+    '[{"title": "制約の1行表現", "description": "制約の1文要約", "rel": "derived_from|based_on|", "target": "安定ID または空"}]',
+  ].join("\n");
+  return callJSON("rule", { system: SYS_COMMON, user, maxTokens: 2048, timeoutMs: 180_000 });
 }
 
 // 横断チェック（1回だけ）: 全ソースの抽出結果を横断し、重複統合・supersedes候補を指摘する（Gold品質の観察）。
@@ -673,6 +733,64 @@ function buildTermFiles(extracted, existingTerms, excludedSigs, batchSigs, dateH
   return { files, skipped };
 }
 
+// Rule: 既存title・除外リスト・当夜バッチ内の正規化一致を落とし、status: draft で組み立てる（用語Bと同型）。
+// Rules/records が無い案件（マイグレーション未適用）はフェーズごとスキップする。
+function buildRuleFiles(extracted, existingRules, excludedSigs, batchSigs) {
+  const files = [];
+  const skipped = [];
+  if (!existingRules.dirExists) {
+    if (extracted.length) skipped.push({ item: null, reason: "Cortex/Rules/records が無い案件のためフェーズごとスキップ" });
+    return { files, skipped };
+  }
+  for (const r of extracted) {
+    const title = String(r.title || "").trim();
+    const description = String(r.description || "").trim();
+    if (!title || !description) {
+      skipped.push({ item: r, reason: "title または description が空" });
+      continue;
+    }
+    const sig = normalizeSig(title);
+    if (existingRules.sigs.has(sig)) {
+      skipped.push({ item: r, reason: "既存Rule（title）と一致" });
+      continue;
+    }
+    if (excludedSigs.has(sig)) {
+      skipped.push({ item: r, reason: "除外ルールリストに該当" });
+      continue;
+    }
+    if (batchSigs.has(sig)) {
+      skipped.push({ item: r, reason: "当夜バッチ内で重複" });
+      continue;
+    }
+    batchSigs.add(sig);
+    const safe = sanitizeName(title);
+    // relations は任意。rel が derived_from|based_on で target が「パスでない安定ID」のときだけ張る。
+    const rel = ["derived_from", "based_on"].includes(r.rel) ? r.rel : "";
+    const target = String(r.target || "").trim();
+    const targetIsPath = target.includes("/") && target.includes(".md");
+    const hasRelation = rel && target && !targetIsPath;
+    const fm = [
+      "---",
+      "type: rule",
+      `id: ${yq(`rule:${safe}`)}`,
+      `title: ${yq(title)}`,
+      `description: ${yq(description.split("\n")[0].slice(0, 120))}`,
+      "status: draft",
+      ...(hasRelation
+        ? ["relations:", `  - rel: ${rel}`, `    target: ${yq(target)}`]
+        : []),
+      "---",
+    ].join("\n");
+    files.push({
+      path: `Cortex/Rules/records/${safe}.md`,
+      id: `rule:${safe}`,
+      title,
+      content: fm + `\n\n${description}\n`,
+    });
+  }
+  return { files, skipped };
+}
+
 // メンバー: 名簿（title/aliases）・当夜バッチ内の正規化一致を落とし、status: draft で組み立てる
 function buildMemberFiles(extracted, roster, batchSigs) {
   const files = [];
@@ -753,17 +871,20 @@ function main() {
   existingDecisions.sigs = new Set(existingDecisions.titles.map(normalizeSig));
   const existingTerms = loadExistingTerms();
   const excludedTerms = loadExcludedTerms();
+  const existingRules = loadExistingRules();
+  const excludedRules = loadExcludedRules();
   const roster = loadRoster();
   const decisionsGate = loadDecisionsGate();
   const today = jstToday();
 
-  // ソース1件ごとに LLM 関数 A/B/C（冪等・逐次。1件の失敗は欠落として報告に載るだけ）
+  // ソース1件ごとに LLM 関数 A/B/C/D（冪等・逐次。1件の失敗は欠落として報告に載るだけ）
   const allDecisions = [];
   const allTerms = [];
   const allMembers = [];
+  const allRules = [];
   const perSource = [];
   for (const src of sources) {
-    const entry = { label: src.label, a: null, b: null, c: null, notes: [] };
+    const entry = { label: src.label, a: null, b: null, c: null, d: null, notes: [] };
     let content = src.kind === "repo" ? readText(src.path) || "" : src.content;
     if (content.length > SOURCE_CHAR_CAP) {
       warn(`ソース ${src.label} が大きいため ${SOURCE_CHAR_CAP} 文字に切り詰めます。`);
@@ -811,6 +932,19 @@ function main() {
         entry.notes.push("C(メンバー抽出)が配列でない→スキップ");
       }
     }
+
+    // D: Rule（Rules ディレクトリが無い案件はスキップ＝マイグレーション未適用）
+    if (existingRules.dirExists) {
+      const d = llmExtractRules(s, existingRules.titles, excludedRules.raw);
+      if (d === null) {
+        entry.notes.push("D(Rule抽出)が不正応答→スキップ");
+      } else if (Array.isArray(d)) {
+        entry.d = d.length;
+        allRules.push(...d);
+      } else {
+        entry.notes.push("D(Rule抽出)が配列でない→スキップ");
+      }
+    }
     perSource.push(entry);
   }
 
@@ -819,6 +953,7 @@ function main() {
   const dec = buildDecisionFiles(allDecisions, existingDecisions, decisionBatchSigs);
   const term = buildTermFiles(allTerms, existingTerms, excludedTerms.sigs, new Set(), today.dateH);
   const mem = buildMemberFiles(allMembers, roster, new Set());
+  const rule = buildRuleFiles(allRules, existingRules, excludedRules.sigs, new Set());
 
   // [横断チェック・1回だけ] 重複統合・supersedes候補の指摘（Gold品質の観察。ファイルは変更しない）
   const batch = llmBatchReview(
@@ -828,7 +963,7 @@ function main() {
     sources.map((s) => s.label),
   );
 
-  const result = { sources, perSource, dec, term, mem, batch };
+  const result = { sources, perSource, dec, term, mem, rule, batch };
 
   // [決定的] モード分岐
   if (MODE === "real") {
@@ -854,12 +989,12 @@ function buildShadowSummary(r) {
   const lines = [];
   lines.push("## Goldパイプライン（シャドー）");
   lines.push("");
-  lines.push(`- 対象ソース: ${r.sources.length}件 / 起票予定: Decision ${r.dec.files.length}・用語 ${r.term.files.length}・メンバー ${r.mem.files.length}`);
+  lines.push(`- 対象ソース: ${r.sources.length}件 / 起票予定: Decision ${r.dec.files.length}・用語 ${r.term.files.length}・メンバー ${r.mem.files.length}・ルール ${r.rule.files.length}`);
   lines.push("");
-  lines.push("| ソース | A:決定 | B:用語 | C:メンバー | 備考 |");
-  lines.push("| --- | --- | --- | --- | --- |");
+  lines.push("| ソース | A:決定 | B:用語 | C:メンバー | D:ルール | 備考 |");
+  lines.push("| --- | --- | --- | --- | --- | --- |");
   for (const e of r.perSource) {
-    lines.push(`| ${e.label} | ${e.a ?? "-"} | ${e.b ?? "-"} | ${e.c ?? "-"} | ${e.notes.join("・") || ""} |`);
+    lines.push(`| ${e.label} | ${e.a ?? "-"} | ${e.b ?? "-"} | ${e.c ?? "-"} | ${e.d ?? "-"} | ${e.notes.join("・") || ""} |`);
   }
   return lines.join("\n") + "\n";
 }
@@ -906,6 +1041,7 @@ function buildShadowReport(r) {
     ...r.dec.skipped.map((s) => ({ ...s, kind: "decision" })),
     ...r.term.skipped.map((s) => ({ ...s, kind: "term" })),
     ...r.mem.skipped.map((s) => ({ ...s, kind: "member" })),
+    ...r.rule.skipped.map((s) => ({ ...s, kind: "rule" })),
   ];
   out.push("## 機械検証で落とした候補");
   out.push("");
@@ -913,7 +1049,7 @@ function buildShadowReport(r) {
   out.push("");
 
   out.push("## 起票するはずだったファイル（全文）");
-  for (const f of [...r.dec.files, ...r.term.files, ...r.mem.files]) {
+  for (const f of [...r.dec.files, ...r.term.files, ...r.mem.files, ...r.rule.files]) {
     out.push("");
     out.push(`### ${f.path}`);
     out.push("");
@@ -949,7 +1085,7 @@ function writeShadowOutputs(report, summary) {
 
 // ---------- REAL モード（コードとして実装・ワークフローからは未呼び出し） ----------
 
-// フェーズ別コミット（Decisions→用語集→メンバー）。各フェーズでファイル書込→validate-cortex.mjs→
+// フェーズ別コミット（Decisions→用語集→メンバー→ルール）。各フェーズでファイル書込→validate-cortex.mjs→
 // 検証OKならコミット・NGならそのフェーズの書込を取り消して警告（壊れたレコードをコミットしない）。
 // push はワークフロー側。
 function applyReal(r) {
@@ -967,6 +1103,7 @@ function applyReal(r) {
     { files: r.dec.files, dir: "Cortex/Decisions/", msg: "Decisionsに当日の決定事項を自動追記" },
     { files: r.term.files, dir: "Cortex/Glossary/", msg: "用語集に新規用語をdraftで自動追記" },
     { files: r.mem.files, dir: "Cortex/Members/", msg: "メンバー名簿に新規参加者をdraftで自動追記" },
+    { files: r.rule.files, dir: "Cortex/Rules/", msg: "Rulesに新規ルールをdraftで自動追記" },
   ];
   for (const phase of phases) {
     if (!phase.files.length) continue;
