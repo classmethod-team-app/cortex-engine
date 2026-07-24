@@ -11,7 +11,10 @@
 ```
 Cortex/
 ├── Decisions/        # 意思決定レコード（type: decision）
-├── 用語集/           # 案件固有の用語・定義（type: term）
+├── Glossary/         # 案件固有の用語・定義（type: term）
+├── Members/          # プロジェクト関係者の名簿（type: member）
+├── Rules/            # 継続的に守る制約・規約（type: rule）
+├── OpenQuestions/    # 未決事項（type: open_question）
 ├── レポート/          # 週次レポート等（type: report）
 └── Home.md           # Cortexの入口（type: overview / 唯一の単独ページ）
 ```
