@@ -51,7 +51,8 @@ def api(path: str):
     for attempt in range(MAX_RETRIES):
         req = urllib.request.Request(url, headers={"X-Figma-Token": TOKEN})
         try:
-            with urllib.request.urlopen(req, timeout=60) as r:
+            # 大きいファイル（数百画面）の全ツリー応答は60秒を超えることがあるため180秒
+            with urllib.request.urlopen(req, timeout=180) as r:
                 return json.load(r)
         except urllib.error.HTTPError as e:
             # 429（レート超過）と5xx（一時障害）のみ再試行。401/404等は即中断する
@@ -67,13 +68,15 @@ def api(path: str):
                 file=sys.stderr,
             )
             time.sleep(wait)
-        except urllib.error.URLError as e:
-            # 接続失敗・タイムアウト等の一時障害も指数backoffで再試行する
+        except (urllib.error.URLError, TimeoutError) as e:
+            # 接続失敗に加え、ボディ読み取り中のソケットタイムアウト（素のTimeoutErrorで飛ぶ）も
+            # 一時障害として指数backoffで再試行する
             if attempt == MAX_RETRIES - 1:
                 raise
             wait = 2 ** attempt + random.uniform(0, 1)
+            reason = getattr(e, "reason", e)
             print(
-                f"  接続エラー({e.reason})。{wait:.1f}秒待って再試行 ({attempt + 1}/{MAX_RETRIES}): {path}",
+                f"  接続エラー({reason})。{wait:.1f}秒待って再試行 ({attempt + 1}/{MAX_RETRIES}): {path}",
                 file=sys.stderr,
             )
             time.sleep(wait)
