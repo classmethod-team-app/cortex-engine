@@ -62,6 +62,28 @@ const CACHE_MIN_PREFIX_CHARS = 4_000;
 const log = (msg) => process.stdout.write(`${msg}\n`);
 const warn = (msg) => process.stderr.write(`::warning::update-gold-pipeline: ${msg}\n`);
 
+// LLM呼び出しのトークン使用量を集計する（プロンプトキャッシュが本番で効いているかを毎晩ログで確認するため。
+// キャッシュは環境・モデル・呼び出し順序に依存するので、手元の実測だけでは効いている保証にならない）。
+const usageTotal = { calls: 0, input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
+function recordUsage(u) {
+  if (!u) return;
+  usageTotal.calls += 1;
+  usageTotal.input += u.inputTokens || 0;
+  usageTotal.output += u.outputTokens || 0;
+  usageTotal.cacheWrite += u.cacheWriteInputTokens || 0;
+  usageTotal.cacheRead += u.cacheReadInputTokens || 0;
+}
+/** 実行の最後に1行で出す。cacheRead が積み上がっていればキャッシュが効いている。 */
+function logUsageSummary() {
+  if (usageTotal.calls === 0) return;
+  const { calls, input, output, cacheWrite, cacheRead } = usageTotal;
+  const billed = input + cacheWrite + cacheRead;
+  const saved = billed > 0 ? Math.round((cacheRead / billed) * 100) : 0;
+  log(
+    `LLM使用量: ${calls}回 / 入力 ${input} / 出力 ${output} / キャッシュ書込 ${cacheWrite} / キャッシュ読込 ${cacheRead}（入力側の${saved}%がキャッシュ読込）`,
+  );
+}
+
 // ---------- 決定的: 基本ヘルパ ----------
 
 function readText(p) {
@@ -421,6 +443,7 @@ function callLLM(phase, { system, prefix, variable, maxTokens, timeoutMs }) {
   }
   try {
     const out = JSON.parse(r.stdout || "{}");
+    recordUsage(out?.usage);
     const blocks = out?.output?.message?.content || [];
     return blocks.map((b) => b.text || "").join("").trim();
   } catch {
@@ -1176,3 +1199,4 @@ function applyReal(r) {
 }
 
 main();
+logUsageSummary();
