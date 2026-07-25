@@ -9,7 +9,7 @@
  * 配るのは `backlog` の1エントリのみ: npx 型 stdio（`backlog-mcp-server`）。ドメインは秘密では
  * ないので実値を焼き込み、**利用者の秘密は `BACKLOG_API_KEY` 1個だけ**（`${BACKLOG_API_KEY}`
  * 参照＝各自の環境変数）。ドメインは `backlog-settings.json`（同期ミラーの生成物）から機械導出する。
- * ※ 値が全案件で同一の定義（github/figma/slack/drawio）はプラグイン同梱（`plugin/.mcp.json`）が
+ * ※ 値が全案件で同一の定義（figma/slack）はプラグイン同梱（`plugin/.mcp.json`）が
  *   受け持つ。リポ側に配るのは「案件ごとに値が変わる定義」だけ、という線引き。
  *
  * 所有権モデル（キー単位）:
