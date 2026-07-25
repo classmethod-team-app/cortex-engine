@@ -1,7 +1,7 @@
 name: Gold昇格（Decision・用語集・メンバー・ルール）自動更新
 
 # 案件リポのスタブから workflow_call で呼ばれる（トリガー・concurrency・permissions はスタブ側が持つ）
-# 夜間Gold昇格の統合版。1セッションでソースを1回読み、決定・用語・メンバーdraft・ルールdraftを書く（旧 update-decision-log / update-glossary を統合）
+# 夜間Gold昇格の統合版。1セッションでソースを1回読み、決定・用語・メンバーdraft・ルールdraftを書く（決定抽出・用語登録の旧2ワークフローを1本に統合）
 on:
   workflow_call:
     inputs:
@@ -112,8 +112,6 @@ jobs:
       # 失敗runは成功扱いされないので、連続失敗しても次の成功実行で失敗分まで窓が自動で遡る（取りこぼしの巻き取り）。
       # 固定25h窓だと連続失敗で25hを超えた分が永久に漏れるため、その対策。
       # 注意: --workflow は案件リポ側スタブのファイル名。スタブは update-gold.yml の名前を変えないこと。
-      # 移行初回対策: このワークフローの成功runがまだ無い（統合直後）場合は、旧 update-decision-log.yml の
-      #   直近成功にフォールバックする（14日再走査を避けるため。用語集側は決定と同じソースを見るので decision-log で十分）。
       - name: 増分窓の起点(SINCE)を算出（前回成功以降・14日キャップ）
         id: win
         if: steps.pre.outputs.run == 'true'
@@ -127,10 +125,6 @@ jobs:
             echo "::notice::SINCE を手動上書き（バックフィル）: $SINCE"
           else
             LAST=$(gh run list --workflow=update-gold.yml --status success --limit 1 --json createdAt --jq '.[0].createdAt // empty' 2>/dev/null || true)
-            if [ -z "$LAST" ]; then
-              # 統合直後でこのワークフローの成功runがまだ無い場合、旧ワークフローの直近成功に遡る
-              LAST=$(gh run list --workflow=update-decision-log.yml --status success --limit 1 --json createdAt --jq '.[0].createdAt // empty' 2>/dev/null || true)
-            fi
             if [ -z "$LAST" ]; then SINCE="$CAP"; else SINCE="$LAST"; fi
           fi
           # 14日より古い起点は丸める（巨大窓によるmax-turns暴走を防ぐ。丸めた場合は未処理が残りうるので警告）

@@ -1,6 +1,6 @@
 ---
-name: update-decision-log
-description: 課題・議事録・その他の情報源から決定事項を抽出し、Cortex/Decisions/records/ に1決定1ファイルで記録する
+name: update-decision
+description: 課題・議事録・その他の情報源から決定事項を抽出し、Cortex/Decisions/records/ に1決定1ファイルで記録する。既存決定の訂正・変更（supersedes）も扱う
 ---
 課題のコメントや議事録、その他この案件で意思決定が行われている場所から新たな決定事項を抽出し、`Cortex/Decisions/records/` 配下に **1決定1ファイル** で記録します。
 
