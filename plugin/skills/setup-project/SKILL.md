@@ -93,7 +93,9 @@ git add -A && git commit -m "セットアップ: プレースホルダを案件�
 
 `.claude/settings.json` が cortex をエンジンリポから安定チャンネルで参照しているか確認します（scaffold の既定＝マーケットプレイス `cortex-engine` を `ref: stable` で参照し、`cortex@cortex-engine` を有効化。**通常は変更不要**。エンジン開発の先行検証に使う案件だけ `ref` を外して main 追従にする）。
 
-> cortex 以外のプラグイン（部署の職能ハーネス等）を案件で使うかどうかは**部署・案件側の運用**であり、本スキルでは扱わない。必要になったら部署のカタログを `extraKnownMarketplaces` に足し、`enabledPlugins` に `"<プラグイン名>@<カタログ名>": true` を1行追記してコミットすれば、その案件の全メンバーに自動で行き渡る——という仕組みだけをユーザーに伝えておく。
+> cortex 以外のプラグイン（部署の職能ハーネス等）を案件で使うかどうかは**部署・案件側の運用**であり、本スキルでは扱わない。職能ハーネスは private の部カタログにあり社内メンバーしか入れられないため、**顧客が見る案件リポには宣言せず、使う人が各自で導入する**（手順は cortex-engine の `docs/onboarding.md`）——という運用だけをユーザーに伝えておく。
+
+> **設定は宣言であり、自動インストールではない**: `.claude/settings.json` の `enabledPlugins` を宣言しても、外部ソースのプラグインは各メンバーが `claude plugin install` するまでロードされない（Claude Code の現行仕様）。セットアップ完了後、メンバーには `docs/onboarding.md` の導入手順を案内すること。
 
 ## ステップ6: GitHub Actions Secrets の登録
 
@@ -233,7 +235,7 @@ git pull
 
 シードの README は案件リポ前提で書かれているため、大きな書き換えは不要です。以下だけ確認・記入します:
 
-- 冒頭に途中参加者向けの案内（「新しく参加した方は、リポジトリをトラストして cortex プラグインを入れ、`USAGE.md` で使い方を把握してください」）を目立つ位置に置く
+- 冒頭に途中参加者向けの案内（「新しく参加した方は、手元で cortex プラグインを入れてから `USAGE.md` で使い方を把握してください」）を目立つ位置に置く
 - 案件で実際に使うツールの URL を記載し、`Cortex/Home.md` の「使用ツール」と齟齬がないようにする
 
 ## 仕上げ: セットアップ状況の確認
@@ -244,4 +246,4 @@ git pull
 
 - 各ステップで実行前にユーザーに確認を取ってください
 - APIキー等の機密情報は**リポジトリにコミットしない**。自動化は GitHub Actions Secrets（ステップ6）、手元実行用の認証情報は環境変数（保存場所は動作環境で変わる → `credentials` ルール参照）
-- メンバー個人のローカル環境準備（プラグイン導入・push 用の個人 API キー等）は本スキルの対象外。各メンバーはリポジトリをトラストして cortex プラグインを入れ、`USAGE.md`・`README.md` で使い方を把握する（`/backlog-push` を使う人だけ個人の Backlog API キーを設定する）
+- メンバー個人のローカル環境準備（プラグイン導入・push 用の個人 API キー等）は本スキルの対象外。各メンバーは手元で `claude plugin marketplace add classmethod-team-app/cortex-engine@stable` → `claude plugin install cortex@cortex-engine` を1回実行し、`USAGE.md`・`README.md` で使い方を把握する（詳しくは cortex-engine の `docs/onboarding.md`。`/backlog-push` を使う人だけ個人の Backlog API キーを設定する）
