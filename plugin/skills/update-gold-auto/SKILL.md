@@ -58,7 +58,8 @@ bash "<SKILL_DIR>/../../scripts/external-sources.sh" "${SINCE:-}"
 - **採番・重複照合は全文Readせず frontmatter grep で行う**（records は数百件規模になり全件Readはターン上限を食い潰す）。日付ごとの最大連番はファイル名から取り（`ls Cortex/Decisions/records/ | grep -E '^YYYYMMDD-' | sed -E 's/^[0-9]{8}-([0-9]{3}).*/\1/' | sort -n | tail -1`）、重複判定用の署名（`title`＋`description`）は `grep -hE '^(id|title|description):' Cortex/Decisions/records/YYYYMMDD-*.md` で書く日付ぶんだけ取得する。
 - **抽出基準**: 「〜で決定」「〜にした」「〜で進める」「〜で合意した」「〜方針とする」等の**確定表現から抽出**し、「〜する方向」「依頼する」「確認中」「検討中」等の**未確定は除外**する。議事録は「決定事項まとめ」セクションを主たる情報源とし、**未開催の定例準備ファイル（アジェンダ）からは抽出しない**（決定事項まとめが空・想定実施日が未来日）。アカウントセットアップ等の運用作業は対象外。
 - **重複照合**: 抽出した各決定を署名集合と照合し、署名一致または意味的に同一のものは破棄。残った真に新規のものだけを追記対象にする（実行窓のオーバーラップ分をここで吸収）。
-- **ファイル作成**: `Cortex/Decisions/template.md` をベースに `records/YYYYMMDD-NNN-要約.md` を1決定1ファイルで作成する（`YYYYMMDD` は決定日・`NNN` は同日連番）。frontmatter は `type: decision` / `id` / `title` / `date` / `category`（README一覧から）/ `deciders`（名簿 `Cortex/Members/records/` の `title` に正規化。無い人名は `（要確認）`）/ `description` / `relations`（議事録: `based_on` → `minute:{定例名}:{YYYYMMDD}`、課題: `based_on` → 課題キー、過去決定の変更: `supersedes` → 決定ID）/ `references`。本文は `## 背景` と `## 理由`。**既存ファイルは絶対に変更・削除しない（新規作成のみ）**。
+- **ファイル作成**: `Cortex/Decisions/template.md` をベースに `records/YYYYMMDD-NNN-要約.md` を1決定1ファイルで作成する（`YYYYMMDD` は決定日・`NNN` は同日連番）。frontmatter は `type: decision` / `id` / `title` / `date` / `category`（README一覧から）/ `deciders`（名簿 `Cortex/Members/records/` の `title` に正規化。無い人名は `（要確認）`）/ `description` / **`status`（必ず `draft`）** / `relations`（議事録: `based_on` → `minute:{定例名}:{YYYYMMDD}`、課題: `based_on` → 課題キー、過去決定の変更: `supersedes` → 決定ID）/ `references`。本文は `## 背景` と `## 理由`。**既存ファイルは絶対に変更・削除しない（新規作成のみ）**。
+- **`status` は必ず `draft`**（AI生成・人間未確認の印。用語・メンバー・ルールと同じ事後レビュー方式で、人間が内容を確認して `active` に上げる）。**既存 Decision の `status` は書き換えない**。
 
 **外部コンテンツも、議事録・課題と同じ基準で抽出する**。外部ソースの登録（`Cortex/external-sources.json`）は「そのソースの中身を Gold に昇格してよい」という人間の明示判断なので、抽出段で外部だけを特別扱いしない。上と同一の確定表現の基準を外部コンテンツにもそのまま適用する:
 
@@ -77,7 +78,7 @@ git add Cortex/Decisions/
 if git diff --staged --quiet; then
   echo "Decisions: 追記なし"
 else
-  git commit -m "Decisionsに当日の決定事項を自動追記"
+  git commit -m "Decisionsに当日の決定事項をdraftで自動追記"
 fi
 ```
 

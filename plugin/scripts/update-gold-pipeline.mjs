@@ -21,7 +21,7 @@
 //   - ソース列挙は changed-sources.sh / external-sources.sh と同一スクリプト（二重定義によるドリフト防止）
 //   - 会議ディレクトリ配下は議事録（*_minutes.md）のみ読む（文字起こし原本は読まない）
 //   - 採番は「決定日の既存最大NNN+1」（ファイル名から機械取得）・重複照合は正規化titleの突合
-//   - 用語・メンバーは status: draft（事後レビュー方式）・既存レコードは書き換えない（新規追加のみ）
+//   - 自動起票は全型 status: draft（AI生成・人間未確認の印。事後レビュー方式）・既存レコードは書き換えない（新規追加のみ）
 //   - 公開範囲フィルタ（内部限定情報を書かない）はプロンプトに転記して維持
 //
 // LLM 呼び出し（ingest-minutes-pipeline と同じ流儀）:
@@ -615,7 +615,7 @@ function nextDecisionNumber(dateYmd, existingFileNames, allocated) {
 
 const CATEGORIES = new Set(["ビジネス", "技術選定", "設計方針", "運用ルール", "インフラ", "デザイン"]);
 
-// LLM抽出の決定を検証・採番して「起票予定ファイル」に確定する。
+// LLM抽出の決定を検証・採番し、status: draft（AI生成・人間未確認）で「起票予定ファイル」に確定する。
 // 重複排除: 既存title・当夜バッチ内titleの正規化完全一致はプログラム側でも落とす（LLM任せにしない保険）。
 function buildDecisionFiles(extracted, existing, batchSigs) {
   const files = [];
@@ -653,6 +653,7 @@ function buildDecisionFiles(extracted, existing, batchSigs) {
       "deciders:",
       ...deciders.map((x) => `  - ${yq(x)}`),
       `description: ${yq(String(d.description || title))}`,
+      "status: draft",
       ...(basedOn
         ? ["relations:", "  - rel: based_on", `    target: ${yq(basedOn)}`]
         : []),

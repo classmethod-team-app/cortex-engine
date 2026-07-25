@@ -9,6 +9,7 @@ description: 課題・議事録・その他の情報源から決定事項を抽�
 - Decisionは**機能要件・設計・運用に関する決定事項**を記録する（カテゴリー一覧は `Cortex/Decisions/README.md` 参照）
 - アカウントセットアップ・環境構築等の単純作業は対象外
 - 手戻りや意思決定の変更も含めてすべて記録として残す（過去のファイルは変更・削除しない）
+- 例外は `status` の昇格だけ: 夜間の自動抽出が `status: draft`（AI生成・人間未確認）で起票した Decision を人間が確認したら `active` に変える。**決定内容（`title`・`description`・`date`・本文等）は書き換えず**、内容の訂正・撤回は新しい Decision を起こして `supersedes` で指す
 
 ## 実行手順
 
@@ -68,7 +69,8 @@ pnpm dlx backlog-exporter@1 update --force
 抽出した決定事項ごとに、`Cortex/Decisions/template.md` をベースにファイルを作成する（記入例とフィールドの詳細は `Cortex/Decisions/README.md` を参照）。
 
 - **ファイル名**: `YYYYMMDD-NNN-決定内容の要約.md`（`YYYYMMDD` は決定日、`NNN` は同日内の連番）
-- **frontmatter**: `type: decision` / `id` / `title` / `date` / `sprint` / `category` / `deciders` / `description` / `references` を必須で記入
+- **frontmatter**: `type: decision` / `id` / `title` / `date` / `sprint` / `category` / `deciders` / `description` / `status` / `references` を必須で記入
+- **status は `active` を既定にする**: 本スキルはステップ5でユーザーに内容を提示し、承認を得てから書き込む＝人間確認済みのため。ただし**ユーザーの確認を経ずに書き込む場合や、決定内容・出典に確証が持てない場合は `status: draft`**（AI生成・人間未確認の印）にして人間のレビューを促す。夜間の `update-gold`（Phase A）が自動起票した Decision の内容を確認したときは、このスキルで `draft` → `active` に上げる
 - **deciders は名簿の正式表記に正規化する**: `deciders` は名簿（`Cortex/Members/records/` の `title`）の正式表記に揃える。名簿に無い人名は推測で確定させず `（要確認）` を付けて記載する
 - **relations**: 抽出元への型付き関係を安定IDで記載する（オントロジー規約参照）。議事録由来なら `rel: based_on, target: "minute:{定例名}:{YYYYMMDD}"`、課題由来なら `rel: based_on, target: "{課題キー}"`。過去の決定を変更する場合は `rel: supersedes, target: "{決定ID}"` を必ず付ける
 - **本文**: `## 背景`（なぜこの決定が必要になったか）と `## 理由`（なぜその選択をしたか、他の選択肢との比較）を記述
@@ -82,7 +84,7 @@ pnpm dlx backlog-exporter@1 update --force
 以下のDecisionを作成します：
 
 - ファイル名: 20260325-001-フレームワークにnextjsを採用.md
-- category: 技術選定 / deciders: CM_鈴木花子, {{クライアント名}}_田中太郎
+- category: 技術選定 / deciders: CM_鈴木花子, {{クライアント名}}_田中太郎 / status: active
 - description: ...
 - references: ...
 
@@ -95,7 +97,7 @@ pnpm dlx backlog-exporter@1 update --force
 
 ## 注意事項
 
-- 既存のDecisionファイルは絶対に変更・削除しない（新規作成のみ）
+- 既存のDecisionファイルの**内容**は絶対に変更・削除しない（新規作成のみ。唯一の例外は、人間が内容を確認したうえでの `status: draft` → `active` の昇格）
 - 同一の決定事項が異なる表現で重複記録されることを避けるため、既存ファイルとの重複チェックを必ず行う
 - 未確定の議論・検討中の事項は記録しない。確定した決定事項のみを対象とする
 - frontmatterのフィールドは `Cortex/Decisions/README.md` で定義されたもの以外を追加しない
