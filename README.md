@@ -18,6 +18,7 @@ Cortex は、案件のコンテキスト（議事録・課題・共有資料・�
 
 - **案件で Cortex を使いたい** → 自分の案件リポジトリの README / USAGE（scaffold 同梱）。生きた実例は cortex-context
 - **新規案件に導入したい** → 本リポジトリをマーケットプレイスとして追加（下記「配布とチャンネル」）＋ `/setup-project`
+- **参加メンバーに環境準備を案内したい** → [docs/onboarding.md](docs/onboarding.md)（環境の選び方・プラグイン導入・MCP 接続）
 - **仕組みを知りたい・直したい** → 本リポジトリ。設計の全体像は [docs/architecture.md](docs/architecture.md)
 - **要望・不具合を伝えたい** → 本リポジトリの Issue（案件リポから `/submit-feedback` でも起票可能）
 
@@ -66,7 +67,7 @@ cortex の配布点は**本リポジトリ 1 つ**（マーケットプレイス
 /plugin marketplace add classmethod-team-app/cortex-engine
 ```
 
-案件リポに `.claude/settings.json`（scaffold 同梱）があれば、リポをトラストした時点で上記は自動案内されます。部の職能ハーネスは別カタログ（retail-app-harnesses）から入れます。
+案件リポの `.claude/settings.json`（scaffold 同梱）はマーケットプレイスとプラグインを**宣言**しますが、外部ソースのプラグインは各メンバーが `claude plugin install` するまでロードされません（Claude Code の現行仕様）。したがって上記は**各自の手元で1回だけ実行**します。部の職能ハーネスは別カタログ（retail-app-harnesses）から各自で入れます。詳しい案内は [docs/onboarding.md](docs/onboarding.md)。
 
 リリース手順: main で開発 → cortex-context で数日〜1週間検証 → Actions の「リリース（stable / v1 を前進）」を実行。
 
@@ -75,7 +76,7 @@ cortex の配布点は**本リポジトリ 1 つ**（マーケットプレイス
 - `.github/workflows/` に scaffold のスタブ（cron 時刻は案件で調整可）
 - `.claude/settings.json`（plugin/scaffold/repo/.claude/settings.json 参照）
 - Secrets（案件リポ側の **repo secret**。org secret は Free プランでは private リポに届かない）: `BACKLOG_*` / `AWS_ROLE_TO_ASSUME` / `FIGMA_TOKEN` ＋ **`ENGINE_REPO_TOKEN`**（本リポ read 権限。private エンジンの checkout 用）
-- メンバーの手元: リポをトラスト → プラグインインストールの自動案内に「はい」（1人1回）。private マーケットプレイスの自動更新用トークンは、チームの 1Password 環境から各自が環境変数に設定する（`docs/credentials.md` 参照。未設定でも手動更新は可能）
+- メンバーの手元: `claude plugin marketplace add …@stable` → `claude plugin install cortex@cortex-engine` を各自1回（マシンごと）。**クラウド実行（Web版・デスクトップの Cloud セッション）ではプラグインが使えず、リポ同梱のもの（`.mcp.json`・`CLAUDE.md`・`.claude/`）だけが効く** → [docs/onboarding.md](docs/onboarding.md)
 
 ## 既知の残作業
 
