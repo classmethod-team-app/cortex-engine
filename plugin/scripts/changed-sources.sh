@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 前回実行以降に追加・更新されたソース(.md)を列挙する（夜間精製の対象判定）。
-# ワークフローの差分ゲートと、精製スキル（update-decision-log-auto / update-glossary-auto）の
-# ステップ1が共に本スクリプトを使う（判定の二重定義によるドリフト防止）。
+# ワークフローの差分ゲートと、夜間Gold昇格スキル（update-gold-auto）の
+# ソース列挙が共に本スクリプトを使う（判定の二重定義によるドリフト防止）。
 #
 # 使い方: changed-sources.sh <SINCE> [除外pathspec...]
 #   $1: git log --since に渡す起点（空なら "25 hours ago"）

@@ -14,7 +14,8 @@
  * - 判定: ok(✅) / missing(⬜) / na(➖ 該当なし) / unknown(❔)
  *   スコア = ok ÷ (ok + missing) × 100（na・unknown は分母から除外）
  *
- * チェック項目は案件側スキル `setup-status` を踏襲し、夜間ワークフロー結果を加えている。
+ * 下の CHECKS が「セットアップ完了度の定義そのもの」であり、この定義が正本。
+ * 人手でセットアップ進捗を確認したいときも、本スクリプトの出力（fleet-status.json / stderr の一覧）を読む。
  */
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -176,7 +177,7 @@ const CHECKS = [
     action: "開発リポを submodule として追加" },
   // ---- 会議 == google-meet（議事録の自動取得 = Meet/Drive） ----
   { id: "meeting_minutes", label: "議事録(Meet自動取得) ※暫定", cat: "会議", applies: usesTool("会議", "google-meet", true),
-    status: meetingCount > 0 ? "ok" : "missing", action: "Google Meet/Drive 連携を設定し post-meeting を回す" },
+    status: meetingCount > 0 ? "ok" : "missing", action: "Google Meet/Drive 連携を設定し文字起こしの自動取り込みを有効化する" },
   // ---- デザイン == figma ----
   { id: "figma_token", label: "FIGMA_TOKEN", cat: "デザイン", applies: usesTool("デザイン", "figma", usesFigmaInfer),
     status: okFromBool(secret("FIGMA_TOKEN")) },

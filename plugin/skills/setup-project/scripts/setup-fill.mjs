@@ -90,7 +90,7 @@ if (args.date) {
 
 // セットアップ用の値トークン（この5つが完全な語彙）。引数で渡されたものだけ置換し、
 // 渡されなかったものは「未入力」として後で警告・再実行で埋められる設計にする。
-// 開発リポ（ソースコードリポジトリの owner/repo）は任意。無ければ未入力のまま残し、後で /clone-dev-repos 時に埋める。
+// 開発リポ（ソースコードリポジトリの owner/repo）は任意。無ければ未入力のまま残し、後で開発リポの submodule 取り込み時に埋める。
 const VALUE_KEYS = ["リポジトリ名", "プロジェクト名", "org", "クライアント名", "開発リポ"];
 const tokenOf = (k) => `{{${k}}}`;
 const keyOfToken = new Map(VALUE_KEYS.map((k) => [tokenOf(k), k]));

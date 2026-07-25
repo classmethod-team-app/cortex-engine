@@ -17,7 +17,7 @@
 // 日報・週報は本スクリプトの責務ではない（レポートはPMハーネスが run-harness-skill 経由でSlackに配信する。
 // Gold層 Cortex/ に書けるのはエンジンの精製ワークフローだけ、という境界の規律に従う）。
 //
-// 各フェーズの規律は既存スキル（update-gold-auto / update-decision-log-auto / update-glossary-auto）に従う:
+// 各フェーズの規律は update-gold-auto/SKILL.md の各 Phase（決定・用語・メンバー・ルール）に従う:
 //   - ソース列挙は changed-sources.sh / external-sources.sh と同一スクリプト（二重定義によるドリフト防止）
 //   - 会議ディレクトリ配下は議事録（*_minutes.md）のみ読む（文字起こし原本は読まない）
 //   - 採番は「決定日の既存最大NNN+1」（ファイル名から機械取得）・重複照合は正規化titleの突合
@@ -457,7 +457,7 @@ const PRIVACY_RULE = [
   "とくにチャット由来のソースは内部の雑談・評価が混ざりやすいので注意する（Gold＝顧客可視面）。",
 ].join("");
 
-// A: Decision抽出。確定/未確定の基準は update-decision-log-auto/SKILL.md ステップ3の文言を転記。
+// A: Decision抽出。確定/未確定の基準は update-gold-auto/SKILL.md の Phase A の文言を転記。
 function llmExtractDecisions(source, existingTitles, rosterNames) {
   const user = [
     "次のソースから、確定した意思決定だけを抽出してください。",
@@ -490,7 +490,7 @@ function llmExtractDecisions(source, existingTitles, rosterNames) {
   return callJSON("decision", { system: SYS_COMMON, user, maxTokens: 4096, timeoutMs: 240_000 });
 }
 
-// B: 用語抽出（update-glossary-auto/SKILL.md ステップ3の基準を転記。Webツールなし前提＝定義が明示された語のみ）
+// B: 用語抽出（update-gold-auto/SKILL.md の Phase B の基準を転記。Webツールなし前提＝定義が明示された語のみ）
 function llmExtractTerms(source, existingTermTitles, excludedList) {
   const user = [
     "次のソースから、用語集に登録すべき案件固有の新規用語を抽出してください。",
@@ -599,7 +599,7 @@ function llmBatchReview(decisions, terms, members, sourceLabels) {
 
 // ---------- 決定的: 検証・採番・frontmatter組み立て ----------
 
-// 決定の採番: 日付ごとの既存最大NNN+1（ファイル名から機械取得。update-decision-log-auto ステップ2と同じ規律）
+// 決定の採番: 日付ごとの既存最大NNN+1（ファイル名から機械取得。update-gold-auto Phase A と同じ規律）
 function nextDecisionNumber(dateYmd, existingFileNames, allocated) {
   let max = 0;
   for (const n of existingFileNames) {

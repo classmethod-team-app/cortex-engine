@@ -16,7 +16,7 @@ adoption: new # new=新規(開始時に導入・ゼロから蓄積) | existing=�
 domains: [] # 業務ドメイン（例: retail, 会員証, EC）。類似案件の発見に使う
 platforms: [] # 技術（例: Web, LINE miniapp, Flutter）
 # この案件が各能力で使うツール。セットアップ状況チェック（fleet-status）の対象を決める。
-# 既定以外を使う場合は値を変更（customize-tooling 参照）。使わない能力は none。
+# 既定以外を使う場合は値を変更する（別ツールへの差し替えには設計が必要）。使わない能力は none。
 tools:
   課題管理: backlog # backlog | jira | none
   会議: google-meet # google-meet | teams | none
