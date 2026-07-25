@@ -1,11 +1,10 @@
 /**
- * Gold層のディレクトリ名を frontmatter の type 値（英語）に揃え、Rules / OpenQuestions を新設する。
+ * Gold層のディレクトリ名を frontmatter の type 値（英語）に揃え、Rules を新設する。
  *
  * Gold層は機械可読のオントロジー層であり、ディレクトリ名を type（英語）と一致させる:
  *   - `Cortex/用語集/`  → `Cortex/Glossary/`      （type: term）
  *   - `Cortex/メンバー/` → `Cortex/Members/`       （type: member）
  *   - `Cortex/Rules/`         を新設              （type: rule）
- *   - `Cortex/OpenQuestions/` を新設              （type: open_question）
  *
  * 機械的なリネーム＋新設のみで、既存レコードの frontmatter（type/id）は一切変更しない。
  * type/id はディレクトリ名に依存しない設計なので、リネームだけでオントロジー整合が保たれる。
@@ -14,7 +13,8 @@
  * 冪等（2回実行しても壊れない）:
  *   - リネームは「旧が存在し新が無い」ときだけ行う。移動済み（新がある）ならスキップ。
  *     旧・新が両方あるという想定外の状態では、既存を壊さないようスキップして警告する。
- *   - Rules/OpenQuestions は無ければ scaffold からコピー。あれば何もしない。
+ *   - Rules は無ければ scaffold からコピー。あれば何もしない。
+ *   - OpenQuestions は当初本マイグレーションで新設していたが、0011 で撤収が確定したため作成しない。
  *
  * 注意: 旧パスの GitHub URL（Backlog 等に貼られた外部リンク）は壊れるが許容する（過去の 0002 と同種）。
  */
@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 export const meta = {
   to: 10,
   description:
-    "Gold層ディレクトリを英語化（用語集→Glossary・メンバー→Members）しRules/OpenQuestionsを新設",
+    "Gold層ディレクトリを英語化（用語集→Glossary・メンバー→Members）しRulesを新設",
   autoApply: true,
 };
 
@@ -73,7 +73,9 @@ async function renameDir(cortex, from, to) {
 async function scaffoldDir(cortex, name) {
   const dest = path.join(cortex, name);
   if (await exists(dest)) return; // 既にあれば何もしない
-  await fs.cp(path.join(SCAFFOLD_CORTEX, name), dest, { recursive: true });
+  const src = path.join(SCAFFOLD_CORTEX, name);
+  if (!(await exists(src))) return; // scaffold にコピー元が無ければスキップ（後続エンジン版でscaffold構成が変わっても壊れない）
+  await fs.cp(src, dest, { recursive: true });
 }
 
 export async function run(repoRoot) {
@@ -83,5 +85,4 @@ export async function run(repoRoot) {
   await renameDir(cortex, "用語集", "Glossary");
   await renameDir(cortex, "メンバー", "Members");
   await scaffoldDir(cortex, "Rules");
-  await scaffoldDir(cortex, "OpenQuestions");
 }
