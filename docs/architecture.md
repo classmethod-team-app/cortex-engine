@@ -82,15 +82,14 @@ cortex-engine/
 │   └── marketplace.json          # カナリア/開発用（cortexのみ相対パス掲載。配布の正本は部カタログ→§5.1）
 ├── plugin/                       # Claude Code プラグイン本体
 │   ├── .claude-plugin/plugin.json
-│   ├── skills/                   # 現行 .rulesync/skills の25本を移設
-│   │   ├── setup-project/        # 新規案件のscaffold（旧テンプレの役割を吸収）
-│   │   ├── backlog-pull/  backlog-push/  post-meeting/  create-minute/
-│   │   ├── update-decision-log/  update-glossary/   # 日次/週次レポートはPMハーネス（別プラグイン）へ移設
-│   │   ├── catch-up-recent-status/  cortex-grep/  onboard-member/
-│   │   ├── sync-materials/  sync-designs/  read-chat/  clone-dev-repos/
-│   │   ├── git-save/  git-pull/  git-fix-push/
-│   │   ├── customize-tooling/  submit-feedback/  setup-status/
-│   │   └── （auto系: update-decision-log-auto / update-glossary-auto）
+│   ├── skills/                   # 4種のみ: 自動ループの部品・自動の裏口・ライフサイクル・読みプリミティブ
+│   │   ├── setup-project/        # ③ライフサイクル（新規案件のscaffold。旧テンプレの役割を吸収）
+│   │   ├── backlog-pull/  backlog-push/            # ②裏口（同期）
+│   │   ├── update-decision/  update-glossary/  update-member/  update-rule/   # ②裏口（Gold手動書き込み口。ボタン呼び先）
+│   │   ├── create-minute/  sync-materials/  sync-designs/                     # ①自動部品（cron/WFが呼ぶ）
+│   │   ├── catch-up-recent-status/  cortex-grep/  read-chat/                  # ④読みプリミティブ
+│   │   ├── git-sync/  submit-feedback/            # 非エンジニアgit操作 / フィードバック回収路
+│   │   └── （auto系: update-gold-auto / update-design-md-auto。夜間cron専用）
 │   ├── agents/                   # 旧 .rulesync/subagents（planner 等）
 │   ├── hooks/                    # 旧 .rulesync/hooks（worktree-setup 等）
 │   ├── mcp.json                  # 旧 .rulesync/mcp.json
@@ -181,7 +180,7 @@ cortex-engine/
 - **環境要件の消滅**: 現行のテンプレ方式で必要だった mise / pnpm / rulesync のセットアップが不要になる（Node 環境すら不要）。非エンジニアメンバーのオンボーディングは現行より軽くなる
 - **蓄積はメンバー状態と無関係**: 夜間の自動化（同期・精製・レポート）は GitHub Actions 側で動くため、プラグイン未導入のメンバーがいてもコンテキストの蓄積は止まらない。プラグインは「そのメンバーがスキルを使えるか」だけに効く
 
-**唯一残る初回摩擦＝自動更新トークン**: private マーケットプレイスのバックグラウンド自動更新には環境変数の認証トークンが必要（未設定だと静かにスキップされ、手元のプラグインが古いまま残る）。これを放置すると「改善が自動で降ってくる」思想と矛盾するため、**`/onboard-member` スキルにトークン設定を 1 ステップとして組み込む**。具体的には、1Password の環境（Backlog API キー等の既存運用）に cortex-engine への read 専用 GitHub トークンを追加し、onboard-member がメンバーの環境変数への設定まで案内する。メンバー体験は「オンボーディングで 1 回設定したら以後意識しない」に収まる。
+**唯一残る初回摩擦＝自動更新トークン**: private マーケットプレイスのバックグラウンド自動更新には環境変数の認証トークンが必要（未設定だと静かにスキップされ、手元のプラグインが古いまま残る）。これを放置すると「改善が自動で降ってくる」思想と矛盾するため、**1Password の環境（Backlog API キー等の既存運用）に cortex-engine への read 専用 GitHub トークンを追加し、各メンバーが自分の環境変数に設定する**（保存場所は動作環境で変わる。`docs/credentials.md` 参照）。メンバー体験は「1 回設定したら以後意識しない」に収まる。
 
 ### 5.2 GitHub Actions → Reusable Workflows
 
@@ -205,7 +204,7 @@ jobs:
 - **secrets は案件リポに残す**: `secrets: inherit` で渡す。エンジンには秘密を置かない
 - **private リポ間の共有設定**: cortex-engine の Settings → Actions → Access を「組織内のリポジトリからアクセス可能」にする（org 内 private/internal リポ間の reusable workflow 共有は GitHub の標準機能）
 - **GHA スクリプトの参照**: reusable workflow は呼び出し元コンテキストで動くため、エンジンのスクリプトが必要なステップでは `actions/checkout` で cortex-engine を同一 ref でチェックアウトして実行する
-- **cron 上で Claude Code を使うワークフロー**（update-decision-log 等）: チェックアウトしたエンジンのプラグインを `CLAUDE_CODE_PLUGIN_SEED_DIR`（CI 向けにプラグインを事前展開する公式機構）で読み込ませ、ローカル実行と同一のスキルで動かす
+- **cron 上で Claude Code を使うワークフロー**（update-gold 等）: チェックアウトしたエンジンのプラグインを `CLAUDE_CODE_PLUGIN_SEED_DIR`（CI 向けにプラグインを事前展開する公式機構）で読み込ませ、ローカル実行と同一のスキルで動かす
 
 ### 5.2.1 main へ書き込むワークフローの規約（堅牢 push ＋ 直列化）
 
@@ -304,7 +303,7 @@ engine:
 
 1. **第一選択＝設定**: Home.md の `tools:` マップと識別カードでエンジンが分岐する
 2. **eject（能力単位のローカル上書き）**: 設定で表現できない変則案件は、(a) 該当ワークフロースタブを自前実装に差し替える、(b) 案件リポの `.claude/skills/` にローカルスキルを置く（プラグインスキルと名前空間が別なので共存できる。案件の CLAUDE.md 固有ブロックに「この案件は /xxx の代わりにローカルの /yyy を使う」と明記する）。eject した能力はエンジン更新の対象外になることを受け入れる（fleet-status に eject 状況を報告項目として追加し、巡回が把握できるようにする）
-3. `/customize-tooling` スキルは「リポ内スキルを書き換える」実装から「eject の型に沿ってローカル上書きを生成する」実装に改修する
+3. 既定外ツールへの差し替え（eject）の考え方は `docs/customize-tooling.md` に集約する（全案件が既定ツール構成で対話スキルの出番が無いため、旧 customize-tooling スキルは廃止し1ページのドキュメントにした）
 
 ### 公開範囲・顧客アクセス（AIS）
 
@@ -352,7 +351,7 @@ engine:
 - ~~職能ハーネス（retail-app-harnesses）との統合~~ → **カタログは部が所有し、エンジンは参照される側に徹する**（§3・§5.1）。エンジンの部署非依存を原則化（§2 原則 7）。将来の他部署展開時は各部署が自分のカタログを作る（2026-07-05）
 - ~~エンジンリポの命名と org 配置~~ → **v1 では `classmethod-team-app/cortex-engine` に置く**。他部署展開が見え始めた時点で中立的な置き場所へ移設する（移設時のマーケットプレイス参照・GHA スタブの一斉更新はマイグレーションで実施できる）（2026-07-05）
 - ~~Cursor 利用者への周知~~ → Cursor 利用者はごく少数のため懸念不要。個別周知のみで移行期限は設けない（2026-07-05）
-- ~~プラグイン自動更新用トークンの配布方法~~ → `/onboard-member` に 1Password 経由の設定ステップとして組み込む（§5.1.1）
+- ~~プラグイン自動更新用トークンの配布方法~~ → 1Password の環境から各メンバーが自分の環境変数に設定する（§5.1.1・`docs/credentials.md`）
 
 ## 付録: 検証済みの仕様（一次ソース確認日: 2026-07-05）
 

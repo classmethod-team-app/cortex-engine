@@ -34,7 +34,7 @@ cortex-engine/
 ├── .claude-plugin/marketplace.json   # カナリア/開発用マーケットプレイス（cortexのみ掲載）
 ├── plugin/                           # Claude Code プラグイン「cortex」
 │   ├── .claude-plugin/plugin.json    # version は意図的に未設定（コミットSHA＝バージョン。bump忘れ事故を排除）
-│   ├── skills/                       # スキル24本（旧テンプレから移設＋migrate-to-engine 追加。rulesync-generate / update-from-template は廃止）
+│   ├── skills/                       # スキル群（取り込みの裏口・Gold手動書き込み口・読みプリミティブ・ライフサイクル・夜間cronの部品）
 │   ├── agents/  hooks/  .mcp.json
 │   └── scripts/validate-cortex.mjs   # オントロジー検証（js-yaml は vendor 同梱・インストール不要）
 ├── .github/workflows/                # reusable workflows（案件リポのスタブから workflow_call で呼ばれる）
@@ -63,16 +63,9 @@ cortex-engine/
 - `.github/workflows/` に scaffold のスタブ（cron 時刻は案件で調整可）
 - `.claude/settings.json`（plugin/scaffold/repo/.claude/settings.json 参照）
 - Secrets（案件リポ側の **repo secret**。org secret は Free プランでは private リポに届かない）: `BACKLOG_*` / `AWS_ROLE_TO_ASSUME` / `FIGMA_TOKEN` ＋ **`ENGINE_REPO_TOKEN`**（本リポ read 権限。private エンジンの checkout 用）
-- メンバーの手元: リポをトラスト → プラグインインストールの自動案内に「はい」（1人1回）。private マーケットプレイスの自動更新用トークンは `/onboard-member` が案内
+- メンバーの手元: リポをトラスト → プラグインインストールの自動案内に「はい」（1人1回）。private マーケットプレイスの自動更新用トークンは、チームの 1Password 環境から各自が環境変数に設定する（`docs/credentials.md` 参照。未設定でも手動更新は可能）
 
 ## 既知の残作業
-
-### Phase 3: セットアップ・ドキュメントの全面見直し（エンジン分離前提への書き換え）
-
-**残り**: なし（下記完了済みに移動）
-
-
-**完了済み（2026-07-06）**: setup-status のエンジン分離チェック対応／customize-tooling の eject 方式化／既存案件の移行手順のスキル化（/migrate-to-engine。cortex-context の移行実績 PR #8 を雛形化）／setup-project の scaffold 展開方式化（repo secret 前提・初回同期の Actions 化・notetaker 登録導線・Home.md 記入原則を含む。職能ハーネスの選択は部署側の運用としスキルでは扱わない）／backlog-pull の非常口化／onboard-member の新体験化／fleet-status.mjs のエンジン状態報告／scaffold（repo 一式＋シード README・USAGE・CLAUDE.md）のプラグイン同梱
 
 ### その他
 

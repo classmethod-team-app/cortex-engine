@@ -50,7 +50,7 @@
 
 ### 既定ツール
 
-ディレクトリ名はツール非依存の抽象名です。同梱の仕組みは既定ツール（**Backlog / Google Meet / Slack / GitHub / Figma**）を前提に配管されています。別ツールの案件は `/customize-tooling` で置き換えます。使用ツールの宣言は `Cortex/Home.md` の識別カード（`tools:`）にあります。
+ディレクトリ名はツール非依存の抽象名です。同梱の仕組みは既定ツール（**Backlog / Google Meet / Slack / GitHub / Figma**）を前提に配管されています。別ツールを使う案件は差し替え設計が必要です（考え方は cortex-engine の `docs/customize-tooling.md`）。使用ツールの宣言は `Cortex/Home.md` の識別カード（`tools:`）にあります。
 
 ## セットアップ
 
@@ -59,7 +59,7 @@
 1. このリポジトリを Claude Code で開き、フォルダをトラストする → cortex プラグインのインストール案内に「はい」
 2. `/setup-project` を実行し、対話に沿って進める（プレースホルダ記入・Secrets 登録・初回同期・会議bot登録）
 
-新規参加メンバーは `/onboard-member` を実行してください（環境準備＋Gold起点のオリエン）。
+新規参加メンバーは、リポジトリを Claude Code で開いてトラストし、cortex プラグインのインストール案内に「はい」を押すだけです（1人1回）。案件の理解は `USAGE.md` と、AIS Viewer の「はじめに」チュートリアルから始められます（直近状況は `/catch-up-recent-status`）。
 
 ### リポジトリに必要な Secrets（`/setup-project` が案内）
 
@@ -77,21 +77,19 @@
 | コマンド | 説明 |
 | --- | --- |
 | `/setup-project` | 環境構築（対話） |
-| `/setup-status` | セットアップの進捗確認と次にやるべきことの提示 |
-| `/onboard-member` | 新メンバーのローカル環境準備＋案件理解 |
-| `/customize-tooling` | 既定ツール以外を使う場合の置き換え設計・実装 |
-| `/clone-dev-repos` | 開発リポジトリを submodule としてクローン |
 | `/backlog-pull` | 課題の手動同期（普段は自動同期済み。初回・障害時の非常口） |
 | `/backlog-push` | 課題への返信・更新を Backlog に反映（要・個人APIキー） |
-| `/create-minute` / `/post-meeting` | 文字起こしから議事録を生成 |
-| `/update-decision-log` | 課題・議事録から Decision Log を更新 |
+| `/create-minute` | 文字起こしから議事録を生成 |
+| `/update-decision` | 課題・議事録から決定事項を記録（訂正・変更は supersedes） |
 | `/update-glossary` | 案件固有の用語を用語集に登録・更新 |
+| `/update-member` | プロジェクト関係者を名簿に登録・更新 |
+| `/update-rule` | 継続的に守る制約・規約を Rules に登録・更新 |
 | `/catch-up-recent-status` | 直近の状況をキャッチアップ |
 | `/cortex-grep` | Gold起点で frontmatter を辿り関連レコードを一括取得 |
 | `/sync-materials` | 共有資料を Markdown に変換して同期 |
 | `/sync-designs` | Figma から画面インベントリを同期 |
 | `/read-chat` | チャット（Slack）を channels.json＋Slack MCP でライブ参照 |
-| `/git-save` `/git-pull` `/git-fix-push` | 非エンジニア向けの git 操作 |
+| `/git-sync` | 非エンジニア向けの git 操作（保存・最新化・push失敗時の復旧） |
 | `/submit-feedback` | Cortex（エンジン）への要望・不具合を upstream に Issue 登録 |
 
 > **PM・開発・デザイン・運用などの職能ハーネスは部カタログから導入します**（案件がプラグインを有効化していればトラスト時にまとめて案内されます）。

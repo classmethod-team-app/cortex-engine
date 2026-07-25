@@ -26,21 +26,23 @@
 
 | やりたいこと | こうする |
 | --- | --- |
-| この案件に新しく参加した（環境準備＋理解） | `/onboard-member`（プラグイン導入の案内＋Gold起点のオリエン） |
-| 新しい定例・会議を自動取り込みしたい | **会議名の頭に案件キーを付け（例「【KC】定例」）、Google Meet の招待に cortex-notetaker の bot を追加**するだけ（文字起こしが自動で `会議/` に入り議事録も生成される）。※クラスメソッド側が主催する Google Meet のみ。顧客主催・Teams 等は `/post-meeting` で手動取り込み |
-| 会議が終わった（議事録を作りたい） | `/post-meeting`（自動取り込み済み or 手元の文字起こしから議事録生成） |
-| 顧客とのやり取り（課題）を最新化したい | **何もしなくてよい**（Webhook で数十秒＋平日毎時の自動同期）。手元を最新にするのは `/git-pull` |
-| 課題に返信・更新したい | `/backlog-push`（編集してから実行すると Backlog に反映。個人の API キーが必要 → `/onboard-member` 参照） |
+| この案件に新しく参加した（環境準備＋理解） | リポジトリをトラストして cortex プラグインを入れる（1人1回）。理解は `USAGE.md`・AIS Viewer の「はじめに」チュートリアル・`/catch-up-recent-status` から |
+| 新しい定例・会議を自動取り込みしたい | **会議名の頭に案件キーを付け（例「【KC】定例」）、Google Meet の招待に cortex-notetaker の bot を追加**するだけ（文字起こしが自動で `会議/` に入り議事録も生成される）。※クラスメソッド側が主催する Google Meet のみ。顧客主催・Teams 等はビューアの投入フォーム、または `/create-minute` で手動取り込み |
+| 会議が終わった（議事録を作りたい） | 自動取り込み済みなら夜間に自動生成される。手元の文字起こしからは `/create-minute`（ビューアの投入フォームでも可） |
+| 顧客とのやり取り（課題）を最新化したい | **何もしなくてよい**（Webhook で数十秒＋平日毎時の自動同期）。手元を最新にするのは `/git-sync` |
+| 課題に返信・更新したい | `/backlog-push`（編集してから実行すると Backlog に反映。個人の API キーが必要） |
 | もらった資料（PDF/PPTX/Excel等）を取り込みたい | `/sync-materials` |
 | デザイン（画面一覧）を最新化したい | 毎晩自動同期。今すぐなら `/sync-designs` |
 | Slack のやり取りを参照したい | `/read-chat`（`チャット/channels.json` のチャンネルを Slack MCP でライブ参照。リポには取り込まない・顧客には見えない） |
-| 決まったこと（意思決定）を記録したい | 毎晩自動で追記される。今すぐなら `/update-decision-log` |
+| 決まったこと（意思決定）を記録したい | 毎晩自動で追記される。今すぐなら `/update-decision` |
 | 用語の定義を揃えたい | 毎晩自動で draft が追記される（**人間が確認して active に変える**）。手動なら `/update-glossary` |
+| メンバー（関係者）を名簿に登録・更新したい | `/update-member`（毎晩 draft も自動追記される。確認して active に） |
+| 継続的に守る制約・規約を残したい | `/update-rule`（毎晩 draft も自動追記される。確認して active に） |
 | 最近の状況をざっと把握したい | `/catch-up-recent-status` |
 | 週次の進捗をまとめたい | PMハーネス導入時、毎週金曜に週次レポートを Slack へ自動配信（リポジトリには書かない） |
-| ソースコード・Wiki を手元で見たい | `/clone-dev-repos`（submodule として取得） |
-| 変更を保存／最新化したい（非エンジニア向け） | `/git-save`（保存）・`/git-pull`（最新化）・`/git-fix-push`（push 失敗時の復旧） |
-| Backlog/Figma/GitHub 以外のツールを使っている | `/customize-tooling`（別ツールで同等の仕組みを設計・実装） |
+| ソースコード・Wiki を手元で見たい | `開発/` の submodule を取得（`git submodule update --init`） |
+| 変更を保存／最新化したい（非エンジニア向け） | `/git-sync`（保存・最新化・push 失敗時の復旧を一気通貫） |
+| Backlog/Figma/GitHub 以外のツールを使っている | 差し替え設計が必要（考え方は cortex-engine の `docs/customize-tooling.md`。fleet 管理者に相談） |
 | Cortex（仕組み側）への要望・不具合がある | `/submit-feedback`（エンジンのリポジトリに Issue として登録） |
 | 過去の経緯や仕様を AI に聞きたい | Claude Code で質問する（下記「AI との作業の仕方」） |
 
@@ -77,5 +79,5 @@ Claude Code でこのリポジトリを開き、自然文で依頼・質問で�
 
 - リポジトリの概要・フォルダ構成・コマンド一覧 → `README.md`
 - データ階層・探索戦略・公開範囲 → `CLAUDE.md`
-- 初期セットアップ → `/setup-project`／進捗確認 → `/setup-status`
-- 別ツールへの置き換え → `/customize-tooling`
+- 初期セットアップ → `/setup-project`／進捗確認 → `fleet-status.json`（`gh workflow run fleet-status.yml` で更新）
+- 別ツールへの置き換え → cortex-engine の `docs/customize-tooling.md`

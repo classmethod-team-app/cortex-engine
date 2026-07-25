@@ -12,7 +12,7 @@
 | `src/`      | {{開発リポ}}      | git submodule                     | https://github.com/{{開発リポ}}        |
 | `wiki/`     | {{開発リポ}}.wiki | git submodule                     | https://github.com/{{開発リポ}}.wiki   |
 
-submodule の取得は `/clone-dev-repos` スキル、または以下のコマンドで実行できます：
+submodule の取得は以下のコマンドで実行できます：
 
 ```bash
 git submodule update --init

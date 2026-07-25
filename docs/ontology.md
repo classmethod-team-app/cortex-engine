@@ -99,7 +99,7 @@ relations:              # 他エンティティとの関係（任意）
 | `adoption` | | `new`（新規） \| `existing`（既存） \| `migration`（移行） | Cortex導入の経緯。`new`=案件開始時に導入しゼロから蓄積／`existing`=進行中の案件に後から導入（Backlog・ソース等から開始しDecision等の履歴が薄い）／`migration`=旧Cortexから乗り換え（移行前の履歴が揃わない）。ViewerがDecisionの薄さを読み手に注記する根拠に使う |
 | `domains` | | リスト（例: `[retail, 会員証]`） | 類似案件の発見・機能アセット蒸留 |
 | `platforms` | | リスト（例: `[Web, LINE miniapp]`） | 技術での横断検索 |
-| `tools` | | マップ（能力→ツール）。能力: `課題管理`/`会議`/`共有資料`/`チャット`/`デザイン`/`開発`。値の例: `課題管理: backlog\|jira\|none` / `会議: google-meet\|teams\|none` / `共有資料: google-drive\|box\|local\|none` / `チャット: slack\|teams\|none` / `デザイン: figma\|none` / `開発: github\|none` | 各能力でどのツールを使うかの宣言。セットアップ状況の自己チェック（`fleet-status`）が、ツール固有チェックの対象（applicability）を判定する。既定以外は `customize-tooling` で差し替え |
+| `tools` | | マップ（能力→ツール）。能力: `課題管理`/`会議`/`共有資料`/`チャット`/`デザイン`/`開発`。値の例: `課題管理: backlog\|jira\|none` / `会議: google-meet\|teams\|none` / `共有資料: google-drive\|box\|local\|none` / `チャット: slack\|teams\|none` / `デザイン: figma\|none` / `開発: github\|none` | 各能力でどのツールを使うかの宣言。セットアップ状況の自己チェック（`fleet-status`）が、ツール固有チェックの対象（applicability）を判定する。既定以外を使う場合は差し替え設計が必要（`docs/customize-tooling.md`） |
 | `viewer_url` | | AIS Viewer のURL（例: `https://main.xxxx.amplifyapp.com`） | 任意。Slack通知（Gold昇格サマリ）のリンク先等に使う。ビューアデプロイ後に記入 |
 | `engine` | | マップ。`schema_version`: 整数（データスキーマ版。**マイグレーションが管理し手編集しない**）/ `channel`: `stable`（全案件の既定） \| `canary`（cortex-context のみ。エンジンの main に追従）/ `dev_dir`: 文字列（任意。開発submoduleの置き場ディレクトリ。**省略時は `開発`**。外部ソース導出（github-issues）が「dev_dir 配下のsubmodule」を対象範囲にする。置き場が `開発/` 以外の旧構造リポ等で宣言する） | エンジン分離アーキテクチャの設定。schema_version は `engine-migrate` がデータ追随の適用判定に使う（schema_version 1 で導入） |
 
