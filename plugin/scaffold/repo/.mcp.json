@@ -2,16 +2,15 @@
   "mcpServers": {
     "backlog": {
       "command": "npx",
-      "args": ["-y", "backlog-mcp-server"],
+      "args": [
+        "-y",
+        "backlog-mcp-server"
+      ],
       "env": {
         "BACKLOG_DOMAIN": "<backlog-domain>",
         "BACKLOG_API_KEY": "${BACKLOG_API_KEY}",
         "ENABLE_TOOLSETS": "space,project,issue,wiki,document"
       }
-    },
-    "github": {
-      "type": "http",
-      "url": "https://api.githubcopilot.com/mcp/"
     }
   }
 }

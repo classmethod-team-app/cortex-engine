@@ -32,7 +32,7 @@
 | 顧客とのやり取り（課題）を最新化したい | **何もしなくてよい**（Webhook で数十秒＋平日毎時の自動同期）。手元を最新にするのは `/git-sync` |
 | 課題に返信・更新したい | `/backlog-push`（編集してから実行すると Backlog に反映。個人の API キーが必要） |
 | 課題に**自分の名前で**投稿したい | Backlog MCP を繋ぐ（このリポジトリの `.mcp.json` に同梱済み。用意するのは自分の `BACKLOG_API_KEY` 1個だけ＝Backlog の個人設定 → API で発行し、環境変数に置く）。繋がっていないと共有ボット名義での投稿になります |
-| GitHub の Issue・PR を操作したい（gh CLI が無くても） | GitHub MCP を繋ぐ（`.mcp.json` に同梱済み。**キー不要**で、初回に GitHub のログイン認可を1回するだけ）。コードの保存・push は従来どおり VS Code の Git 機能でできます |
+| GitHub の Issue・PR を操作したい（gh CLI が無くても） | GitHub MCP を繋ぐ（エンジンのプラグインに同梱済みで自動有効。**キー不要**で、初回に GitHub のログイン認可を1回するだけ）。コードの保存・push は従来どおり VS Code の Git 機能でできます |
 | もらった資料（PDF/PPTX/Excel等）を取り込みたい | `/sync-materials` |
 | デザイン（画面一覧）を最新化したい | 毎晩自動同期。今すぐなら `/sync-designs` |
 | Slack のやり取りを参照したい | `/read-chat`（`チャット/channels.json` のチャンネルを Slack MCP でライブ参照。リポには取り込まない・顧客には見えない） |

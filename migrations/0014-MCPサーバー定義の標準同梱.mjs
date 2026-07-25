@@ -6,15 +6,14 @@
  * Issue を立てたりする対話経路は、**その人自身の資格情報**で動くべきである。その結合点を
  * リポジトリ同梱の `.mcp.json` が解く（各自は環境変数1個 or 初回OAuthだけで繋がる）。
  *
- * 配るのは2エントリのみ:
- *  - `backlog`: npx 型 stdio（`backlog-mcp-server`）。ドメインは秘密ではないので実値を焼き込み、
- *    **利用者の秘密は `BACKLOG_API_KEY` 1個だけ**（`${BACKLOG_API_KEY}` 参照＝各自の環境変数）。
- *    ドメインは `課題管理/issues/backlog-settings.json`（同期ミラーの生成物）から機械導出する。
- *  - `github`: GitHub 公式ホストのリモート MCP（`type: http`）。認証は各自の初回 OAuth なので
- *    **設定ファイルに秘密ゼロ**。gh CLI を入れていない非エンジニアでも Issue/PR 操作ができる。
+ * 配るのは `backlog` の1エントリのみ: npx 型 stdio（`backlog-mcp-server`）。ドメインは秘密では
+ * ないので実値を焼き込み、**利用者の秘密は `BACKLOG_API_KEY` 1個だけ**（`${BACKLOG_API_KEY}`
+ * 参照＝各自の環境変数）。ドメインは `backlog-settings.json`（同期ミラーの生成物）から機械導出する。
+ * ※ 値が全案件で同一の定義（github/figma/slack/drawio）はプラグイン同梱（`plugin/.mcp.json`）が
+ *   受け持つ。リポ側に配るのは「案件ごとに値が変わる定義」だけ、という線引き。
  *
  * 所有権モデル（キー単位）:
- *   `mcpServers` のうち**エンジンが配った既知名（backlog / github）だけ**をエンジンが管理する。
+ *   `mcpServers` のうち**エンジンが配った既知名（backlog）だけ**をエンジンが管理する。
  *   案件が独自に足した他のキーには永久に触らない。エンジン管理キーであっても、**既に存在する場合は
  *   内容が何であれ上書きせず `::warning` を出すだけ**にする（案件側のカスタムを壊さない。0013 と同じ保守則）。
  *
@@ -34,7 +33,7 @@ import { fileURLToPath } from "node:url";
 export const meta = {
   to: 14,
   description:
-    "MCPサーバー定義（Backlog・GitHub）を案件リポの .mcp.json に標準同梱（既存キーは上書きしない）",
+    "MCPサーバー定義（Backlog）を案件リポの .mcp.json に標準同梱（既存キーは上書きしない）",
   autoApply: true,
 };
 
@@ -42,7 +41,7 @@ const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const SCAFFOLD_MCP = path.join(ENGINE_ROOT, "plugin", "scaffold", "repo", ".mcp.json");
 
 // エンジンが所有するキー（これ以外には触らない）
-const MANAGED_KEYS = ["backlog", "github"];
+const MANAGED_KEYS = ["backlog"];
 // scaffold 雛形に入っているドメインのプレースホルダ（実値に差し替える目印）
 const DOMAIN_PLACEHOLDER = "<backlog-domain>";
 
@@ -121,8 +120,6 @@ async function buildEntries(repoRoot) {
   }
 
   const entries = {};
-  if (servers.github) entries.github = servers.github;
-
   if (servers.backlog) {
     const domain = await resolveBacklogDomain(repoRoot);
     if (domain) {

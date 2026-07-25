@@ -14,7 +14,13 @@
     },
     "drawio": {
       "command": "npx",
-      "args": ["@drawio/mcp"]
+      "args": [
+        "@drawio/mcp"
+      ]
+    },
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/"
     }
   }
 }

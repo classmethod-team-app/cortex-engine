@@ -31,7 +31,7 @@ APIキー等の認証情報を環境変数で渡す場面では、**Claude Code 
 | MCP | 必要な資格情報 | 入れ場所 |
 | --- | --- | --- |
 | **Backlog**（課題・Wiki・ドキュメント） | `BACKLOG_API_KEY` の**1個だけ**（Backlog の個人設定 → API から**各自**発行） | 動作環境の環境変数（上表のとおり）。`.mcp.json` は `${BACKLOG_API_KEY}` として参照する。ドメインは秘密ではないので `.mcp.json` に実値が記入済み |
-| **GitHub**（Issue・PR・workflow 実行） | **不要**（初回接続時の OAuth のみ。Claude Code が認可フローを案内し、`/mcp` で状態を確認できる） | **設定ファイルに秘密ゼロ**。gh CLI を入れていなくても GitHub の API 操作ができる |
+| **GitHub**（Issue・PR・workflow 実行） | **不要**（初回接続時の OAuth のみ。Claude Code が認可フローを案内し、`/mcp` で状態を確認できる） | **秘密ゼロ**。定義はエンジンのプラグイン同梱（`plugin/.mcp.json`）で自動有効。gh CLI を入れていなくても GitHub の API 操作ができる |
 
 > 自動同期（夜間 cron）の `BACKLOG_API_KEY` は GitHub Actions Secrets 側の別物（同期専用ユーザー推奨）。**対話用は各自のキー**であり、混同しない。
 
