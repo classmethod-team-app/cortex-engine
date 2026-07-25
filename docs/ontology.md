@@ -70,7 +70,7 @@ Gold層の `source` / `relations.target` からSilver/Bronzeを参照すると�
 
 ### frontmatter共通フィールド
 
-Gold層のMarkdown（Decisions・用語集・レポート・Home）は、種別ごとの固有フィールドに加えて以下を持つ。
+Gold層のMarkdown（Decisions・用語集・ルール・メンバー・Home）は、種別ごとの固有フィールドに加えて以下を持つ。
 
 ```yaml
 type: decision          # エンティティ型（必須）
