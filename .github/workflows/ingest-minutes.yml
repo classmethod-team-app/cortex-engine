@@ -157,6 +157,15 @@ jobs:
           # このrunで増えた議事録ファイルを検出（0件なら何もしない）
           NEW_MINUTES=$(git -c core.quotepath=false diff --name-only "$PRE_HEAD"..HEAD | grep '_minutes\.md$' || true)
           [ -n "$NEW_MINUTES" ] || { echo "::notice::新規議事録なし。通知しません。"; exit 0; }
+          # 議事録の指定セクション（見出し文言は create-minute のテンプレートが正）の本文を取り出す。
+          # 見出し行の次から、次の "## " 見出し or EOF までを返す。
+          extract_section() {
+            awk -v h="$2" '
+              $0 ~ "^## " h "[[:space:]]*$" {cap=1; next}
+              cap && /^## / {cap=0}
+              cap {print}
+            ' "$1"
+          }
           # 1ファイル=1通のループ（主催者はファイルごとに異なりうるため）。通知は best-effort。
           while IFS= read -r f; do
             [ -n "$f" ] || continue
@@ -176,9 +185,17 @@ jobs:
             fi
             # リンクは mrkdwn の埋め込み形式 <URL|テキスト>（生URLが長くてチャンネルの表示を折るため）
             body=$(printf '📝 議事録が自動生成されました\n%s → <%s|議事録を開く>\n今晩のGold昇格前に内容の確認をお願いします（冒頭の⚠️行を削除するとレビュー済みの印になります）。' "$label" "$link")
-            if [ -n "$email" ]; then
-              printf '%s' "$body" | bash .cortex-engine/plugin/scripts/notify-slack.sh --mention-email "$email" || true
-            else
-              printf '%s' "$body" | bash .cortex-engine/plugin/scripts/notify-slack.sh || true
-            fi
+            # 「決定事項まとめ」「TODOアイテム」の本文をスレッド返信として組み立てる（空行は除く）。
+            # どちらも空なら従来どおり親通知のみ（チャンネルを要点で埋めない）。
+            dec=$(extract_section "$f" "決定事項まとめ" | sed '/^[[:space:]]*$/d')
+            todo=$(extract_section "$f" "TODOアイテム" | sed '/^[[:space:]]*$/d')
+            tf=$(mktemp)
+            if [ -n "$dec" ]; then { echo "*決定事項*"; echo "$dec"; } >> "$tf"; fi
+            if [ -n "$todo" ]; then if [ -s "$tf" ]; then echo "" >> "$tf"; fi; { echo "*TODO*"; echo "$todo"; } >> "$tf"; fi
+            # notify-slack.sh の引数を組み立てる（メンション解決・スレッド化はいずれも best-effort）。
+            NS_ARGS=()
+            if [ -n "$email" ]; then NS_ARGS+=(--mention-email "$email"); fi
+            if [ -s "$tf" ]; then NS_ARGS+=(--thread-file "$tf"); fi
+            printf '%s' "$body" | bash .cortex-engine/plugin/scripts/notify-slack.sh "${NS_ARGS[@]}" || true
+            rm -f "$tf"
           done <<< "$NEW_MINUTES"
