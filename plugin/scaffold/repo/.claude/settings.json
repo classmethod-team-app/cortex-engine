@@ -15,5 +15,19 @@
   },
   "enabledPlugins": {
     "cortex@retail-app-harnesses": true
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/session-sync.sh\" || true",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
   }
 }
