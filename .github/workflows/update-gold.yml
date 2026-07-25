@@ -126,6 +126,11 @@ jobs:
           else
             LAST=$(gh run list --workflow=update-gold.yml --status success --limit 1 --json createdAt --jq '.[0].createdAt // empty' 2>/dev/null || true)
             if [ -z "$LAST" ]; then SINCE="$CAP"; else SINCE="$LAST"; fi
+            # 窓の下限（最低でも25時間は遡る）。日中に手動実行すると「直近の成功run」がその時刻まで進み、
+            # その日の朝の投稿・更新が夜のrunの窓から外れて永久に取りこぼされる（実際に発生した）。
+            # 重複は各フェーズの署名照合が吸収するので、遡りすぎによる二重起票は起きない。
+            FLOOR=$(date -u -d '25 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+            if [[ "$SINCE" > "$FLOOR" ]]; then SINCE="$FLOOR"; fi
           fi
           # 14日より古い起点は丸める（巨大窓によるmax-turns暴走を防ぐ。丸めた場合は未処理が残りうるので警告）
           if [[ "$SINCE" < "$CAP" ]]; then
