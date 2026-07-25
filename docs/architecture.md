@@ -44,12 +44,12 @@ graph TB
         RW["Reusable Workflows<br/>（GHA 9本のロジック）"]
         SCRIPTS["scripts/<br/>validate-cortex / fleet-status 等"]
         MIG["migrations/<br/>スキーママイグレーション"]
-        MP["marketplace.json<br/>（カナリア/開発用・cortexのみ掲載）"]
+        MP["marketplace.json<br/>（cortexの配布点・cortexのみ掲載）"]
     end
 
     subgraph dept["retail-app-harnesses（部の職能ノウハウ＋部カタログ）"]
         HARNESS["PM/開発/デザイン/運用ハーネス（プラグイン群）"]
-        CAT["部カタログ marketplace.json<br/>cortex(engineのstable refをピン)＋ハーネス群"]
+        CAT["部カタログ marketplace.json<br/>部のハーネス群のみ掲載"]
     end
 
     subgraph project["案件コンテキストリポ（データ＋薄い設定）"]
@@ -61,16 +61,17 @@ graph TB
         C1["main追従で先行検証"]
     end
 
-    PLUGIN -. "stable ref で参照" .-> CAT
-    CAT -- "プラグイン配布<br/>（トラスト時に自動案内）" --> CONF
+    MP -- "cortex 配布<br/>（ref: stable＝安定・トラスト時に自動案内）" --> CONF
+    CAT -- "職能ハーネス配布<br/>（案件が opt-in）" --> CONF
     RW -- "workflow_call<br/>(@v1 タグ)" --> CONF
-    MP -- "main ref" --> C1
+    MP -- "ref 省略（main 追従）＝カナリア" --> C1
     TOOLS["cortex-tools（既存・変更なし）<br/>Viewer / CDK infra / Backlog Webhook Lambda / notetaker"] -- "repository_dispatch" --> CONF
 ```
 
 - **cortex-engine（新設・部署非依存）**: エンジンの正本。プラグイン・reusable workflows・スクリプト・マイグレーションを同居させ、**1 つの git ref で全構成要素のバージョンが揃う**ようにする。部署固有コンテンツは置かない（§2 原則 7）。v1 では `classmethod-team-app` org に置き、他部署展開が見え始めた時点で中立的な置き場所へ移設する
-- **部カタログ（retail-app-harnesses に同居）**: 配布の入口。marketplace.json だけの薄い層で、cortex（エンジンの `stable` ref を独立ピン）と部の職能ハーネスを掲載する。**カタログは部が所有し、エンジンは参照される側に徹する**。他部署が導入する際は、その部署が自分のカタログ（cortex＋自部署ハーネス）を作るだけで、エンジンは変更不要
-- **案件コンテキストリポ**: データと薄い設定のみ。部カタログを「参照」する
+- **cortex の配布点はエンジン自身**: エンジン同梱の marketplace.json（`cortex-engine`）が唯一の入口。参照する `ref` でチャンネルが決まる（`stable`＝安定 / 省略＝main 追従のカナリア）。cortex は部署非依存の基盤なので、配布の入口も特定部署のカタログに置かない
+- **部カタログ（retail-app-harnesses に同居）**: 部の職能ハーネスだけを掲載する薄い層。**カタログは部が所有し、cortex は含めない**。他部署が導入する際は、cortex はエンジンから直接入れ、自部署ハーネスのカタログだけを作ればよい（エンジンは変更不要）
+- **案件コンテキストリポ**: データと薄い設定のみ。エンジンのマーケットプレイス（＋必要なら部カタログ）を「参照」する
 - **cortex-context**: 唯一 main（最新）追従のカナリア。ここで一定期間問題がなければ安定チャンネルを前進させる
 - **cortex-tools / cortex-notetaker**: 変更なし。案件リポへの `repository_dispatch` 起動は今後も案件リポ側のスタブが受ける
 
@@ -114,18 +115,25 @@ cortex-engine/
 
 ### 5.1 スキル等 → Claude Code プラグイン
 
-配布の入口は**部カタログ**（retail-app-harnesses リポに同居する marketplace.json）とし、エンジンは参照される側に徹する。案件リポの `.claude/settings.json` で部カタログを参照すると、リポをトラストしたメンバーには自動でインストールが案内される（公式仕様で確認済み）。
+cortex の配布の入口は**エンジン自身**（本リポ同梱の marketplace.json）に一元化する。cortex は部署非依存の基盤なので、入口を特定部署のカタログに置くと所有権が歪む（その部署のカタログを見られない相手が安定版に辿り着けない）。**マーケットプレイス名は 1 つ（`cortex-engine`）とし、参照する `ref` でチャンネルを分ける**（`stable` ブランチは main の完全ミラーなので、ブランチごとに別のマーケットプレイス名を持たせることはできない）。案件リポの `.claude/settings.json` で参照すると、リポをトラストしたメンバーには自動でインストールが案内される（公式仕様で確認済み）。
 
 ```jsonc
-// 部カタログ: retail-app-harnesses/.claude-plugin/marketplace.json
+// エンジン同梱: cortex-engine/.claude-plugin/marketplace.json
 {
-  "name": "retail-app",
+  "name": "cortex-engine",
   "plugins": [
-    { "name": "cortex",                      // エンジン本体（別リポを独立ピン）
-      "source": { "source": "github", "repo": "classmethod-team-app/cortex-engine", "ref": "stable" } },
-    { "name": "pm-harness",                  // 部の職能ハーネス（案件が opt-in）
-      "source": "./plugins/pm-harness", "defaultEnabled": false },
-    { "name": "dev-harness", "source": "./plugins/dev-harness", "defaultEnabled": false }
+    { "name": "cortex", "source": "./plugin" }   // 参照する ref がそのままチャンネルになる
+  ]
+}
+```
+
+```jsonc
+// 部カタログ: retail-app-harnesses/.claude-plugin/marketplace.json（部の職能ハーネスだけ）
+{
+  "name": "retail-app-harnesses",
+  "plugins": [
+    { "name": "pm-harness",  "source": { "source": "github", "repo": "classmethod-team-app/pm-harness" } },
+    { "name": "dev-harness", "source": { "source": "github", "repo": "classmethod-team-app/dev-harness" } }
   ]
 }
 ```
@@ -134,39 +142,40 @@ cortex-engine/
 // 案件リポの .claude/settings.json（安定チャンネル）
 {
   "extraKnownMarketplaces": {
-    "retail-app": {
-      "source": { "source": "github", "repo": "classmethod-team-app/retail-app-harnesses" }
+    "cortex-engine": {
+      "source": { "source": "github", "repo": "classmethod-team-app/cortex-engine", "ref": "stable" }
     }
   },
   "enabledPlugins": {
-    "cortex@retail-app": true,
-    "pm-harness@retail-app": true    // 使う職能ハーネスだけ案件が宣言
+    "cortex@cortex-engine": true
   }
 }
 ```
 
 ```jsonc
-// cortex-context の .claude/settings.json（カナリア: エンジンリポを直接参照）
+// カナリア（cortex-context・エンジン開発者）の .claude/settings.json
 {
   "extraKnownMarketplaces": {
-    "cortex-canary": {
+    "cortex-engine": {
       "source": { "source": "github", "repo": "classmethod-team-app/cortex-engine" }
-      // ref省略 = mainの最新に追従。エンジン同梱の marketplace.json（cortexのみ掲載）を使う
+      // ref省略 = デフォルトブランチ（main）の最新に追従
     }
   },
   "enabledPlugins": {
-    "cortex@cortex-canary": true
+    "cortex@cortex-engine": true
   }
 }
 ```
 
+> 社内メンバーが職能ハーネスも使う場合は、上記に部カタログの宣言（`retail-app-harnesses`）と `pm-harness@retail-app-harnesses` 等を足す。顧客が直接見る案件リポの scaffold には cortex だけを宣言する。
+
 設計上のポイント（公式ドキュメントで検証済みの仕様に基づく）:
 
-- **カタログとエンジンの分離**: マーケットプレイスのエントリは別リポのプラグインを `ref`/`sha` で**独立にピン**できる（マーケットプレイス自身のピンとプラグインのピンは独立、と公式に明記）。この性質により「配布は部カタログ 1 つ・実体はエンジンと部ハーネスで別リポ」が成立する
+- **カタログとエンジンの分離**: マーケットプレイスのエントリは別リポのプラグインを `ref`/`sha` で**独立にピン**できる（マーケットプレイス自身のピンとプラグインのピンは独立、と公式に明記）。この性質により、部カタログは自部署のハーネスだけを束ね、cortex はエンジンから直接配る構成が成立する
 - **バージョン解決**: `plugin.json` の `version` は**設定しない**。省略すると git コミット SHA がバージョンとして扱われ、push のたびに新バージョンとして配信される（「内部向け・活発に開発中のプラグインに最も単純」と公式が推奨する構成）。`version` を設定すると bump 忘れ＝配信されない事故が起きるため採用しない
-- **チャンネルの実現**: 安定＝部カタログがエンジンの `stable` ブランチをピン（**エンジンチームが stable を前進させるだけで全案件に届く。カタログの編集は不要**）。カナリア＝cortex-context がエンジンリポを直接マーケットプレイスとして参照（main 追従。エンジン同梱の marketplace.json は cortex を `./plugin` 相対パスで掲載するカナリア/開発用）。マーケットプレイス状態はユーザー単位で管理されるため（`~/.claude/plugins/known_marketplaces.json`）、名前を `retail-app` / `cortex-canary` と分けて衝突を避ける
-- **職能ハーネスの掲載**: 部カタログに `defaultEnabled: false` で載せ、案件リポの `enabledPlugins` で opt-in する。「カタログには部の全能力が載っているが、有効になるのは案件が宣言したものだけ」となり、Home.md 識別カードと同じ「案件側の薄い設定が選択する」思想に揃う。ハーネスのリリース主導権は各ハーネスチームに残る（自リポの更新だけで配信される）
-- **他部署展開**: 新しい部署は「自部署カタログ（cortex＋自部署ハーネス）」を 1 ファイル作るだけで導入できる。エンジンには手を入れない
+- **チャンネルの実現**: 案件リポが**同じマーケットプレイス（`cortex-engine`）を異なる `ref` で参照する**ことでチャンネルが決まる。安定＝`ref: stable`（**エンジンチームが stable を前進させるだけで全案件に届く。設定の編集は不要**）、カナリア＝`ref` 省略で main 追従。マーケットプレイス状態はユーザー単位で管理されるため（`~/.claude/plugins/known_marketplaces.json`）、**1 人の手元では `cortex-engine` は 1 つの ref でしか登録されない**（安定案件とカナリア案件を同じマシンで開く場合は、どちらの ref で入っているかを `/plugin` で確認する）。エンジン開発者以外は安定に統一しておけば意識する必要はない
+- **職能ハーネスの掲載**: 部カタログに載せ、案件リポの `enabledPlugins` で opt-in する。「カタログには部の全能力が載っているが、有効になるのは案件が宣言したものだけ」となり、Home.md 識別カードと同じ「案件側の薄い設定が選択する」思想に揃う。ハーネスのリリース主導権は各ハーネスチームに残る（自リポの更新だけで配信される）
+- **他部署展開**: cortex はどの部署もエンジンから直接入れる。新しい部署が足すのは「自部署ハーネスのカタログ」だけで、エンジンにも他部署のカタログにも手を入れない
 - **private リポ対応**: プラグインの手動インストール/更新は既存の git 認証（`gh auth login` 等）をそのまま使う。**起動時のバックグラウンド自動更新だけは環境変数の認証トークンが必要**（対処は下記「メンバーの導入体験」）
 - **スクリプト同梱**: スキルが呼ぶスクリプトはプラグイン内に置き `${CLAUDE_PLUGIN_ROOT}` で参照する（プラグインはキャッシュにコピーされるため、プラグイン外への相対参照は不可という仕様に従う）
 - **スキル名の互換**: 利用者から見たスキル名は現行と同じ `/backlog-pull` 等を維持する（プラグインスキルとして提供）。将来スキルを改名・廃止する場合は marketplace.json の `renames` フィールドで自動移行できる
@@ -349,6 +358,7 @@ engine:
 
 - ~~v1（7/31）との関係~~ → **本設計を v1 として出す**ことに決定（2026-07-05。§10 参照）
 - ~~職能ハーネス（retail-app-harnesses）との統合~~ → **カタログは部が所有し、エンジンは参照される側に徹する**（§3・§5.1）。エンジンの部署非依存を原則化（§2 原則 7）。将来の他部署展開時は各部署が自分のカタログを作る（2026-07-05）
+- ~~cortex の配布点を部カタログに置く~~ → **cortex の入口はエンジン自身に一元化**し、部カタログは部のハーネスだけを持つ形に変更（2026-07-25。§5.1）。全社基盤の配布を一部署のカタログが抱える所有権の歪みを解消し、チャンネルは参照する `ref` で分ける（migration 0019 が既存案件の settings.json を移行）
 - ~~エンジンリポの命名と org 配置~~ → **v1 では `classmethod-team-app/cortex-engine` に置く**。他部署展開が見え始めた時点で中立的な置き場所へ移設する（移設時のマーケットプレイス参照・GHA スタブの一斉更新はマイグレーションで実施できる）（2026-07-05）
 - ~~Cursor 利用者への周知~~ → Cursor 利用者はごく少数のため懸念不要。個別周知のみで移行期限は設けない（2026-07-05）
 - ~~プラグイン自動更新用トークンの配布方法~~ → 1Password の環境から各メンバーが自分の環境変数に設定する（§5.1.1・`docs/credentials.md`）

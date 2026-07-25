@@ -17,9 +17,8 @@
 
 - `update-gold.yml`・`pm-daily.yml`・`pm-weekly.yml` は**ファイル名を変えない**こと（増分起点 SINCE の算出が `gh run list --workflow=<ファイル名>` に依存）
 - private エンジンの checkout に `ENGINE_REPO_TOKEN`（cortex-engine への read 専用 PAT）が必要。**org が Free プランの間は repo secret として登録**（org secret は private リポに届かない）
-- カナリア運用（cortex-context のみ）ではスタブの `@v1` を `@main` にし、`with: engine_ref: main` を渡し（エンジン checkout を伴う 8 本）、settings.json のマーケットプレイスを `cortex-canary`（cortex-engine 直接参照）に差し替える。**一般の案件はこの scaffold のまま（安定チャンネル）使う**
+- カナリア運用（cortex-context のみ）ではスタブの `@v1` を `@main` にし、`with: engine_ref: main` を渡し（エンジン checkout を伴う 8 本）、settings.json のマーケットプレイス `cortex-engine` から `ref: stable` を外す（＝main 追従）。**一般の案件はこの scaffold のまま（安定チャンネル）使う**
 
 ## 残作業
 
-- `.claude/settings.json` のマーケットプレイス参照は部カタログ（retail-app-harnesses）を指しているが、部カタログ側の marketplace.json（cortex を stable ref でピン＋職能ハーネス掲載）は未整備。Phase 2 までに retail-app-harnesses 側に追加する
 - `/setup-project` の scaffold 展開対応（エンジン README の Phase 3 要件参照）

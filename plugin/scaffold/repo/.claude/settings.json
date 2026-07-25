@@ -1,20 +1,21 @@
 {
-  "//": "案件リポの .claude/settings.json に置く（安定チャンネル）。リポをトラストしたメンバーに cortex プラグインのインストールが自動案内される。安定配布は部カタログ（例: retail-app-harnesses）経由。カナリア（cortex-context）だけは cortex-engine を直接参照する",
+  "//": "案件リポの .claude/settings.json に置く（安定チャンネル）。リポをトラストしたメンバーに cortex プラグインのインストールが自動案内される。cortex はエンジンリポを直接参照し、ref: stable で安定版に固定する（ref を省略すると main 追従＝カナリア）",
   "permissions": {
     "deny": [
       "Read(credentials/)"
     ]
   },
   "extraKnownMarketplaces": {
-    "retail-app-harnesses": {
+    "cortex-engine": {
       "source": {
         "source": "github",
-        "repo": "classmethod-team-app/retail-app-harnesses"
+        "repo": "classmethod-team-app/cortex-engine",
+        "ref": "stable"
       }
     }
   },
   "enabledPlugins": {
-    "cortex@retail-app-harnesses": true
+    "cortex@cortex-engine": true
   },
   "hooks": {
     "SessionStart": [

@@ -1,7 +1,7 @@
 {
-  "name": "cortex-canary",
+  "name": "cortex-engine",
   "metadata": {
-    "description": "Cortex エンジンのカナリア/開発用マーケットプレイス（main追従）。安定配布は部カタログ（retail-app-harnesses 等）を使うこと"
+    "description": "Cortex エンジンの配布マーケットプレイス。参照する ref がそのままチャンネルになる（ref 省略＝main 追従のカナリア / ref: stable ＝安定）"
   },
   "owner": {
     "name": "Classmethod"
@@ -10,7 +10,7 @@
     {
       "name": "cortex",
       "source": "./plugin",
-      "description": "Cortex エンジン（カナリア/開発用マーケットプレイス経由）。安定配布は部カタログ（retail-app-harnesses 等）から行い、このマーケットプレイスは cortex-context と開発者だけが main 追従で使う。"
+      "description": "Cortex エンジン: 案件コンテキストリポジトリの器（取り込み・精製・記録・セットアップのskill群）。安定版を使う場合は ref: stable、先行検証・開発では ref 省略（main 追従）でこのマーケットプレイスを参照する"
     }
   ]
 }

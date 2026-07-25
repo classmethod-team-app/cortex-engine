@@ -1,7 +1,7 @@
 name: リリース（stable / v1 を前進）
 
 # 安定チャンネルのリリース。以下2つの ref を同一コミットに進める:
-#   - stable ブランチ … プラグイン配布用（部カタログの marketplace.json が ref: stable でピン）
+#   - stable ブランチ … プラグイン配布用（案件リポの settings.json が ref: stable で参照する安定チャンネル）
 #   - v1 タグ         … reusable workflows 用（案件リポのスタブが @v1 で参照する移動タグ）
 # 2つの ref がズレる事故を防ぐため、必ずこのワークフロー経由でリリースする。
 #

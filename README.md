@@ -17,7 +17,7 @@ Cortex は、案件のコンテキスト（議事録・課題・共有資料・�
 ### 知りたいことに応じた入口
 
 - **案件で Cortex を使いたい** → 自分の案件リポジトリの README / USAGE（scaffold 同梱）。生きた実例は cortex-context
-- **新規案件に導入したい** → 部カタログ（retail-app-harnesses 等）の導入手順 ＋ `/setup-project`
+- **新規案件に導入したい** → 本リポジトリをマーケットプレイスとして追加（下記「配布とチャンネル」）＋ `/setup-project`
 - **仕組みを知りたい・直したい** → 本リポジトリ。設計の全体像は [docs/architecture.md](docs/architecture.md)
 - **要望・不具合を伝えたい** → 本リポジトリの Issue（案件リポから `/submit-feedback` でも起票可能）
 
@@ -31,7 +31,7 @@ Cortex は、案件のコンテキスト（議事録・課題・共有資料・�
 
 ```
 cortex-engine/
-├── .claude-plugin/marketplace.json   # カナリア/開発用マーケットプレイス（cortexのみ掲載）
+├── .claude-plugin/marketplace.json   # cortex の配布点（cortexのみ掲載。参照するrefでチャンネルが決まる）
 ├── plugin/                           # Claude Code プラグイン「cortex」
 │   ├── .claude-plugin/plugin.json    # version は意図的に未設定（コミットSHA＝バージョン。bump忘れ事故を排除）
 │   ├── skills/                       # スキル群（取り込みの裏口・Gold手動書き込み口・読みプリミティブ・ライフサイクル・夜間cronの部品）
@@ -51,10 +51,22 @@ cortex-engine/
 
 ## 配布とチャンネル
 
+cortex の配布点は**本リポジトリ 1 つ**（マーケットプレイス名 `cortex-engine`）。参照する `ref` がそのままチャンネルになります。
+
 | チャンネル | 対象 | プラグイン | GHA |
 | --- | --- | --- | --- |
-| **安定** | 全案件リポ | 部カタログ（retail-app-harnesses 等）が `ref: stable` でピン | スタブが `@v1`（移動タグ） |
-| **カナリア** | cortex-context | 本リポを直接マーケットプレイス参照（main 追従） | スタブが `@main` |
+| **安定** | 全案件リポ・顧客 | 本リポを `ref: stable` で参照 | スタブが `@v1`（移動タグ） |
+| **カナリア** | cortex-context・エンジン開発者 | 本リポを `ref` 省略で参照（main 追従） | スタブが `@main` |
+
+```bash
+# 安定（一般の案件・顧客）
+/plugin marketplace add classmethod-team-app/cortex-engine@stable
+
+# カナリア（エンジン開発者・先行検証）
+/plugin marketplace add classmethod-team-app/cortex-engine
+```
+
+案件リポに `.claude/settings.json`（scaffold 同梱）があれば、リポをトラストした時点で上記は自動案内されます。部の職能ハーネスは別カタログ（retail-app-harnesses）から入れます。
 
 リリース手順: main で開発 → cortex-context で数日〜1週間検証 → Actions の「リリース（stable / v1 を前進）」を実行。
 
@@ -69,7 +81,6 @@ cortex-engine/
 
 ### その他
 
-- scaffold の `settings.json` の既定カタログは retail-app-harnesses を指している（現在の利用部署が1つのための暫定）。他部署展開時は `{{部カタログ}}` プレースホルダ化して setup-fill で埋める方式に変える
 - 精製系ワークフローの schema_version 要求チェック（古いスキーマならスキップ）は未配線
 - `autoApply: false` マイグレーションの PR 自動起票は将来拡張
 - Team プラン承認後: secrets を org secret へ一元化（ENGINE_REPO_TOKEN・BACKLOG_API_KEY・FIGMA_TOKEN）
