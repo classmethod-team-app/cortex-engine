@@ -123,7 +123,9 @@ gh secret set BACKLOG_API_KEY
 gh secret set AWS_ROLE_TO_ASSUME    # 未発行なら保留可（夜間AIジョブは未設定を検知して安全にスキップする）
 ```
 
-> Backlog を使わない案件（`tools.課題管理: none` 等）は BACKLOG_* をスキップしてください。
+**同じ `DOMAIN` をリポジトリの `.mcp.json` にも記入します。** ルートの `.mcp.json`（Backlog・GitHub の MCP サーバー定義を標準同梱）にあるプレースホルダ `<backlog-domain>` を、上で抽出した実スペース（例 `cm1.backlog.jp`）に置換してコミットしてください（`backlog-settings.json` と同じ値）。ドメインは秘密ではないのでリポジトリに置いて構いません。**利用者側の秘密は `BACKLOG_API_KEY` の1個だけ**で、各自の環境変数から参照します（`credentials` ルール参照）。
+
+> Backlog を使わない案件（`tools.課題管理: none` 等）は BACKLOG_* をスキップしてください。`.mcp.json` の `backlog` エントリも削除して構いません（`github` は残す）。
 
 ## ステップ7: 初回同期の起動（Actions で実行）※忘れない
 
