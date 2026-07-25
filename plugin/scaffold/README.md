@@ -8,7 +8,7 @@
 | --- | --- |
 | `CLAUDE.md` | 薄い AI 向け案内。**エンジン管理ブロック**（`<!-- cortex-engine:begin/end -->`）はマイグレーションが更新する |
 | `README.md` / `USAGE.md` | シード文書（エンジン分離アーキテクチャ前提） |
-| `.claude/settings.json` | マーケットプレイス参照＋プラグイン有効化（トラスト時に自動案内） |
+| `.claude/settings.json` | マーケットプレイス参照＋プラグイン有効化の**宣言**（実際の導入は各メンバーが手元で `claude plugin install`。`docs/onboarding.md`） |
 | `.mcp.json` | MCP サーバー定義（Backlog・GitHub）。**定義は共有・鍵は各自**（Backlog は `${BACKLOG_API_KEY}` 参照／GitHub は初回 OAuth で秘密ゼロ）。`<backlog-domain>` は `/setup-project` で実スペースに置換する |
 | `.github/workflows/*.yml` | エンジンの reusable workflows を呼ぶスタブ（トリガー・cron 時刻は案件側で調整可） |
 | `Cortex/` ほかデータディレクトリ | データ骨格（テンプレート・README・プレースホルダ付きシード） |

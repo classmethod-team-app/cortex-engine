@@ -16,7 +16,7 @@
 
 | 経路 | 中身 | 仕組み |
 | --- | --- | --- |
-| **Claude Code プラグイン** | スキル・エージェント・フック・MCP 設定 | `.claude/settings.json` のマーケットプレイス参照。リポジトリをトラストしたメンバーに自動でインストール案内が出る（1人1回） |
+| **Claude Code プラグイン** | スキル・エージェント・フック・MCP 設定 | `.claude/settings.json` がマーケットプレイスを参照。各メンバーが手元で1回だけインストールする（下記「セットアップ」） |
 | **Reusable Workflows** | 同期・精製の自動化（GitHub Actions） | `.github/workflows/` の薄いスタブがエンジンの `@v1` を呼ぶ。エンジンのリリースで全案件に自動反映 |
 
 エンジンの改善は自動で降ってくるため、**このリポジトリで仕組みのメンテナンスは不要**です（旧テンプレ複製方式の「テンプレ追従作業」は廃止されました）。
@@ -52,14 +52,36 @@
 
 ディレクトリ名はツール非依存の抽象名です。同梱の仕組みは既定ツール（**Backlog / Google Meet / Slack / GitHub / Figma**）を前提に配管されています。別ツールを使う案件は差し替え設計が必要です（考え方は cortex-engine の `docs/customize-tooling.md`）。使用ツールの宣言は `Cortex/Home.md` の識別カード（`tools:`）にあります。
 
+## 動かす場所（環境）を選ぶ
+
+Claude Code は手元でもクラウドでも動きますが、**cortex のコマンド（スキル）が使えるのは手元で動かしたときだけ**です。クラウド実行では、リポジトリに入っているものだけが効きます。
+
+| 経路 | コマンド（`/create-minute` 等） | リポ同梱（`.mcp.json`・`CLAUDE.md`・`.claude/`） | 主な対象 |
+| --- | --- | --- | --- |
+| ターミナル（CLI） | ✅ | ✅ | エンジニア |
+| VS Code 拡張 | ✅ | ✅ | エンジニア |
+| デスクトップアプリ（**Local** セッション） | ✅ | ✅ | 非エンジニア（PM・デザイナー）の標準 |
+| デスクトップアプリ（**Cloud** セッション） | ❌ | ✅ | 手軽な確認 |
+| Web版（claude.ai/code） | ❌ | ✅ | 顧客・軽い用途 |
+
+クラウド実行で `/コマンド` が候補に出ないのは**不具合ではありません**（プラグインはクラウド実行では読み込まれない仕様）。リポジトリを読んで質問する・書く・コミットするといった通常の対話はできるので、コマンドを使う作業だけ手元（Local）で行ってください。
+
 ## セットアップ
 
 前提は **Claude Code と gh（GitHub CLI）だけ**です（Node や パッケージマネージャは不要）。
 
-1. このリポジトリを Claude Code で開き、フォルダをトラストする → cortex プラグインのインストール案内に「はい」
+1. cortex プラグインを入れる（**手元で1回だけ**。マシンごと）
+
+   ```bash
+   claude plugin marketplace add classmethod-team-app/cortex-engine@stable
+   claude plugin install cortex@cortex-engine
+   ```
+
+   デスクトップアプリなら GUI でも入れられます（プロンプト欄の **＋** → **Plugins** → **Add plugin** から同じマーケットプレイスを追加して `cortex` をインストール）。
+
 2. `/setup-project` を実行し、対話に沿って進める（プレースホルダ記入・Secrets 登録・初回同期・会議bot登録）
 
-新規参加メンバーは、リポジトリを Claude Code で開いてトラストし、cortex プラグインのインストール案内に「はい」を押すだけです（1人1回）。案件の理解は `USAGE.md` と、AIS Viewer の「はじめに」チュートリアルから始められます（直近状況は `/catch-up-recent-status`）。
+新規参加メンバーがやることも 1 の導入だけです（`.claude/settings.json` にプラグインの宣言はありますが、宣言だけではインストールされません）。案件の理解は `USAGE.md` と、AIS Viewer の「はじめに」チュートリアルから始められます（直近状況は `/catch-up-recent-status`）。環境の選び方・MCP の繋ぎ方まで含めた案内は cortex-engine の `docs/onboarding.md` にあります。
 
 ### リポジトリに必要な Secrets（`/setup-project` が案内）
 
@@ -92,7 +114,7 @@
 | `/git-sync` | 非エンジニア向けの git 操作（保存・最新化・push失敗時の復旧） |
 | `/submit-feedback` | Cortex（エンジン）への要望・不具合を upstream に Issue 登録 |
 
-> **PM・開発・デザイン・運用などの職能ハーネスは部カタログから導入します**（案件がプラグインを有効化していればトラスト時にまとめて案内されます）。
+> **PM・開発・デザイン・運用などの職能ハーネスは、社内メンバーが部カタログから各自で導入します**（手順は cortex-engine の `docs/onboarding.md`）。
 
 ## コンテキストの流れ（すべて自動）
 

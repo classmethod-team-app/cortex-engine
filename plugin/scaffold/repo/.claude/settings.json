@@ -1,5 +1,5 @@
 {
-  "//": "案件リポの .claude/settings.json に置く（安定チャンネル）。リポをトラストしたメンバーに cortex プラグインのインストールが自動案内される。cortex はエンジンリポを直接参照し、ref: stable で安定版に固定する（ref を省略すると main 追従＝カナリア）",
+  "//": "案件リポの .claude/settings.json に置く（安定チャンネル）。これは案件が前提とするプラグインの宣言であり、実際の導入は各メンバーが手元で claude plugin install cortex@cortex-engine を1回実行する（外部ソースのプラグインは宣言だけではロードされない）。cortex はエンジンリポを直接参照し、ref: stable で安定版に固定する（ref を省略すると main 追従＝カナリア）",
   "permissions": {
     "deny": [
       "Read(credentials/)"

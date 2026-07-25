@@ -16,9 +16,16 @@
 
 - **Bronze（生記録）**: 文字起こし・課題のやり取り・資料原本・ソースコード。外部ツールの**同期ミラー**で、手編集しない
 - **Silver（中間成果物）**: 議事録・ドキュメント・Wiki・変換済み資料
-- **Gold（確定の判断材料）**: `Cortex/` 配下（Decisions・用語集・レポート・Home）。AI が最初に読む入口
+- **Gold（確定の判断材料）**: `Cortex/` 配下（Decisions・用語集・メンバー・ルール・Home）。AI が最初に読む入口
 
-仕組み（スキル・自動化）は中央の **cortex-engine** から配布されており、**このリポジトリでは初回に一度プラグインを入れるだけ**で使えます（リポジトリを Claude Code で開いてトラスト → インストール案内に「はい」）。
+仕組み（スキル・自動化）は中央の **cortex-engine** から配布されており、**手元で1回だけプラグインを入れれば**使えます（マシンごとに1回）。
+
+```bash
+claude plugin marketplace add classmethod-team-app/cortex-engine@stable
+claude plugin install cortex@cortex-engine
+```
+
+デスクトップアプリなら GUI でも入れられます（プロンプト欄の **＋** → **Plugins** → **Add plugin**）。なお **クラウド実行（Web版・デスクトップの Cloud セッション）ではコマンドが使えません**（プラグインが読み込まれない仕様。不具合ではありません）。環境の選び方は `README.md`、詳しい手順は cortex-engine の `docs/onboarding.md` を参照。
 
 ## こういう時はこうする（シナリオ早見表)
 
@@ -26,7 +33,8 @@
 
 | やりたいこと | こうする |
 | --- | --- |
-| この案件に新しく参加した（環境準備＋理解） | リポジトリをトラストして cortex プラグインを入れる（1人1回）。理解は `USAGE.md`・AIS Viewer の「はじめに」チュートリアル・`/catch-up-recent-status` から |
+| この案件に新しく参加した（環境準備＋理解） | 手元で cortex プラグインを入れる（上記2行・マシンごとに1回）。理解は `USAGE.md`・AIS Viewer の「はじめに」チュートリアル・`/catch-up-recent-status` から |
+| MCP（Backlog・Slack・Figma）を繋ぎたい | Backlog はこのリポの `.mcp.json` 同梱（**全環境で効く**。各自の `BACKLOG_API_KEY` だけ用意）。Slack・Figma は cortex プラグイン同梱（**手元のみ**・初回に OAuth 承認）。接続確認は手元なら `/mcp`、クラウド実行はセッションのコネクタ設定から。**GitHub に MCP は不要**（手元は `gh auth login`） |
 | 新しい定例・会議を自動取り込みしたい | **会議名の頭に案件キーを付け（例「【KC】定例」）、Google Meet の招待に cortex-notetaker の bot を追加**するだけ（文字起こしが自動で `会議/` に入り議事録も生成される）。※クラスメソッド側が主催する Google Meet のみ。顧客主催・Teams 等はビューアの投入フォーム、または `/create-minute` で手動取り込み |
 | 会議が終わった（議事録を作りたい） | 自動取り込み済みなら夜間に自動生成される。手元の文字起こしからは `/create-minute`（ビューアの投入フォームでも可） |
 | 顧客とのやり取り（課題）を最新化したい | **何もしなくてよい**（Webhook で数十秒＋平日毎時の自動同期）。手元を最新にするのは `/git-sync` |
@@ -58,7 +66,7 @@
 | `共有資料/` | 提案書・外部 API 仕様などを Markdown 化したもの | `/sync-materials` 経由で更新 |
 | `開発/` | ソースコード（submodule）・Wiki・GitHub Issues への道しるべ | ❌ submodule は正本リポで作業 |
 | `デザイン/` | 画面インベントリ（Figma 同期）・スクショ等 | ❌ `inventory/` は自動同期。手編集しない |
-| `Cortex/`（Gold層） | Decisions・用語集・レポート・Home | レビューはするが、原則スキル／自動更新が書く |
+| `Cortex/`（Gold層） | Decisions・用語集・メンバー・ルール・Home | レビューはするが、原則スキル／自動更新が書く |
 
 ## AI との作業の仕方
 
@@ -81,5 +89,6 @@ Claude Code でこのリポジトリを開き、自然文で依頼・質問で�
 
 - リポジトリの概要・フォルダ構成・コマンド一覧 → `README.md`
 - データ階層・探索戦略・公開範囲 → `CLAUDE.md`
+- 参加時の環境準備（環境の選び方・プラグイン導入・MCP 接続） → cortex-engine の `docs/onboarding.md`
 - 初期セットアップ → `/setup-project`／進捗確認 → `fleet-status.json`（`gh workflow run fleet-status.yml` で更新）
 - 別ツールへの置き換え → cortex-engine の `docs/customize-tooling.md`
