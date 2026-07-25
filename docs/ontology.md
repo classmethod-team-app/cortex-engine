@@ -84,6 +84,23 @@ relations:              # 他エンティティとの関係（任意）
 
 > **OKF互換**: `type`（必須）＋`title`/`description` は Google の [Open Knowledge Format (OKF) v0.1](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) の必須・推奨フィールドに対応しており、Gold層はOKF準拠のナレッジバンドルとしても消費できる。`id`・型付き`relations`・スキーマ検証はCortex固有の上位互換部分（OKFは未知キーを許容）。
 
+### 確認状態（status）: AI生成か人間確認済みか
+
+Gold層のレコードは、**AIが自動抽出したものか人間が内容を確認したものか**を読み手（人・AI・Viewer）が見分けられるよう、レコード型を通じて `status` を持つ。値の意味は全型で共通で、型ごとに固有の値が足されるだけである。
+
+| type | 値 | 夜間の自動生成が付ける値 |
+| --- | --- | --- |
+| `decision` | `draft` \| `active` | `draft` |
+| `term` | `draft` \| `active` \| `superseded`（使われなくなった用語） | `draft` |
+| `rule` | `draft` \| `active` | `draft` |
+| `member` | `draft` \| `active` \| `inactive`（離任） | `draft` |
+
+- **`draft` = AI生成・人間未確認** / **`active` = 人間が内容を確認済み**。
+- **人がレコードを確認・編集したら `active` に上げる**（レビューとは、内容を確認して `draft` から昇格させることを指す）。自動生成は新規追加のみで、既存レコードの `status` を書き換えない。
+- **`status` が無い既存レコードは「不明」として扱う**（`active` と解釈しない）。AIはそのレコードを「人間が確認済み」であることの根拠に使わない。マイグレーション0020がGit履歴（そのファイルを追加したコミットのauthor）から `draft`/`active` を補うため、原則すべてのレコードに付く。
+- `decision` の `status` は**内容の訂正には使わない**。決定の変更・撤回は従来どおり新しい Decision を起こして `supersedes` で指す（Decisionは追記型で、過去のレコードは書き換えない）。
+- validator は `decision` の `status` を**必須にしない**（欠けた既存レコードを赤くしないため）。ただし**新規作成時は必ず付ける**。
+
 ### overview（Home）の識別カード
 
 `overview`（`Cortex/Home.md`）は案件Gold層の入口であり、巡回エージェント・company brainが横断走査時に**最初に読む**。本文を読まずfrontmatterだけで案件を分類・ルーティングできるよう、共通フィールドに加えて以下の「識別カード」を持つ。値はフィルタに使うため**controlled vocabularyを守る**（`setup-project` が記入する）。

@@ -36,6 +36,7 @@ deciders:
   - CM_鈴木花子
   - {{クライアント名}}_田中太郎
 description: "フロントエンドフレームワークにNext.jsを採用する"
+status: active
 relations:
   - rel: based_on
     target: "minute:定例:20260325"
@@ -71,6 +72,7 @@ deciders:
   - CM_鈴木花子
   - {{クライアント名}}_田中太郎
 description: "キャンペーンのプレゼント応募は、不正・重複応募を防ぐため1ユーザーにつき1回までに制限する"
+status: active
 relations:
   - rel: based_on
     target: "minute:定例:20260402"
@@ -114,6 +116,7 @@ references:
 
 | フィールド | 説明 |
 |-----------|------|
+| status | `draft`（AI生成・人間未確認）/ `active`（人間が内容を確認済み）。**新規作成時は必ず記入する**（夜間の自動抽出は `draft`、人が確認して作成・レビューしたものは `active`）。既存レコード互換のためスキーマ上は任意だが、値が無いレコードは「確認状態が不明」として扱われる |
 | relations | 他エンティティとの型付き関係（機械可読）。`rel`（`based_on`=根拠 / `relates_to`=関連 / `supersedes`=過去の決定の置き換え）と `target`（安定ID。例: `minute:営業ハーネス定例:20260604`、課題キー `PROJ-123`、決定ID `20260528-002`）の組で記載する。**ファイルパスは使わない** |
 
 `references`（人間向け）と `relations`（機械向け）は併存させる。決定の根拠がある場合は `relations` の `based_on` を、過去の決定を変更する場合は `supersedes` を必ず記載する。
@@ -137,6 +140,11 @@ references:
 ## 同期方法
 
 手動で作成・編集する。`update-decision` スキルで、課題のコメントや議事録から決定事項を抽出して記録する（既存決定の訂正・変更は `supersedes` で扱う）。
+
+夜間の `update-gold`（Phase A）も、その日の差分ソースから確定した決定を抽出し `status: draft` で自動追記する（用語・ルール・メンバーと同じ事後レビュー方式）。
+
+- **AI が起票した Decision は必ず `status: draft`**（人間未確認の印）。Viewer は draft のレコードに「AI生成・未確認」の注意を表示する
+- **レビュー = 内容を確認して `status: active` に変える**こと。`status` は確認状態の印であり、**決定内容の訂正には使わない**（訂正・撤回は新しい Decision を起こして `supersedes` で指す）
 
 ## 閲覧・編集（Viewer）
 

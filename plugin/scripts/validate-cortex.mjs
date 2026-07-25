@@ -72,10 +72,16 @@ const SCHEMAS = {
       "category",
       "deciders",
       "description",
+      // AI生成・人間未確認の印（draft）／人間が確認済み（active）。
+      // 既存レコードには無いものがあるため required にはしない（新規作成時は必ず付ける）。
+      "status",
       "relations",
       "references",
     ],
     validate(fm, fileName, errors) {
+      if (fm.status && !["draft", "active"].includes(fm.status)) {
+        errors.push(`statusはdraft|active（実際: ${fm.status}）`);
+      }
       if (fm.id && !/^\d{8}-\d{3}$/.test(String(fm.id))) {
         errors.push(`id「${fm.id}」が YYYYMMDD-NNN 形式ではない`);
       }

@@ -9,6 +9,7 @@ deciders:
   - CM_氏名
   - {{クライアント名}}_氏名
 description: "決定内容の要約（1文）"
+status: active          # draft（AI生成・人間未確認） | active（人間が確認済み）
 relations:
   - rel: based_on
     target: "minute:{定例名}:YYYYMMDD"
