@@ -27,9 +27,13 @@
 // LLM 呼び出し（ingest-minutes-pipeline と同じ流儀）:
 //   - 既定は `aws bedrock-runtime converse`（OIDC 認証済みランナー・aws CLI 標準搭載）。
 //     モデルは env ANTHROPIC_MODEL、リージョンは env AWS_REGION。
+//   - プロンプトは「毎回同一の前置き（規約・抽出基準・既存レコード一覧・名簿）」と「ソースごとに変わる本文」の
+//     2ブロックに分けて送り、境界に cachePoint を置く（Bedrockのプロンプトキャッシュ。同一run内の繰り返し
+//     呼び出しで入力トークンのコストを下げる。レイテンシは変わらない）。
 //   - env PIPELINE_LLM_CMD が設定されていればそのコマンド（フィクスチャ用スタブ）に置き換わる。
-//     スタブには env PIPELINE_LLM_PHASE（decision|term|member|batch）と、プロンプト全文を書いた
-//     一時ファイルのパスを env PIPELINE_LLM_INPUT で渡し、stdout をモデル出力テキストとして受け取る。
+//     スタブには env PIPELINE_LLM_PHASE（decision|term|member|batch）と、プロンプト全文（2ブロックを
+//     連結したもの）を書いた一時ファイルのパスを env PIPELINE_LLM_INPUT で渡し、stdout をモデル出力
+//     テキストとして受け取る。
 //   - JSON 出力はパース失敗時に1回だけ再試行。再試行も失敗ならそのソース×関数をスキップして報告
 //     （冪等・逐次: 1件の失敗は1件の欠落として報告に載るだけで、パイプライン全体は落とさない）。
 //
@@ -49,6 +53,11 @@ const SINCE = process.env.SINCE || "";
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 // 1ソースあたりの本文上限（converse への引数長の安全上限。超過分は切って警告）
 const SOURCE_CHAR_CAP = 150_000;
+// cachePoint（プロンプトキャッシュ）を置く前置きの最小長。Bedrock はモデルごとにキャッシュ成立の最小トークン数を
+// 要求し（Sonnet系は概ね1024トークン）、それ未満のブロックに cachePoint を置いてもキャッシュされず、
+// 分割のオーバーヘッドだけが残る。トークン数は事前に測れないので文字数で概算する（日本語は概ね1字≒1トークン弱
+// なので、4000字あれば1024トークンを十分に超える）。下回るときは cachePoint を置かず1ブロックで送る。
+const CACHE_MIN_PREFIX_CHARS = 4_000;
 
 const log = (msg) => process.stdout.write(`${msg}\n`);
 const warn = (msg) => process.stderr.write(`::warning::update-gold-pipeline: ${msg}\n`);
@@ -362,13 +371,14 @@ function loadRoster() {
 
 // ---------- LLM 呼び出し（ingest-minutes-pipeline と同じヘルパ流儀） ----------
 
-function callLLM(phase, { system, user, maxTokens, timeoutMs }) {
+function callLLM(phase, { system, prefix, variable, maxTokens, timeoutMs }) {
   const stub = process.env.PIPELINE_LLM_CMD;
   if (stub) {
-    // プロンプトは一時ファイル渡し（stdin だと大きな入力でスタブ側が読まない場合に EPIPE する）
+    // プロンプトは一時ファイル渡し（stdin だと大きな入力でスタブ側が読まない場合に EPIPE する）。
+    // スタブは1つの文字列として受け取る作りなので、prefix と variable を連結して渡す（本番と同一の全文）。
     const inFile = path.join(os.tmpdir(), `gold-llm-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`);
     try {
-      fs.writeFileSync(inFile, (system ? `SYSTEM:\n${system}\n\n` : "") + user, "utf-8");
+      fs.writeFileSync(inFile, (system ? `SYSTEM:\n${system}\n\n` : "") + prefix + variable, "utf-8");
       const r = spawnSync(stub, {
         shell: true,
         encoding: "utf-8",
@@ -387,11 +397,16 @@ function callLLM(phase, { system, user, maxTokens, timeoutMs }) {
   }
 
   // 本番: aws bedrock-runtime converse
+  // 前置き（prefix）と可変部（variable）の境界に cachePoint を置く。キャッシュは「先頭から cachePoint までの
+  // 連続一致」で判定されるので、毎回同一の前置きだけがキャッシュに載る。
+  const content = prefix.length >= CACHE_MIN_PREFIX_CHARS
+    ? [{ text: prefix }, { cachePoint: { type: "default" } }, { text: variable }]
+    : [{ text: prefix + variable }]; // 最小トークン数に満たない前置きはキャッシュされないので分割しない
   const args = [
     "bedrock-runtime", "converse",
     "--model-id", MODEL,
     "--region", REGION,
-    "--messages", JSON.stringify([{ role: "user", content: [{ text: user }] }]),
+    "--messages", JSON.stringify([{ role: "user", content }]),
     "--inference-config", JSON.stringify({ maxTokens }), // temperature はSonnet 5で廃止（指定するとValidationException）
   ];
   if (system) args.push("--system", JSON.stringify([{ text: system }]));
@@ -459,7 +474,8 @@ const PRIVACY_RULE = [
 
 // A: Decision抽出。確定/未確定の基準は update-gold-auto/SKILL.md の Phase A の文言を転記。
 function llmExtractDecisions(source, existingTitles, rosterNames) {
-  const user = [
+  // 前置き（毎回同一。既存タイトル一覧・名簿は同一run内で不変なのでここに入れてキャッシュに載せる）
+  const prefix = [
     "次のソースから、確定した意思決定だけを抽出してください。",
     "",
     "抽出対象（確定表現のみ）: 「〜で決定」「〜にした」「〜で進める」「〜で合意した」「〜方針とする」等の完了・確定の表現。",
@@ -481,18 +497,22 @@ function llmExtractDecisions(source, existingTitles, rosterNames) {
     "based_on はソースの安定ID（議事録: minute:{定例名}:{YYYYMMDD}、課題: 課題キー、外部: owner/repo#N）。分からなければ空文字。",
     "date は決定が行われた日（会議日・コメント日。実行日ではない）を YYYYMMDD で。",
     "",
+  ].join("\n") + "\n";
+  // 可変部（ソース本文と出力形式の指示。prefix と連結すると分割前のプロンプトと完全に一致する）
+  const variable = [
     `=== ソース: ${source.label} ===`,
     source.content,
     "",
     'JSON配列のみを出力（0件なら []）:',
     '[{"date": "YYYYMMDD", "title": "...", "description": "...", "deciders": ["..."], "category": "...", "based_on": "...", "quote": "..."}]',
   ].join("\n");
-  return callJSON("decision", { system: SYS_COMMON, user, maxTokens: 4096, timeoutMs: 240_000 });
+  return callJSON("decision", { system: SYS_COMMON, prefix, variable, maxTokens: 4096, timeoutMs: 240_000 });
 }
 
 // B: 用語抽出（update-gold-auto/SKILL.md の Phase B の基準を転記。Webツールなし前提＝定義が明示された語のみ）
 function llmExtractTerms(source, existingTermTitles, excludedList) {
-  const user = [
+  // 前置き（毎回同一。既存用語・除外用語は同一run内で不変なのでここに入れてキャッシュに載せる）
+  const prefix = [
     "次のソースから、用語集に登録すべき案件固有の新規用語を抽出してください。",
     "",
     "対象: 案件・業界固有の用語、社内略語、一般語だがこの案件で特別な意味を持つ語。",
@@ -505,18 +525,22 @@ function llmExtractTerms(source, existingTermTitles, excludedList) {
     existingTermTitles.length ? existingTermTitles.map((t) => `- ${t}`).join("\n") : "(なし)",
     excludedList.length ? "除外用語（過去にレビューで却下。再追加しない）:\n" + excludedList.map((t) => `- ${t}`).join("\n") : "",
     "",
+  ].join("\n") + "\n";
+  // 可変部（ソース本文と出力形式の指示）
+  const variable = [
     `=== ソース: ${source.label} ===`,
     source.content,
     "",
     'JSON配列のみを出力（0件なら []）:',
     '[{"term": "代表表記", "yomi": "よみ", "definition": "この案件における意味（ソースに明示された定義）", "synonyms": ["..."]}]',
   ].join("\n");
-  return callJSON("term", { system: SYS_COMMON, user, maxTokens: 2048, timeoutMs: 180_000 });
+  return callJSON("term", { system: SYS_COMMON, prefix, variable, maxTokens: 2048, timeoutMs: 180_000 });
 }
 
 // C: メンバー抽出（update-gold-auto/SKILL.md Phase C の基準を転記。未登録のみ・確証なければ起票しない）
 function llmExtractMembers(source, rosterNames) {
-  const user = [
+  // 前置き（毎回同一。名簿は同一run内で不変なのでここに入れてキャッシュに載せる）
+  const prefix = [
     "次のソースに登場する人物のうち、名簿に無い新規メンバー候補を抽出してください。",
     "",
     "対象: 議事録の参加者欄・発言者、チャットの発言者（表示名から氏名の見当がつくもののみ）。",
@@ -528,19 +552,23 @@ function llmExtractMembers(source, rosterNames) {
     "名簿（既登録。これらの人物は抽出しない）:",
     rosterNames.length ? rosterNames.map((t) => `- ${t}`).join("\n") : "(名簿なし)",
     "",
+  ].join("\n") + "\n";
+  // 可変部（ソース本文と出力形式の指示）
+  const variable = [
     `=== ソース: ${source.label} ===`,
     source.content,
     "",
     'JSON配列のみを出力（0件なら []）:',
     '[{"name": "氏名", "yomi": "よみ", "org": "所属組織", "side": "cm|client|vendor|", "role": "役割"}]',
   ].join("\n");
-  return callJSON("member", { system: SYS_COMMON, user, maxTokens: 1024, timeoutMs: 120_000 });
+  return callJSON("member", { system: SYS_COMMON, prefix, variable, maxTokens: 1024, timeoutMs: 120_000 });
 }
 
 // Rule 抽出（Rules/README.md の規律を転記。用語より一段保守的に）。
 // Rule は AI の行動を直接制約する（禁止曜日にデプロイ案内をしない等）ため、誤起票のコストが用語より高い。
 function llmExtractRules(source, existingRuleTitles, excludedList) {
-  const user = [
+  // 前置き（毎回同一。既存Rule・除外ルールは同一run内で不変なのでここに入れてキャッシュに載せる）
+  const prefix = [
     "次のソースから、案件で継続的に守るべき制約・運用ルールとして明示的に合意されたものだけを抽出してください。",
     "",
     "対象: 「今後も守る」「常に〜する」「〜は禁止」「〜してはいけない」「原則〜する」等、その後もずっと効き続ける約束事・規範。",
@@ -560,25 +588,32 @@ function llmExtractRules(source, existingRuleTitles, excludedList) {
     "議事録・課題から直接読み取れる制約なら rel=based_on・target=安定ID（議事録: minute:{定例名}:{YYYYMMDD}、課題: 課題キー、外部: owner/repo#N）。",
     "安定IDが分からなければ rel/target は空文字にする（relations無しで起票する。ファイルパスは書かない）。",
     "",
+  ].join("\n") + "\n";
+  // 可変部（ソース本文と出力形式の指示）
+  const variable = [
     `=== ソース: ${source.label} ===`,
     source.content,
     "",
     'JSON配列のみを出力（0件なら []）:',
     '[{"title": "制約の1行表現", "description": "制約の1文要約", "rel": "derived_from|based_on|", "target": "安定ID または空"}]',
   ].join("\n");
-  return callJSON("rule", { system: SYS_COMMON, user, maxTokens: 2048, timeoutMs: 180_000 });
+  return callJSON("rule", { system: SYS_COMMON, prefix, variable, maxTokens: 2048, timeoutMs: 180_000 });
 }
 
 // 横断チェック（1回だけ）: 全ソースの抽出結果を横断し、重複統合・supersedes候補を指摘する（Gold品質の観察）。
 //   指摘は報告用（採番済みファイルは変更しない）。日報の「今日の概要」生成は廃止（レポートはPMハーネスの責務）。
 function llmBatchReview(decisions, terms, members, sourceLabels) {
-  const user = [
+  // 前置き（毎回同一。ただし1run1回の呼び出しなので実際にはキャッシュ対象の長さに満たない）
+  const prefix = [
     "夜間Gold昇格の当日抽出結果一式です。横断チェックを行ってください。",
     "",
     "1. duplicates: 抽出結果の中で実質同一の決定があれば、そのタイトルの組を指摘する（統合の提案。ファイル操作はしない）。",
     "2. supersedes_candidates: 過去の決定を置き換えていそうな決定があれば「新タイトル → 置き換え対象の既存タイトル/ID」を指摘する。",
     PRIVACY_RULE,
     "",
+  ].join("\n") + "\n";
+  // 可変部（当日の抽出結果と出力形式の指示）
+  const variable = [
     "=== 当日の差分ソース一覧 ===",
     sourceLabels.map((s) => `- ${s}`).join("\n") || "(なし)",
     "",
@@ -594,7 +629,7 @@ function llmBatchReview(decisions, terms, members, sourceLabels) {
     'JSONのみを出力:',
     '{"duplicates": [["タイトルA", "タイトルB"], ...], "supersedes_candidates": ["新タイトル → 既存タイトル/ID", ...]}',
   ].join("\n");
-  return callJSON("batch", { system: SYS_COMMON, user, maxTokens: 2048, timeoutMs: 180_000 });
+  return callJSON("batch", { system: SYS_COMMON, prefix, variable, maxTokens: 2048, timeoutMs: 180_000 });
 }
 
 // ---------- 決定的: 検証・採番・frontmatter組み立て ----------
