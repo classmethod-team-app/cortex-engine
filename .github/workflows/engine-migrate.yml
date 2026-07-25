@@ -29,6 +29,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # マイグレーションがGit履歴を参照できるようにする（例: 0020 は「そのレコードを追加した
+          # コミットのauthor」でAI生成か人間かを判定する）。shallowだと全ファイルが1コミットで
+          # 追加されたように見え、判定が丸ごと誤る。
+          fetch-depth: 0
 
       - name: エンジンをチェックアウト（このワークフローと同一バージョン）
         uses: actions/checkout@v4
