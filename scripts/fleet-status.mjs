@@ -133,6 +133,41 @@ const engineVersion = (() => {
 const engineChannel = (() => { const m = home && home.match(/^\s*channel:\s*(\w+)/m); return m ? m[1] : null; })();
 const schemaVersion = (() => { const m = home && home.match(/^\s*schema_version:\s*(\d+)/m); return m ? Number(m[1]) : null; })();
 
+// scaffold ドリフト: エンジンが所有するファイルが scaffold から乖離していないか。
+// 対象は Gold層4区画の `README.md` / `template.md`（migration 0022 が配っているもの）だけに絞る。
+// これらは「その区画のレコードをどう書くか」の規約の正本であり、案件がカスタマイズする対象ではない。
+// 古いまま残るとAI（ビューアの「AIで編集」含む）が旧規約でレコードを書くため、追随漏れを検知する。
+// Home.md は本文がエンジン所有でも frontmatter が案件固有なので、単純比較では必ず誤検知になる→対象外。
+// scaffold のプレースホルダ（`{{クライアント名}}` 等）は案件側で実値に埋まっているのが正常なので、
+// scaffold 側にプレースホルダがある行は比較から除く（migration 0022 の fill と同じ考え方）。
+// scaffold を参照できない環境（案件リポ単体での実行等）では null を返し、チェックを na（➖）にする。
+const SCAFFOLD_GOLD = join(dirname(fileURLToPath(import.meta.url)), "..", "plugin", "scaffold", "repo", "Cortex");
+const OWNED_GOLD_SECTIONS = ["Decisions", "Glossary", "Members", "Rules"];
+const OWNED_GOLD_FILES = ["README.md", "template.md"];
+/** scaffold と同一内容か（プレースホルダ行は比較しない） */
+function sameIgnoringPlaceholders(scaffoldText, repoText) {
+  const a = scaffoldText.split("\n");
+  const b = repoText.split("\n");
+  if (a.length !== b.length) return false;
+  return a.every((line, i) => hasPlaceholder(line) || line === b[i]);
+}
+/** 乖離しているファイルのリポ相対パス一覧（scaffold 参照不可なら null） */
+function scaffoldDriftFiles() {
+  if (listDir(SCAFFOLD_GOLD) === null) return null;
+  const drifted = [];
+  for (const section of OWNED_GOLD_SECTIONS) {
+    if (listDir(`Cortex/${section}`) === null) continue; // 未導入・改名済みの区画は対象外
+    for (const name of OWNED_GOLD_FILES) {
+      const source = readText(join(SCAFFOLD_GOLD, section, name));
+      if (source === null) continue; // scaffold 側に無いファイルは判定材料が無い
+      const current = readText(`Cortex/${section}/${name}`);
+      if (current === null || !sameIgnoringPlaceholders(source, current)) drifted.push(`Cortex/${section}/${name}`);
+    }
+  }
+  return drifted;
+}
+const scaffoldDrift = scaffoldDriftFiles();
+
 // ---------- チェック定義 ----------
 const CHECKS = [
   // ---- 常に対象（基盤） ----
@@ -149,6 +184,10 @@ const CHECKS = [
   { id: "engine_migrated", label: "エンジン分離 移行", cat: "基盤",
     status: engineMigrated ? "ok" : "missing",
     action: "エンジン分離構成へ移行（cortex-engine scaffold のスタブ・settings.json を配置）" },
+  { id: "scaffold_drift", label: "エンジン所有ファイルの追随", cat: "基盤", applies: scaffoldDrift !== null,
+    status: scaffoldDrift === null ? "na" : (scaffoldDrift.length === 0 ? "ok" : "missing"),
+    detail: scaffoldDrift === null ? undefined : (scaffoldDrift.length === 0 ? "乖離なし" : `${scaffoldDrift.length}件乖離: ${scaffoldDrift.join(", ")}`),
+    action: "engine-migrate を実行してGold層の規約ドキュメント（README.md / template.md）をエンジン最新版に追随させる" },
   { id: "engine_token", label: "ENGINE_REPO_TOKEN", cat: "シークレット", applies: engineMigrated,
     status: okFromBool(secret("ENGINE_REPO_TOKEN")),
     action: "cortex-engine への read 専用 PAT を repo secret に登録（org secret は Free プランでは private リポに届かない）" },
@@ -448,7 +487,10 @@ const nextActions = checks.filter((c) => c.status === "missing" && c.action).map
 const out = {
   generatedAt: NOW, repository: REPO, project: projectName, tools: tools || undefined,
   // エンジン分離の状態（巡回エージェントがフリートのバージョン分布・移行状況を見る）
-  engine: { migrated: engineMigrated, version: engineVersion, channel: engineChannel, schemaVersion },
+  // scaffoldDrift: エンジン所有ファイルのうち scaffold と乖離しているものの一覧
+  // （空配列＝乖離なし／scaffold を参照できない環境ではフィールド自体を省略）
+  engine: { migrated: engineMigrated, version: engineVersion, channel: engineChannel, schemaVersion,
+    scaffoldDrift: scaffoldDrift ?? undefined },
   score, checks, nextActions,
   // 外部ソース接続状況（gate=物理ゲート実測）・リポ内同期ソース一覧・夜間パイプライン一覧（AISビューア表示用）
   externalSources, internalSources, pipelines,
