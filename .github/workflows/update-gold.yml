@@ -155,6 +155,7 @@ jobs:
         env:
           SINCE: ${{ steps.win.outputs.since }}
           GH_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }}
+          SELF_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 自リポのIssues/Discussionsは自動トークンで読む（外部ソース用PATの対象外でも取りこぼさない）
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} # external-sources.sh が slack ソースを読むため（未設定なら slack は活動なし扱い）
         run: |
           CHANGED=$(bash .cortex-engine/plugin/scripts/changed-sources.sh "$SINCE" "Cortex/")
@@ -199,7 +200,8 @@ jobs:
           ANTHROPIC_MODEL: global.anthropic.claude-sonnet-5 # Sonnet 5。jp.（日本国内推論）に未提供のため当面global.で運用し、jp.anthropic.claude-sonnet-5 が提供され次第そちらへ切り替える（Bedrockで該当モデルのアクセス有効化が必要）
           API_TIMEOUT_MS: "600000" # Bedrockの長いリクエスト（大コンテキスト読み）がCLI既定タイムアウトで「API Error: The operation timed out」死するのを防ぐ（2026-07-23に2連続発生）
           SINCE: ${{ steps.win.outputs.since }} # 増分起点（前回成功以降）。スキルの git log --since に渡す
-          GH_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }} # スキルが external-sources.sh で外部ソース(Issues/Discussions)を取得するため
+          GH_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }}
+          SELF_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 自リポのIssues/Discussionsは自動トークンで読む（外部ソース用PATの対象外でも取りこぼさない） # スキルが external-sources.sh で外部ソース(Issues/Discussions)を取得するため
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} # スキルが external-sources.sh で slack ソースを取得するため（未設定なら slack はスキップ）
         run: |
           PROMPT=$(cat <<'EOF'
@@ -248,6 +250,7 @@ jobs:
           ANTHROPIC_MODEL: global.anthropic.claude-sonnet-5 # 本番ステップと同一モデル
           SINCE: ${{ steps.win.outputs.since }} # 本番と同じ増分起点
           GOLD_PRE_HEAD: ${{ steps.goldprehead.outputs.sha }} # 本番の起票分を比較表示するための基準
-          GH_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }} # external-sources.sh 用（本番と同一）
+          GH_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }}
+          SELF_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 自リポのIssues/Discussionsは自動トークンで読む（外部ソース用PATの対象外でも取りこぼさない） # external-sources.sh 用（本番と同一）
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} # external-sources.sh の slack ソース用（未設定なら活動なし扱い）
         run: node .cortex-engine/plugin/scripts/update-gold-pipeline.mjs

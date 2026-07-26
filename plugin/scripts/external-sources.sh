@@ -7,6 +7,8 @@
 # 使い方: external-sources.sh <SINCE-ISO8601>
 #   $1: 起点（ISO8601。空なら約25時間前をデフォルト）。gh search は日付粒度なので日付部分を使う。
 # 認証: GH_TOKEN 環境変数を使う（ワークフローが EXTERNAL_SOURCES_TOKEN || github.token を渡す）。gh 前提。
+#   ただし自リポ（$GITHUB_REPOSITORY）へのアクセスだけは SELF_REPO_TOKEN（自動トークン）を優先する。
+#   外部ソース用PATは他リポの読み取りに絞って発行されるため、自リポが対象外だと自分のIssuesが読めない。
 #   Slack は SLACK_BOT_TOKEN（xoxb-）を Slack Web API に Bearer で渡す。curl + jq（CIランナー同梱）を使う。
 # 出力: 取得できた外部コンテンツをソース見出し付きテキストで stdout に。何も無ければ空出力・exit 0。
 #
@@ -66,13 +68,26 @@ PY
 )
 [ -n "$SOURCES" ] || exit 0
 
+# 自リポ（このワークフローが動いているリポジトリ）へのアクセスは常に自動トークンで足りる。
+# 外部ソース用のPATは他リポ（ハーネス等）の読み取りに絞って発行されるため、自リポが対象外だと
+# 「自分のIssuesが読めない」という取りこぼしが起きる。リポごとにトークンを使い分けて回避する。
+token_for_repo() {
+  if [ -n "${GITHUB_REPOSITORY:-}" ] && [ "$1" = "$GITHUB_REPOSITORY" ] && [ -n "${SELF_REPO_TOKEN:-}" ]; then
+    echo "$SELF_REPO_TOKEN"
+  else
+    echo "${GH_TOKEN:-}"
+  fi
+}
+
 emit_issues() {
   local repo="$1"
   local jsonf="$TMPDIR_EXT/issues.json"
+  local tok
+  tok="$(token_for_repo "$repo")"
   # SINCE 以降に更新された Issue を本文込み・state/labelsメタ付きで取得。失敗（権限無し等）はソース単位でスキップ。
   local args=(--repo "$repo" --state all --search "updated:>=${SINCE_DATE}" \
     --json number,title,updatedAt,state,labels,body,url)
-  if ! gh issue list "${args[@]}" > "$jsonf" 2>/dev/null; then
+  if ! GH_TOKEN="$tok" gh issue list "${args[@]}" > "$jsonf" 2>/dev/null; then
     echo "::warning::external-sources: github-issues $repo の取得に失敗（権限/存在を確認）。スキップします。" >&2
     return 0
   fi
@@ -107,7 +122,7 @@ PY
   while read -r n; do
     [ -n "$n" ] || continue
     local cmts
-    if cmts=$(gh issue view "$n" --repo "$repo" --comments \
+    if cmts=$(GH_TOKEN="$tok" gh issue view "$n" --repo "$repo" --comments \
         --json comments --jq '.comments[] | "コメント(" + .author.login + "): " + .body' 2>/dev/null); then
       if [ -n "$cmts" ]; then
         echo "### [github-issues] $repo #$n のコメント"
@@ -119,12 +134,13 @@ PY
 
 emit_discussions() {
   local repo="$1"
-  local owner name jsonf
+  local owner name jsonf tok
   owner="${repo%%/*}"; name="${repo##*/}"
   jsonf="$TMPDIR_EXT/discussions.json"
+  tok="$(token_for_repo "$repo")"
   # best-effort: 更新降順で最大50件取得し、SINCE以降をスクリプト側で絞る。graphql失敗はスキップ。
   # category/labels は AI のシグナル判定用メタとしてヘッダに出す。
-  if ! gh api graphql -f owner="$owner" -f name="$name" -f query='
+  if ! GH_TOKEN="$tok" gh api graphql -f owner="$owner" -f name="$name" -f query='
     query($owner:String!, $name:String!){
       repository(owner:$owner, name:$name){
         discussions(first:50, orderBy:{field:UPDATED_AT, direction:DESC}){
