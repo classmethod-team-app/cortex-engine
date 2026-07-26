@@ -10,12 +10,14 @@
  *   - IDの形式・ファイル名との整合・リポジトリ内での一意性
  *   - relations（rel種別・target）の妥当性
  *   - relations.target の実在解決（リポジトリ内の安定IDに解決するか）※警告のみ
+ *   - 参照lint: 案内文書が「もう存在しないもの」を指していないか ※警告のみ
  *
  * 使い方: node validate-cortex.mjs（案件リポのルートで実行）
- * 終了コード: 0=違反なし（dangling参照は警告のみで終了コードに影響しない） / 1=違反あり
+ * 終了コード: 0=違反なし（dangling参照・参照lintは警告のみで終了コードに影響しない） / 1=違反あり
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import yaml from "./vendor/js-yaml.mjs"; // vendor同梱（プラグインキャッシュ内で依存インストール不要にする）
 
 const KNOWLEDGE_DIR = "Cortex";
@@ -502,6 +504,162 @@ async function collectAllIds(root) {
   return found;
 }
 
+// ---------- 参照lint（陳腐化の機械的検出） ----------
+// 案件の案内文書（リポルートのREADME/USAGE/CLAUDE・Gold層のREADME等）が「もう存在しないもの」を
+// 指していないかを検出する。実際に起きた陳腐化はいずれも機械的に検出できたはずのものだった:
+//   - 撤去済みのGold区画（`Cortex/レポート/`）の案内が残る
+//   - 改名・削除済みスキル（`/update-decision-log` 等）への導線が残る
+//   - 廃止済みの rulesync（`.rulesync/`）を設定の正本として案内し続ける
+// relations.target の dangling（決定ID・用語ID の指し先不存在）は、上の CHECKABLE_TARGET による
+// 既存の実在解決チェックが担っている（同じ「指し先が無い」の検出なので二重には持たない）。
+//
+// すべて警告のみ（既存データを一気にブロックすると夜間のGold昇格が赤くなり艦隊が止まる）。
+// 将来、案件リポの追随が済んだら errors 側に積み替えてエラーへ昇格できる。
+const ROOT_DOCS = ["README.md", "USAGE.md", "CLAUDE.md"];
+// Claude Code の組み込みスラッシュコマンド（スキルではないので「実在しない」と誤検知しない）
+const BUILTIN_COMMANDS = new Set([
+  "add-dir", "agents", "bug", "clear", "compact", "config", "context", "cost",
+  "doctor", "exit", "export", "help", "hooks", "ide", "init", "install",
+  "login", "logout", "mcp", "memory", "model", "permissions", "plugin",
+  "pr-comments", "release-notes", "resume", "review", "status", "terminal-setup",
+  "todos", "usage", "vim",
+]);
+// スラッシュコマンド参照。行頭・空白・記号の直後にあるものだけを拾う（`課題管理/issues/` のような
+// パスの途中の `/xxx` を拾わないための位置制約）。末尾に `/`・`.`・`:` が続くものもパス扱いで除外。
+const SLASH_COMMAND_RE =
+  /(?<=^|[\s`([「（"'*、,|>→])\/([a-z][a-z0-9]*(?:-[a-z0-9]+)*)(?![\w\-/:.])/gm;
+// Gold区画のパス参照（`Cortex/○○/`）。`Cortex/` から境界（空白・引用符・括弧・句読点）までを
+// 1つのパストークンとして取り、**末尾が `/` で終わるもの＝ディレクトリ参照**だけを対象にする。
+// この制約により、日本語の散文中の列挙（「Cortex/巡回エージェント/開発ハーネスの各リーダー」）や
+// 文が続くだけの `Cortex/`（「Gold層（Cortex/）のディレクトリ構成…」）を拾わない。
+// glob（`Cortex/**/*.md`）・brace（`Cortex/{A,B}/`）・ファイル参照（`Cortex/Home.md`）も末尾が
+// `/` で終わらない／除外文字を含むため対象外になる。
+const GOLD_PATH_SEG = "[^\\s`\"'()\\[\\]{}|、。，）（「」]";
+const GOLD_PATH_RE = new RegExp(
+  `(?<![\\w/])Cortex\\/(${GOLD_PATH_SEG}*?\\/)(?=[\\s\`"'()\\[\\]{}|、。，）」]|$)`,
+  "gm",
+);
+const RULESYNC_RE = /\.rulesync\//g;
+
+const lineOf = (text, index) => text.slice(0, index).split("\n").length;
+
+/**
+ * スキル名の索引を返す（照合できないときは null＝スキル参照チェックをスキップ）。
+ * エンジンの `plugin/skills/` を第一の根拠にし、案件リポ固有のスキル・コマンド、
+ * ハーネススタブが呼ぶスキル名（`run-harness-skill` の `skill:`）も実在として扱う。
+ */
+async function collectKnownSkills(root) {
+  const dirNames = async (dir) =>
+    (await fs.readdir(dir, { withFileTypes: true }).catch(() => []))
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+
+  // エンジンのスキル: このスクリプト自身の位置（ワークフローの .cortex-engine/ でも
+  // プラグインキャッシュでも解決する）→ 案件リポ内のチェックアウト の順に探す
+  const candidates = [
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "skills"),
+    path.join(root, ".cortex-engine", "plugin", "skills"),
+  ];
+  let engineSkills = null;
+  for (const c of candidates) {
+    const names = await dirNames(c);
+    if (names.length) {
+      engineSkills = names;
+      break;
+    }
+  }
+  if (engineSkills === null) return null; // 案件リポ単体で実行された場合は照合できない
+
+  const known = new Set([...engineSkills, ...BUILTIN_COMMANDS]);
+  for (const n of await dirNames(path.join(root, ".claude", "skills"))) known.add(n);
+  for (const e of await fs
+    .readdir(path.join(root, ".claude", "commands"))
+    .catch(() => []))
+    known.add(e.replace(/\.md$/, ""));
+  // ハーネス（エンジン外のプラグイン）のスキルは案件リポのスタブが名前を宣言している
+  const wfDir = path.join(root, ".github", "workflows");
+  for (const f of await fs.readdir(wfDir).catch(() => [])) {
+    if (!/\.ya?ml$/.test(f)) continue;
+    const text = await fs.readFile(path.join(wfDir, f), "utf8").catch(() => "");
+    for (const m of text.matchAll(/^\s*skill:\s*([a-z][a-z0-9-]*)\s*$/gm))
+      known.add(m[1]);
+  }
+  return known;
+}
+
+/** 参照lintの対象ファイル（Cortex配下の全.md ＋ リポルートの案内文書）をリポ相対パスで返す */
+async function collectDocFiles(root) {
+  const files = [];
+  async function walk(dir) {
+    for (const e of await fs
+      .readdir(dir, { withFileTypes: true })
+      .catch(() => [])) {
+      const abs = path.join(dir, e.name);
+      if (e.isDirectory()) await walk(abs);
+      else if (e.isFile() && e.name.toLowerCase().endsWith(".md"))
+        files.push(path.relative(root, abs));
+    }
+  }
+  await walk(path.join(root, KNOWLEDGE_DIR));
+  for (const d of ROOT_DOCS) {
+    const abs = path.join(root, d);
+    if (await fs.stat(abs).then(() => true, () => false)) files.push(d);
+  }
+  return files;
+}
+
+/** 参照lintを実行して警告メッセージのリストを返す（終了コードには影響させない） */
+async function lintReferences(root) {
+  const warns = [];
+  const skills = await collectKnownSkills(root);
+  const goldDirs = new Set(
+    (await fs.readdir(path.join(root, KNOWLEDGE_DIR), { withFileTypes: true }).catch(() => []))
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name),
+  );
+  for (const rel of await collectDocFiles(root)) {
+    const text = await fs.readFile(path.join(root, rel), "utf8").catch(() => null);
+    if (text === null) continue;
+    const seen = new Set(); // 同じ文書内の同一参照は1件にまとめる
+    const found = []; // この文書の検出。出力順を行番号に揃えるため一旦ためる
+    const once = (key, line, message) => {
+      if (seen.has(key)) return;
+      seen.add(key);
+      found.push({ line, message: `${rel}:${line}  ${message}` });
+    };
+    // 1) スキル参照（エンジンの plugin/skills/ を照合できるときだけ）
+    if (skills) {
+      for (const m of text.matchAll(SLASH_COMMAND_RE)) {
+        if (skills.has(m[1])) continue;
+        once(
+          `skill:${m[1]}`,
+          lineOf(text, m.index),
+          `スキル「/${m[1]}」が実在しない（改名・削除の可能性）`,
+        );
+      }
+    }
+    // 2) Gold区画のパス参照（撤去・改名済みの区画を指していないか）
+    if (goldDirs.size) {
+      for (const m of text.matchAll(GOLD_PATH_RE)) {
+        const name = m[1].split("/")[0]; // 検証するのは直下の区画名だけ（`Decisions/records/` → `Decisions`）
+        if (name === "" || name.includes("{{") || goldDirs.has(name)) continue;
+        once(
+          `gold:${name}`,
+          lineOf(text, m.index),
+          `Gold区画「${KNOWLEDGE_DIR}/${name}/」が実在しない（撤去・改名済みの可能性）`,
+        );
+      }
+    }
+    // 3) 廃止された記法（rulesync は廃止済み。AIツール設定の正本はエンジン側にある）
+    for (const m of text.matchAll(RULESYNC_RE)) {
+      once("rulesync", lineOf(text, m.index), "廃止済みの「.rulesync/」を参照している");
+    }
+    found.sort((a, b) => a.line - b.line);
+    for (const f of found) warns.push(f.message);
+  }
+  return warns;
+}
+
 const root = process.cwd();
 const targets = await collectTargets(root);
 const allIds = await collectAllIds(root); // 実在解決用のID索引
@@ -560,6 +718,18 @@ if (warnings.length) {
   );
 }
 
+// 参照lint（陳腐化の機械的検出）。dangling参照と同じく警告のみでブロックしない。
+const refWarnings = await lintReferences(root);
+if (refWarnings.length) {
+  console.warn(
+    `\n⚠ 参照lint: 陳腐化のおそれ ${refWarnings.length}件（要確認・ブロックはしない）`,
+  );
+  for (const w of refWarnings) console.warn(`    - ${w}`);
+  console.warn(
+    "  ※ 参照先が実在しません。撤去・改名に文書が追随できていない可能性があります（他ハーネス由来のスキル参照は誤検知のことがあります）。",
+  );
+}
+
 if (errorCount > 0) {
   console.error(
     `\n${targets.length}ファイル中、${errorCount}件の規約違反があります。`,
@@ -574,5 +744,6 @@ console.log(
     (skippedCount
       ? `（テンプレート未展開の ${skippedCount}ファイルはスキップ）`
       : "") +
-    (warnings.length ? `。relations警告 ${warnings.length}件は要確認` : ""),
+    (warnings.length ? `。relations警告 ${warnings.length}件は要確認` : "") +
+    (refWarnings.length ? `。参照lint警告 ${refWarnings.length}件は要確認` : ""),
 );
