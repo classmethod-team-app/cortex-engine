@@ -21,6 +21,10 @@
 //   - ソース列挙は changed-sources.sh / external-sources.sh と同一スクリプト（二重定義によるドリフト防止）
 //   - 会議ディレクトリ配下は議事録（*_minutes.md）のみ読む（文字起こし原本は読まない）
 //   - 採番は「決定日の既存最大NNN+1」（ファイル名から機械取得）・重複照合は正規化titleの突合
+//   - 既存レコードとの照合は「新規／重複／矛盾」の3分類。矛盾（既存を否定・撤回・変更する新事実で、
+//     既存と両立しないもの）を重複として捨てると、古い決定だけが Gold に残り AI が撤回済みの方針を
+//     確定情報として読む。Decision は supersedes を張った新レコードで起票し、用語・Rule は
+//     （既存レコードを自動で書き換えない原則を守るため）起票せず ::warning:: で人の確認に回す。
 //   - 自動起票は全型 status: draft（AI生成・人間未確認の印。事後レビュー方式）・既存レコードは書き換えない（新規追加のみ）
 //   - 公開範囲フィルタ（内部限定情報を書かない）はプロンプトに転記して維持
 //
@@ -296,19 +300,31 @@ const PROD_NEW_FILES = (() => {
   return new Set((g.stdout || "").split("\n").map((s) => s.trim()).filter(Boolean));
 })();
 
-// 既存 Decision: 採番用のファイル名一覧＋重複照合用の title 一覧
+// 既存 Decision: 採番用のファイル名一覧＋照合用の id/title 一覧
+// entries（id＋title）は LLM に「既存一覧」として渡す（矛盾判定で supersedes 先の実在IDを書かせるため）。
+// sigToIds は「正規化titleが衝突した相手のID」を引くための索引（矛盾と重複の切り分けに使う）。
 function loadExistingDecisions() {
   const fileNames = [];
-  const titles = [];
+  const entries = [];
+  const ids = new Set();
+  const sigs = new Set();
+  const sigToIds = new Map();
   for (const e of listDir("Cortex/Decisions/records") || []) {
     if (!e.isFile() || !e.name.endsWith(".md") || e.name.includes("{{")) continue;
     if (PROD_NEW_FILES.has(`Cortex/Decisions/records/${e.name}`)) continue; // 本番が今run起票した分は既存扱いしない
     fileNames.push(e.name);
     const fm = frontmatterOf(readText(`Cortex/Decisions/records/${e.name}`) || "");
     const t = fmField(fm, "title");
-    if (t) titles.push(t);
+    const id = fmField(fm, "id");
+    if (id) ids.add(id);
+    if (t) {
+      const sig = normalizeSig(t);
+      sigs.add(sig);
+      if (id) sigToIds.set(sig, [...(sigToIds.get(sig) || []), id]);
+      entries.push({ id, title: t });
+    }
   }
-  return { fileNames, titles };
+  return { fileNames, entries, ids, sigs, sigToIds };
 }
 
 // 既存用語: title / synonyms の集合
@@ -496,8 +512,9 @@ const PRIVACY_RULE = [
 ].join("");
 
 // A: Decision抽出。確定/未確定の基準は update-gold-auto/SKILL.md の Phase A の文言を転記。
-function llmExtractDecisions(source, existingTitles, rosterNames) {
-  // 前置き（毎回同一。既存タイトル一覧・名簿は同一run内で不変なのでここに入れてキャッシュに載せる）
+// existingEntries は { id, title } の配列（矛盾判定で supersedes 先の実在IDを書かせるため ID も渡す）。
+function llmExtractDecisions(source, existingEntries, rosterNames) {
+  // 前置き（毎回同一。既存一覧・名簿は同一run内で不変なのでここに入れてキャッシュに載せる）
   const prefix = [
     "次のソースから、確定した意思決定だけを抽出してください。",
     "",
@@ -510,8 +527,10 @@ function llmExtractDecisions(source, existingTitles, rosterNames) {
     "抽出範囲は機能要件に限らず、仕様・設計・運用・ビジネスの確定事項すべて。根拠（ソース中の該当発言の引用）を必ず quote に入れ、根拠を示せないものは抽出しない。",
     PRIVACY_RULE,
     "",
-    "既存Decisionのタイトル一覧（これらと同一・実質同一の決定は抽出しない＝重複回避）:",
-    existingTitles.length ? existingTitles.map((t) => `- ${t}`).join("\n") : "(なし)",
+    "既存Decisionの一覧（`ID タイトル`）。各候補を次の3分類で判定する:",
+    "  新規（既存に無い）→ 抽出する。重複（既存と同じことを言っている）→ 抽出しない。",
+    "  矛盾（既存を否定・撤回・変更する新事実で、既存と両立しない）→ **破棄せず抽出し**、置き換える既存のIDを supersedes に入れる（一覧に無いIDは書かない）。",
+    existingEntries.length ? existingEntries.map((e) => `- ${e.id} ${e.title}`).join("\n") : "(なし)",
     "",
     "名簿（deciders はこの正式表記に正規化する。名簿に無い人名は「名前（要確認）」と書く）:",
     rosterNames.length ? rosterNames.map((t) => `- ${t}`).join("\n") : "(名簿なし)",
@@ -527,7 +546,7 @@ function llmExtractDecisions(source, existingTitles, rosterNames) {
     source.content,
     "",
     'JSON配列のみを出力（0件なら []）:',
-    '[{"date": "YYYYMMDD", "title": "...", "description": "...", "deciders": ["..."], "category": "...", "based_on": "...", "quote": "..."}]',
+    '[{"date": "YYYYMMDD", "title": "...", "description": "...", "deciders": ["..."], "category": "...", "based_on": "...", "quote": "...", "supersedes": ["矛盾する既存DecisionのID(YYYYMMDD-NNN)。矛盾でなければ空配列"]}]',
   ].join("\n");
   return callJSON("decision", { system: SYS_COMMON, prefix, variable, maxTokens: 4096, timeoutMs: 240_000 });
 }
@@ -544,7 +563,8 @@ function llmExtractTerms(source, existingTermTitles, excludedList) {
     "確信が持てない語は登録しない（過剰登録はノイズとなり用語集の信頼を損なう。直コミットされるため保守的に判断する）。",
     PRIVACY_RULE,
     "",
-    "既存用語のタイトル一覧（これらと同一・実質同義の語は抽出しない＝重複回避）:",
+    "既存用語のタイトル一覧（これらと同一・実質同義の語は抽出しない＝重複回避）。",
+    "ただし既存の定義を否定・変更する新事実（矛盾）なら、破棄せず抽出し conflicts_with に矛盾する既存用語のタイトルを入れる:",
     existingTermTitles.length ? existingTermTitles.map((t) => `- ${t}`).join("\n") : "(なし)",
     excludedList.length ? "除外用語（過去にレビューで却下。再追加しない）:\n" + excludedList.map((t) => `- ${t}`).join("\n") : "",
     "",
@@ -555,7 +575,7 @@ function llmExtractTerms(source, existingTermTitles, excludedList) {
     source.content,
     "",
     'JSON配列のみを出力（0件なら []）:',
-    '[{"term": "代表表記", "yomi": "よみ", "definition": "この案件における意味（ソースに明示された定義）", "synonyms": ["..."]}]',
+    '[{"term": "代表表記", "yomi": "よみ", "definition": "この案件における意味（ソースに明示された定義）", "synonyms": ["..."], "conflicts_with": "矛盾する既存用語のタイトル。矛盾でなければ空文字"}]',
   ].join("\n");
   return callJSON("term", { system: SYS_COMMON, prefix, variable, maxTokens: 2048, timeoutMs: 180_000 });
 }
@@ -603,7 +623,8 @@ function llmExtractRules(source, existingRuleTitles, excludedList) {
     "**確信が持てなければ抽出しない**（Rules は AI の行動を直接制約するため、誤起票のコストが用語より高い。直コミットされるので保守的に判断する）。",
     PRIVACY_RULE,
     "",
-    "既存Ruleのタイトル一覧（これらと同一・実質同一の制約は抽出しない＝重複回避）:",
+    "既存Ruleのタイトル一覧（これらと同一・実質同一の制約は抽出しない＝重複回避）。",
+    "ただし既存の制約を否定・撤回・変更する新事実（矛盾。例: 禁止の解除・条件の変更）なら、破棄せず抽出し conflicts_with に矛盾する既存Ruleのタイトルを入れる:",
     existingRuleTitles.length ? existingRuleTitles.map((t) => `- ${t}`).join("\n") : "(なし)",
     excludedList.length ? "除外ルール（過去にレビューで却下。再追加しない）:\n" + excludedList.map((t) => `- ${t}`).join("\n") : "",
     "",
@@ -618,7 +639,7 @@ function llmExtractRules(source, existingRuleTitles, excludedList) {
     source.content,
     "",
     'JSON配列のみを出力（0件なら []）:',
-    '[{"title": "制約の1行表現", "description": "制約の1文要約", "rel": "derived_from|based_on|", "target": "安定ID または空"}]',
+    '[{"title": "制約の1行表現", "description": "制約の1文要約", "rel": "derived_from|based_on|", "target": "安定ID または空", "conflicts_with": "矛盾する既存Ruleのタイトル。矛盾でなければ空文字"}]',
   ].join("\n");
   return callJSON("rule", { system: SYS_COMMON, prefix, variable, maxTokens: 2048, timeoutMs: 180_000 });
 }
@@ -673,6 +694,30 @@ function nextDecisionNumber(dateYmd, existingFileNames, allocated) {
 
 const CATEGORIES = new Set(["ビジネス", "技術選定", "設計方針", "運用ルール", "インフラ", "デザイン"]);
 
+// LLM が「この既存決定と矛盾する（撤回・方針転換）」として返したIDを、実在する Decision ID だけに絞る。
+// 後方互換: フィールドが無い旧来の応答は空配列（＝新規扱い）になる。文字列・配列の両形式を受ける。
+// 捏造ID（既存一覧に無いID）は警告して落とす（存在しない決定を指す supersedes を Gold に残さない）。
+// ただし「矛盾として起票すること自体」は落とさない——新事実の取りこぼしを防ぐのがこの判定の目的なので、
+// 参照だけを外して新レコードとして起票し、人のレビュー（draft→active）に委ねる。
+function resolveSupersedes(value, existingIds, title) {
+  const raw = Array.isArray(value) ? value : value ? [value] : [];
+  const out = [];
+  for (const v of raw) {
+    const m = String(v).match(/\d{8}-\d{3}/); // 「20260723-002（タイトル）」等の混在表記からIDだけ取る
+    const id = m ? m[0] : "";
+    if (!id) {
+      warn(`supersedes の値がDecision ID形式ではないため無視します（${JSON.stringify(v)} / 対象: ${title}）。`);
+      continue;
+    }
+    if (!existingIds.has(id)) {
+      warn(`supersedes 先の Decision ${id} が実在しないため関係を張りません（捏造IDの可能性・対象: ${title}）。`);
+      continue;
+    }
+    if (!out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
 // LLM抽出の決定を検証・採番し、status: draft（AI生成・人間未確認）で「起票予定ファイル」に確定する。
 // 重複排除: 既存title・当夜バッチ内titleの正規化完全一致はプログラム側でも落とす（LLM任せにしない保険）。
 function buildDecisionFiles(extracted, existing, batchSigs) {
@@ -687,9 +732,20 @@ function buildDecisionFiles(extracted, existing, batchSigs) {
       continue;
     }
     const sig = normalizeSig(title);
-    if (existing.sigs.has(sig) || batchSigs.has(sig)) {
+    const supersedes = resolveSupersedes(d.supersedes ?? d.conflicts_with, existing.ids, title);
+    // 矛盾（supersedes 付き）の場合だけ、既存titleとの衝突を「重複」と見なさない例外を認める。
+    // 撤回・方針転換は表題が既存とほぼ同じになり得るため、ここで落とすと古い決定だけが Gold に残る。
+    // ただし衝突相手に supersedes 対象でないレコードが混じるなら、それは同じ決定の再抽出
+    // （実行窓のオーバーラップ・前夜に起票した撤回レコードとの衝突等）なので従来どおり重複として落とす。
+    const collidingIds = existing.sigToIds.get(sig) || [];
+    const overridesCollision =
+      supersedes.length > 0 && collidingIds.length > 0 && collidingIds.every((id) => supersedes.includes(id));
+    if (batchSigs.has(sig) || (existing.sigs.has(sig) && !overridesCollision)) {
       skipped.push({ item: d, reason: "既存/当夜バッチ内の Decision と正規化titleが一致（重複）" });
       continue;
+    }
+    if (supersedes.length) {
+      warn(`既存Decision ${supersedes.join(" / ")} と矛盾する新事実として起票します（supersedesを張ったdraft・要レビュー）: ${title}`);
     }
     batchSigs.add(sig);
     const nnn = nextDecisionNumber(date, existing.fileNames, allocated);
@@ -712,8 +768,14 @@ function buildDecisionFiles(extracted, existing, batchSigs) {
       ...deciders.map((x) => `  - ${yq(x)}`),
       `description: ${yq(String(d.description || title))}`,
       "status: draft",
-      ...(basedOn
-        ? ["relations:", "  - rel: based_on", `    target: ${yq(basedOn)}`]
+      // 矛盾を検出した場合も既存レコードは書き換えず、supersedes を張った新レコードで置き換えを表す
+      // （Decisions は追記型＝「いつ・誰が・なぜ決めたか」の履歴。過去の判断を消すと経緯が追えない）。
+      ...(supersedes.length || basedOn
+        ? [
+            "relations:",
+            ...supersedes.flatMap((id) => ["  - rel: supersedes", `    target: ${yq(id)}`]),
+            ...(basedOn ? ["  - rel: based_on", `    target: ${yq(basedOn)}`] : []),
+          ]
         : []),
       "references:",
       `  - ${yq(ref)}`,
@@ -736,6 +798,7 @@ function buildDecisionFiles(extracted, existing, batchSigs) {
       path: `Cortex/Decisions/records/${id}-${sanitizeName(title)}.md`,
       id,
       title,
+      supersedes,
       content: fm + body,
     });
   }
@@ -746,11 +809,23 @@ function buildDecisionFiles(extracted, existing, batchSigs) {
 function buildTermFiles(extracted, existingTerms, excludedSigs, batchSigs, dateH) {
   const files = [];
   const skipped = [];
+  const conflicts = [];
   for (const t of extracted) {
     const term = String(t.term || "").trim();
     const definition = String(t.definition || "").trim();
     if (!term || !definition) {
       skipped.push({ item: t, reason: "term または definition が空" });
+      continue;
+    }
+    // 矛盾（既存の定義を否定・変更する新事実）: 用語は更新型だが、自動化は新規追加のみという原則を
+    // 崩さないため既存レコードは書き換えず、起票もせずログに明記して人の確認に回す。
+    // TODO(将来): 人のレビュー前提で、既存レコードへの定義更新（差分の提案・別ブランチ化等）まで
+    //             自動化する余地がある。現状は「検出して知らせる」までに留める。
+    const conflictWith = String(t.conflicts_with || "").trim();
+    if (conflictWith) {
+      warn(`既存レコード「${conflictWith}」（用語）と矛盾する内容が検出されました。人の確認が必要です（検出語: ${term}）。`);
+      conflicts.push({ kind: "term", title: term, target: conflictWith });
+      skipped.push({ item: t, reason: `既存用語「${conflictWith}」と矛盾（自動更新はしない・人の確認が必要）` });
       continue;
     }
     const sig = normalizeSig(term);
@@ -789,7 +864,7 @@ function buildTermFiles(extracted, existingTerms, excludedSigs, batchSigs, dateH
       content: fm + `\n\n${definition}\n`,
     });
   }
-  return { files, skipped };
+  return { files, skipped, conflicts };
 }
 
 // Rule: 既存title・除外リスト・当夜バッチ内の正規化一致を落とし、status: draft で組み立てる（用語Bと同型）。
@@ -797,15 +872,26 @@ function buildTermFiles(extracted, existingTerms, excludedSigs, batchSigs, dateH
 function buildRuleFiles(extracted, existingRules, excludedSigs, batchSigs) {
   const files = [];
   const skipped = [];
+  const conflicts = [];
   if (!existingRules.dirExists) {
     if (extracted.length) skipped.push({ item: null, reason: "Cortex/Rules/records が無い案件のためフェーズごとスキップ" });
-    return { files, skipped };
+    return { files, skipped, conflicts };
   }
   for (const r of extracted) {
     const title = String(r.title || "").trim();
     const description = String(r.description || "").trim();
     if (!title || !description) {
       skipped.push({ item: r, reason: "title または description が空" });
+      continue;
+    }
+    // 矛盾（既存の制約を否定・撤回・変更する新事実）: 用語と同じ扱い。既存Ruleを自動で書き換えず、
+    // 矛盾する制約を並立させることもせず（Rules は AI の行動を直接縛るため両立は危険）、
+    // ログに明記して人の確認に回す。TODO(将来): レビュー前提の更新自動化の余地はある。
+    const conflictWith = String(r.conflicts_with || "").trim();
+    if (conflictWith) {
+      warn(`既存レコード「${conflictWith}」（Rule）と矛盾する内容が検出されました。人の確認が必要です（検出: ${title}）。`);
+      conflicts.push({ kind: "rule", title, target: conflictWith });
+      skipped.push({ item: r, reason: `既存Rule「${conflictWith}」と矛盾（自動更新はしない・人の確認が必要）` });
       continue;
     }
     const sig = normalizeSig(title);
@@ -847,7 +933,7 @@ function buildRuleFiles(extracted, existingRules, excludedSigs, batchSigs) {
       content: fm + `\n\n${description}\n`,
     });
   }
-  return { files, skipped };
+  return { files, skipped, conflicts };
 }
 
 // メンバー: 名簿（title/aliases）・当夜バッチ内の正規化一致を落とし、status: draft で組み立てる
@@ -927,7 +1013,6 @@ function main() {
 
   // [決定的] 照合材料の収集
   const existingDecisions = loadExistingDecisions();
-  existingDecisions.sigs = new Set(existingDecisions.titles.map(normalizeSig));
   const existingTerms = loadExistingTerms();
   const excludedTerms = loadExcludedTerms();
   const existingRules = loadExistingRules();
@@ -957,7 +1042,7 @@ function main() {
     if (gated) {
       entry.notes.push("decisions:none のため Decision 抽出をスキップ");
     } else {
-      const a = llmExtractDecisions(s, existingDecisions.titles, roster.names);
+      const a = llmExtractDecisions(s, existingDecisions.entries, roster.names);
       if (a === null) {
         entry.notes.push("A(Decision抽出)が不正応答→スキップ");
       } else if (Array.isArray(a)) {
@@ -1049,6 +1134,11 @@ function buildShadowSummary(r) {
   lines.push("## Goldパイプライン（シャドー）");
   lines.push("");
   lines.push(`- 対象ソース: ${r.sources.length}件 / 起票予定: Decision ${r.dec.files.length}・用語 ${r.term.files.length}・メンバー ${r.mem.files.length}・ルール ${r.rule.files.length}`);
+  const supersedingCount = r.dec.files.filter((f) => f.supersedes && f.supersedes.length).length;
+  const conflictCount = (r.term.conflicts || []).length + (r.rule.conflicts || []).length;
+  if (supersedingCount || conflictCount) {
+    lines.push(`- 既存レコードとの矛盾: Decision ${supersedingCount}件（supersedesを張って起票）・用語/ルール ${conflictCount}件（起票せず・人の確認が必要）`);
+  }
   lines.push("");
   lines.push("| ソース | A:決定 | B:用語 | C:メンバー | D:ルール | 備考 |");
   lines.push("| --- | --- | --- | --- | --- | --- |");
@@ -1094,6 +1184,20 @@ function buildShadowReport(r) {
   } else {
     out.push("- （応答なし/不正）");
   }
+  out.push("");
+
+  // 3択判定のうち「矛盾」だけを抜き出した一覧（見落とすと古い決定だけが Gold に残るため独立節にする）
+  out.push("## 既存レコードと矛盾した候補（3択判定の「矛盾」）");
+  out.push("");
+  const conflictLines = [
+    ...r.dec.files
+      .filter((f) => f.supersedes && f.supersedes.length)
+      .map((f) => `- [decision] ${f.id} ${f.title} → supersedes: ${f.supersedes.join(" / ")}（draftで起票）`),
+    ...[...(r.term.conflicts || []), ...(r.rule.conflicts || [])].map(
+      (c) => `- [${c.kind}] ${c.title} ⚠ 既存「${c.target}」と矛盾（起票せず・人の確認が必要）`,
+    ),
+  ];
+  out.push(conflictLines.length ? conflictLines.join("\n") : "- なし");
   out.push("");
 
   const skips = [
