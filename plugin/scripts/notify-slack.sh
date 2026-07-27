@@ -183,6 +183,27 @@ print(("true" if d.get("ok") else "false")+"\t"+(str(d.get("error") or "unknown"
 ' 2>/dev/null || printf 'false\tunknown\t'
 }
 
+# 直近の同一チャンネル履歴に、これから送る本文と完全一致する投稿があるか（重複投稿の機械的な防止）。
+# 0=重複あり（送らない） / 1=重複なし・判定不能（送る）。判定不能時に送る側へ倒すのは通知の取りこぼしを避けるため。
+dup_recent() {
+  local ch="$1" hist
+  hist=$(slack_api conversations.history GET --data-urlencode "channel=$ch" --data-urlencode "limit=5") || return 1
+  BODY_CMP="$BODY" python3 -c '
+import json,os,sys
+try:
+    d=json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+if not d.get("ok"):
+    sys.exit(1)
+body=os.environ.get("BODY_CMP","").strip()
+for m in d.get("messages") or []:
+    if (m.get("text") or "").strip()==body:
+        sys.exit(0)
+sys.exit(1)
+' <<< "$hist"
+}
+
 # 各チャンネルへ投稿（POST JSON: channel, text）。--post-at があれば chat.scheduleMessage で予約投稿。
 # --thread-file 時は親を即時投稿→.tsを取得→thread_tsでスレッド本文を投稿の2段。ok:false はチャンネル単位で warn スキップ。
 METHOD="chat.postMessage"
@@ -191,6 +212,14 @@ payloadf="$TMPDIR_NS/payload.json"
 threadf="$TMPDIR_NS/thread.json"
 while IFS= read -r ch; do
   [ -n "$ch" ] || continue
+  # 重複投稿ガード: 直近の同一チャンネルに、同じ本文の親メッセージが既にあれば送らない。
+  # 呼び出し側（AIが手順を実行するスキル）が同じ投稿を2回走らせる事故が実際に起きたため、
+  # 機械的に止める。判定は conversations.history の直近数件と本文の完全一致のみ（安全側）。
+  # 履歴が読めない（スコープ不足等）ときは判定せず通常どおり投稿する（best-effort を崩さない）。
+  if [ -z "$POST_AT" ] && dup_recent "$ch"; then
+    echo "::notice::notify-slack: チャンネル $ch に同一本文の投稿が直近にあるため送信をスキップしました（重複防止）。" >&2
+    continue
+  fi
   # 親: channel/text（＋予約時は post_at）を JSON payload に組み立て（本文のエスケープを python に任せる）。
   PAYLOAD="$payloadf" CH="$ch" POST_AT="$POST_AT" python3 -c 'import json,os,sys
 body=sys.stdin.read()
