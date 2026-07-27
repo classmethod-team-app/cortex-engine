@@ -25,7 +25,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 export const meta = {
-  to: 25,
+  to: 27,
   description:
     "ワークフロースタブのsecretsを inherit から明示渡しへ切り替え（組織をまたぐとinheritが届かず全ジョブが無音でskipするため）",
   autoApply: true,
