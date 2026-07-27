@@ -17,6 +17,12 @@ on:
         required: false
         type: string
         default: "v1"
+    secrets:
+      # 別orgのスタブから呼ばれる場合 secrets: inherit は届かないため、受け口を明示的に宣言する。
+      # 同一orgからの inherit も引き続き有効（後方互換）。未設定の案件では空文字で渡り、各ワークフローの前提チェックがskipに倒す。
+      ENGINE_REPO_TOKEN:
+        required: false
+
 jobs:
   migrate:
     runs-on: ubuntu-latest

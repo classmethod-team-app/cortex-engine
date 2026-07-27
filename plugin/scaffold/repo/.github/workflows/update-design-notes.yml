@@ -22,6 +22,9 @@ permissions:
 jobs:
   update:
     uses: classmethod-team-app/cortex-engine/.github/workflows/update-design-notes.yml@v1
-    secrets: inherit
+    # 別orgのエンジンを呼ぶ場合 inherit は届かないため明示的に渡す（同一orgでも同じ挙動）
+    secrets:
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+      ENGINE_REPO_TOKEN: ${{ secrets.ENGINE_REPO_TOKEN }}
     with:
       since: ${{ github.event.inputs.since || '' }}

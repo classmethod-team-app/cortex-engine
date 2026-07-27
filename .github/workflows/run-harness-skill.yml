@@ -66,6 +66,20 @@ on:
         type: number
         default: 60
 
+    secrets:
+      # 別orgのスタブから呼ばれる場合 secrets: inherit は届かないため、受け口を明示的に宣言する。
+      # 同一orgからの inherit も引き続き有効（後方互換）。未設定の案件では空文字で渡り、各ワークフローの前提チェックがskipに倒す。
+      AWS_ROLE_TO_ASSUME:
+        required: false
+      ENGINE_REPO_TOKEN:
+        required: false
+      EXTERNAL_SOURCES_TOKEN:
+        required: false
+      HARNESS_REPO_TOKEN:
+        required: false
+      SLACK_BOT_TOKEN:
+        required: false
+
 jobs:
   run:
     runs-on: ubuntu-latest

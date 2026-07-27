@@ -14,4 +14,13 @@ permissions:
 jobs:
   status:
     uses: classmethod-team-app/cortex-engine/.github/workflows/fleet-status.yml@v1
-    secrets: inherit
+    # 別orgのエンジンを呼ぶ場合 inherit は届かないため明示的に渡す（同一orgでも同じ挙動）
+    secrets:
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+      BACKLOG_API_KEY: ${{ secrets.BACKLOG_API_KEY }}
+      BACKLOG_DOMAIN: ${{ secrets.BACKLOG_DOMAIN }}
+      BACKLOG_PROJECT_KEY: ${{ secrets.BACKLOG_PROJECT_KEY }}
+      ENGINE_REPO_TOKEN: ${{ secrets.ENGINE_REPO_TOKEN }}
+      EXTERNAL_SOURCES_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN }}
+      FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN }}
+      SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}

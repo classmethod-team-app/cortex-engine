@@ -11,4 +11,6 @@ on:
 jobs:
   lint:
     uses: classmethod-team-app/cortex-engine/.github/workflows/validate-cortex.yml@v1
-    secrets: inherit
+    # 別orgのエンジンを呼ぶ場合 inherit は届かないため明示的に渡す（同一orgでも同じ挙動）
+    secrets:
+      ENGINE_REPO_TOKEN: ${{ secrets.ENGINE_REPO_TOKEN }}

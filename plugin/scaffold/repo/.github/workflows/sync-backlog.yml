@@ -10,4 +10,8 @@ permissions:
 jobs:
   sync:
     uses: classmethod-team-app/cortex-engine/.github/workflows/sync-backlog.yml@v1
-    secrets: inherit
+    # 別orgのエンジンを呼ぶ場合 inherit は届かないため明示的に渡す（同一orgでも同じ挙動）
+    secrets:
+      BACKLOG_API_KEY: ${{ secrets.BACKLOG_API_KEY }}
+      BACKLOG_DOMAIN: ${{ secrets.BACKLOG_DOMAIN }}
+      BACKLOG_PROJECT_KEY: ${{ secrets.BACKLOG_PROJECT_KEY }}

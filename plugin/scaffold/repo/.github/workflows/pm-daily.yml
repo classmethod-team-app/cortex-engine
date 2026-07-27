@@ -26,7 +26,13 @@ permissions:
 jobs:
   daily:
     uses: classmethod-team-app/cortex-engine/.github/workflows/run-harness-skill.yml@v1
-    secrets: inherit
+    # 別orgのエンジンを呼ぶ場合 inherit は届かないため明示的に渡す（同一orgでも同じ挙動）
+    secrets:
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+      ENGINE_REPO_TOKEN: ${{ secrets.ENGINE_REPO_TOKEN }}
+      EXTERNAL_SOURCES_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN }}
+      HARNESS_REPO_TOKEN: ${{ secrets.HARNESS_REPO_TOKEN }}
+      SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
     with:
       skill: daily-report
       target_date: ${{ github.event.inputs.target_date || '' }}
