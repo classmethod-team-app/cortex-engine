@@ -692,7 +692,12 @@ function llmExtractMembers(source, rosterNames) {
     "",
     "対象: 議事録の参加者欄・発言者、チャットの発言者（表示名から氏名の見当がつくもののみ）。",
     "GitHub の author（login のみ）は氏名の確証が持てないことが多いので、login から実名が明らかな場合を除き抽出しない。",
-    "氏名の確証が持てない場合（ハンドルネームのみ等）は抽出しない（過剰起票はノイズ）。",
+    "",
+    "名簿の役割は人物を一意に特定することなので、**姓名が揃っているものだけ**を抽出する。",
+    "姓のみ・名のみ（「田島」「太郎」等）は抽出しない。同姓の別人と区別できず、後から姓名が判明したときに",
+    "別レコードとして二重登録され、決定の deciders をどちらに正規化すべきか決められなくなる。",
+    "敬称・肩書き付きの呼称（「田島さん」「山口部長」）から姓名が確定できない場合も同様に抽出しない。",
+    "氏名の確証が持てない場合（ハンドルネームのみ等）も抽出しない（過剰起票はノイズ）。",
     "side は cm（開発側）/ client（顧客）/ vendor（ベンダー）のいずれか。不明なら空文字。",
     PRIVACY_RULE.replace("抽出結果", "org/role"),
     "",
@@ -1041,6 +1046,19 @@ function buildRuleFiles(extracted, existingRules, excludedSigs, batchSigs) {
 }
 
 // メンバー: 名簿（title/aliases）・当夜バッチ内の正規化一致を落とし、status: draft で組み立てる
+// 姓名が揃っているか。名簿は人物を一意に特定する台帳なので、姓だけ・名だけの登録を防ぐ。
+//   - 区切りがあるもの（"山田 太郎" / "Taro Yamada"）: 2語以上あれば姓名とみなす
+//   - 区切りが無い日本語（"山田太郎"）: 漢字・かなが3文字以上あれば姓名とみなす
+//     （日本語の姓名は連結すると3文字以上になるのが通例。2文字以下は姓だけの可能性が高い）
+// 判定を誤って落としても、翌日以降に姓名が揃った形で再度現れれば拾える（起票しすぎより安全側）。
+function isFullName(name) {
+  const n = String(name || "").trim();
+  if (!n) return false;
+  if (/[\s　・･]/.test(n)) return n.split(/[\s　・･]+/).filter(Boolean).length >= 2;
+  if (/^[A-Za-z.'-]+$/.test(n)) return false; // 区切りの無い英字1語は姓か名のどちらか
+  return n.length >= 3;
+}
+
 function buildMemberFiles(extracted, roster, batchSigs) {
   const files = [];
   const skipped = [];
@@ -1052,6 +1070,14 @@ function buildMemberFiles(extracted, roster, batchSigs) {
     const name = String(m.name || "").trim();
     if (!name) {
       skipped.push({ item: m, reason: "name が空" });
+      continue;
+    }
+    // 名簿は人物を一意に特定するための台帳なので、姓名が揃っていないものは起票しない。
+    // 姓だけのレコードは同姓の別人と区別できず、後から姓名が判明したときに二重登録になり、
+    // 決定の deciders をどちらへ正規化すべきか決められなくなる。
+    // プロンプトでも指示しているが、散文の指示は守られないことがあるのでここでも機械的に弾く。
+    if (!isFullName(name)) {
+      skipped.push({ item: m, reason: `姓名が揃っていない（人物を一意に特定できない）: ${name}` });
       continue;
     }
     const sig = normalizeSig(name);
