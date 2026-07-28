@@ -14,9 +14,6 @@
 //   - real:   validate-cortex.mjs による検証→ファイル書込→フェーズ別コミット（Decisions→用語集→メンバー→ルール）。
 //             push はワークフロー側（本スクリプトはしない）。
 //
-// 日報・週報は本スクリプトの責務ではない（レポートはPMハーネスが run-harness-skill 経由でSlackに配信する。
-// Gold層 Cortex/ に書けるのはエンジンの精製ワークフローだけ、という境界の規律に従う）。
-//
 // 各フェーズの規律は update-gold-auto/SKILL.md の各 Phase（決定・用語・メンバー・ルール）に従う:
 //   - ソース列挙は changed-sources.sh / external-sources.sh と同一スクリプト（二重定義によるドリフト防止）
 //   - 会議ディレクトリ配下は議事録（*_minutes.md）のみ読む（文字起こし原本は読まない）
@@ -645,7 +642,7 @@ function llmExtractRules(source, existingRuleTitles, excludedList) {
 }
 
 // 横断チェック（1回だけ）: 全ソースの抽出結果を横断し、重複統合・supersedes候補を指摘する（Gold品質の観察）。
-//   指摘は報告用（採番済みファイルは変更しない）。日報の「今日の概要」生成は廃止（レポートはPMハーネスの責務）。
+//   指摘は報告用（採番済みファイルは変更しない）。
 function llmBatchReview(decisions, terms, members, sourceLabels) {
   // 前置き（毎回同一。ただし1run1回の呼び出しなので実際にはキャッシュ対象の長さに満たない）
   const prefix = [
