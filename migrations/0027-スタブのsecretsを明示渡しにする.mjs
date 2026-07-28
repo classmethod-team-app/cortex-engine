@@ -70,7 +70,7 @@ const SECRETS_BY_WORKFLOW = {
   "validate-cortex.yml": ["ENGINE_REPO_TOKEN"],
 };
 
-const INHERIT_LINE = /^([ \t]*)secrets:[ \t]*inherit[ \t]*$/m;
+const INHERIT_LINE = /^([ \t]*)secrets:[ \t]*inherit[ \t]*$/;
 const USES_ENGINE = /uses:\s*\S+\/cortex-engine\/\.github\/workflows\/([\w-]+\.yml)@/;
 
 export async function run(repoRoot) {
@@ -85,20 +85,37 @@ export async function run(repoRoot) {
   for (const name of names.filter((n) => n.endsWith(".yml") || n.endsWith(".yaml"))) {
     const p = path.join(dir, name);
     const text = await fs.readFile(p, "utf8");
-    if (!INHERIT_LINE.test(text)) continue;
+    const lines = text.split("\n");
 
-    const uses = text.match(USES_ENGINE);
-    if (!uses) continue; // エンジン以外を呼ぶワークフローには触らない
-    const secrets = SECRETS_BY_WORKFLOW[uses[1]];
-    if (!secrets) continue; // 未知の呼び先（案件独自・将来追加分）は触らない
+    // 1ファイルに複数ジョブがありうるので、`secrets: inherit` は**直前に現れた呼び先**と対応づける
+    // （ファイル先頭から1件だけ見て全体を置換すると、別ジョブに他ジョブ用のsecretsを混ぜてしまう）。
+    // 呼び先より前に inherit が現れる書き方は対応づけが曖昧なので、そのファイルには触らない（安全側）。
+    const firstUses = lines.findIndex((l) => USES_ENGINE.test(l));
+    const firstInherit = lines.findIndex((l) => INHERIT_LINE.test(l));
+    if (firstInherit === -1) continue; // 変換対象なし
+    if (firstUses === -1 || firstInherit < firstUses) continue; // エンジン以外／順序が曖昧
 
-    const next = text.replace(INHERIT_LINE, (_, indent) =>
-      [
+    let callee = null;
+    let changed = false;
+    const out = [];
+    for (const line of lines) {
+      const u = line.match(USES_ENGINE);
+      if (u) callee = u[1];
+
+      const m = line.match(INHERIT_LINE);
+      const secrets = m && callee ? SECRETS_BY_WORKFLOW[callee] : null;
+      if (!secrets) {
+        out.push(line); // 未知の呼び先（案件独自・将来追加分）はそのまま残す
+        continue;
+      }
+      const indent = m[1];
+      out.push(
         `${indent}# 別orgのエンジンを呼ぶ場合 inherit は届かないため明示的に渡す（同一orgでも同じ挙動）`,
         `${indent}secrets:`,
         ...secrets.map((s) => `${indent}  ${s}: \${{ secrets.${s} }}`),
-      ].join("\n"),
-    );
-    if (next !== text) await fs.writeFile(p, next);
+      );
+      changed = true;
+    }
+    if (changed) await fs.writeFile(p, out.join("\n"));
   }
 }
