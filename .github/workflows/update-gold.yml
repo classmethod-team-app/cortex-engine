@@ -157,6 +157,12 @@ jobs:
           fi
           echo "since=$SINCE" >> "$GITHUB_OUTPUT"
           echo "増分起点 SINCE=$SINCE"
+          # 直近の成功以降に連続で失敗した回数。抽出に失敗したマスがあるとパイプラインは run を失敗させて
+          # 次回に再処理させるが、恒常的に落ちるソースがあると毎晩赤くなり続けるため、この回数で諦める判断をする。
+          CONSEC=$(gh run list --workflow=update-gold.yml --limit 20 --json conclusion --jq \
+            '[.[] | .conclusion] | (index("success") // length) as $i | .[0:$i] | map(select(. == "failure")) | length' 2>/dev/null || echo 0)
+          echo "consecutive_failures=${CONSEC:-0}" >> "$GITHUB_OUTPUT"
+          echo "直近成功以降の連続失敗 CONSECUTIVE_FAILURES=${CONSEC:-0}"
 
       # ソース差分が無い夜はAI実行（Bedrock課金・Claudeインストール）を丸ごとスキップする。
       # 判定はスキルのステップ1と同一スクリプト（changed-sources.sh）で行い、二重定義を避ける。
@@ -264,6 +270,7 @@ jobs:
         timeout-minutes: 15 # 観察用なので打ち切ってよい。大窓の夜に本番完走後のジョブ残時間を食い潰してrunごとcancelledにしない（実績: 大窓で本番50分+シャドーがジョブ60分を超過）
         env:
           GOLD_PIPELINE_MODE: shadow
+          CONSECUTIVE_FAILURES: ${{ steps.win.outputs.consecutive_failures }} # 抽出失敗を諦める判断に使う（REALで有効。shadowは報告のみ）
           ANTHROPIC_MODEL: global.anthropic.claude-sonnet-5 # 本番ステップと同一モデル
           SINCE: ${{ steps.win.outputs.since }} # 本番と同じ増分起点
           GOLD_PRE_HEAD: ${{ steps.goldprehead.outputs.sha }} # 本番の起票分を比較表示するための基準

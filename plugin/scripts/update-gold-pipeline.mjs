@@ -62,6 +62,7 @@ const CACHE_MIN_PREFIX_CHARS = 4_000;
 
 const log = (msg) => process.stdout.write(`${msg}\n`);
 const warn = (msg) => process.stderr.write(`::warning::update-gold-pipeline: ${msg}\n`);
+const error = (msg) => process.stderr.write(`::error::update-gold-pipeline: ${msg}\n`);
 
 // LLM呼び出しのトークン使用量を集計する（プロンプトキャッシュが本番で効いているかを毎晩ログで確認するため。
 // キャッシュは環境・モデル・呼び出し順序に依存するので、手元の実測だけでは効いている保証にならない）。
@@ -557,10 +558,14 @@ function toolConfigFor(phase) {
 // tool use（toolChoice で強制）を使うので、応答は toolUse.input にパース済みオブジェクトで返る。
 // テキストからのJSON切り出しは、スタブ経路と、ツールを呼ばずに返してきた場合のフォールバックとして残す。
 // パース失敗時は1回だけ再試行。2回失敗なら null（呼び出し側でスキップ・報告）。
+// LLM応答の解釈に失敗したときの再試行回数。一時的な失敗はここで吸収し、
+// 吸収しきれなかったものは「落ちたマス」として集約して呼び出し側が扱う。
+const LLM_ATTEMPTS = Number(process.env.PIPELINE_LLM_ATTEMPTS || 3);
+
 function callJSON(phase, opts) {
   const tools = toolConfigFor(phase);
   const unwrap = PHASE_SCHEMAS[phase]?.unwrap;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < LLM_ATTEMPTS; attempt++) {
     const res = callLLM(phase, { ...opts, tools });
     const obj = res && typeof res === "object" && !Array.isArray(res) && "__toolInput" in res
       ? res.__toolInput
@@ -570,7 +575,9 @@ function callJSON(phase, opts) {
       if (unwrap && !Array.isArray(obj)) return Array.isArray(obj[unwrap]) ? obj[unwrap] : [];
       return obj;
     }
-    if (attempt === 0) warn(`${phase}: 応答を解釈できませんでした。1回だけ再試行します。`);
+    if (attempt < LLM_ATTEMPTS - 1) {
+      warn(`${phase}: 応答を解釈できませんでした。再試行します（${attempt + 2}/${LLM_ATTEMPTS}）。`);
+    }
   }
   return null;
 }
@@ -1198,7 +1205,18 @@ function main() {
     sources.map((s) => s.label),
   );
 
-  const result = { sources, perSource, dec, term, mem, rule, batch };
+  // 抽出に失敗した「ソース×フェーズ」のマスを集約する。
+  // 1マスの失敗は他に波及しないが、run が成功のまま終わると増分起点 SINCE が前進し、
+  // そのソースのその窓は二度と再処理されない（恒久的な取りこぼしになる）。
+  const failedCells = [];
+  for (const e of perSource) {
+    for (const n of e.notes) {
+      const m = n.match(/^([A-D])\((.+?)\)が不正応答/);
+      if (m) failedCells.push(`${e.label} → ${m[2]}`);
+    }
+  }
+
+  const result = { sources, perSource, dec, term, mem, rule, batch, failedCells };
 
   // [決定的] モード分岐
   if (MODE === "real") {
@@ -1207,6 +1225,28 @@ function main() {
     const report = buildShadowReport(result);
     const summary = buildShadowSummary(result);
     writeShadowOutputs(report, summary);
+  }
+
+  // 落ちたマスの扱い（REALのみ強制。shadowは観察なので報告に留める）:
+  //   通常は run を失敗させる。SINCE は「直近成功run」基準なので、失敗させれば窓が前進せず
+  //   翌日のrunが同じ窓を再処理する＝取りこぼしが自動で回収される（状態ファイルを持たずに済む）。
+  //   ただし恒常的に落ちるソースがあると毎晩赤くなり続け、他の失敗が埋もれる。
+  //   連続失敗が GIVE_UP_AFTER に達したら、そのマスを諦めて run を成功させ、窓を前進させる。
+  if (failedCells.length > 0) {
+    const consecutive = Number(process.env.CONSECUTIVE_FAILURES || 0);
+    const giveUpAfter = Number(process.env.GIVE_UP_AFTER || 2);
+    const list = failedCells.map((c) => `  - ${c}`).join("\n");
+    if (MODE !== "real") {
+      warn(`抽出に失敗したマスが ${failedCells.length} 件あります（shadowのため報告のみ）:\n${list}`);
+    } else if (consecutive >= giveUpAfter) {
+      error(
+        `抽出に失敗したマスが ${failedCells.length} 件ありますが、${consecutive}回連続で失敗しているため` +
+          `このrunは成功として扱い、以下は諦めます（窓が前進するため再処理されません。人の確認が必要です）:\n${list}`,
+      );
+    } else {
+      error(`抽出に失敗したマスが ${failedCells.length} 件あります。次回のrunで再処理するため、このrunを失敗させます:\n${list}`);
+      process.exitCode = 1;
+    }
   }
 }
 
