@@ -1407,6 +1407,9 @@ function applyReal(r) {
   ];
   for (const phase of phases) {
     if (!phase.files.length) continue;
+    // 巻き戻しは「削除」ではなく「書き込み前の状態へ復元」する。
+    // 新規作成なら削除、既存への上書きなら元の内容を書き戻す。将来レコードの更新を許すときに
+    // 削除だけの巻き戻しだと、検証に失敗した瞬間に既存レコードを失う。
     const written = [];
     try {
       for (const f of phase.files) {
@@ -1416,13 +1419,16 @@ function applyReal(r) {
           continue;
         }
         fs.mkdirSync(path.dirname(f.path), { recursive: true });
+        written.push({ path: f.path, before: null }); // 書き込む前に退避（新規なので before は null）
         fs.writeFileSync(f.path, f.content, "utf-8");
-        written.push(f.path);
       }
       if (!written.length) continue;
       if (!validate()) {
-        for (const p of written) {
-          try { fs.unlinkSync(p); } catch {}
+        for (const w of written) {
+          try {
+            if (w.before === null) fs.unlinkSync(w.path);
+            else fs.writeFileSync(w.path, w.before, "utf-8");
+          } catch {}
         }
         warn(`${phase.dir} の生成物がスキーマ検証に失敗したため、このフェーズの書込を取り消しました。`);
         continue;
