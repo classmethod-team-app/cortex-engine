@@ -406,7 +406,7 @@ function loadRoster() {
 
 // ---------- LLM 呼び出し（ingest-minutes-pipeline と同じヘルパ流儀） ----------
 
-function callLLM(phase, { system, prefix, variable, maxTokens, timeoutMs }) {
+function callLLM(phase, { system, prefix, variable, maxTokens, timeoutMs, tools }) {
   const stub = process.env.PIPELINE_LLM_CMD;
   if (stub) {
     // プロンプトは一時ファイル渡し（stdin だと大きな入力でスタブ側が読まない場合に EPIPE する）。
@@ -445,6 +445,8 @@ function callLLM(phase, { system, prefix, variable, maxTokens, timeoutMs }) {
     "--inference-config", JSON.stringify({ maxTokens }), // temperature はSonnet 5で廃止（指定するとValidationException）
   ];
   if (system) args.push("--system", JSON.stringify([{ text: system }]));
+  // ツール呼び出しを強制すると、応答が toolUse.input にパース済みオブジェクトで返る（自由文で返す事故が消える）。
+  if (tools) args.push("--tool-config", JSON.stringify(tools));
   const r = spawnSync("aws", args, {
     encoding: "utf-8",
     timeout: timeoutMs,
@@ -458,6 +460,12 @@ function callLLM(phase, { system, prefix, variable, maxTokens, timeoutMs }) {
     const out = JSON.parse(r.stdout || "{}");
     recordUsage(out?.usage);
     const blocks = out?.output?.message?.content || [];
+    // 出力が maxTokens で打ち切られると toolUse.input が途中で切れる。原因を切り分けられるよう明示する。
+    if (out?.stopReason === "max_tokens") {
+      warn(`bedrock converse(${phase}): maxTokens(${maxTokens})に達して出力が打ち切られました。`);
+    }
+    const toolUse = blocks.find((b) => b.toolUse)?.toolUse;
+    if (toolUse) return { __toolInput: toolUse.input };
     return blocks.map((b) => b.text || "").join("").trim();
   } catch {
     warn(`bedrock converse(${phase})の応答をJSONとして解釈できませんでした。`);
@@ -485,13 +493,84 @@ function parseJsonLoose(text) {
   return null;
 }
 
-// JSON を期待する関数: パース失敗時は1回だけ再試行。2回失敗なら null（呼び出し側でスキップ・報告）
+// フェーズごとの出力スキーマ（tool use の inputSchema）。
+// ツール入力はオブジェクトである必要があるので、配列を返すフェーズは items で包み、受け取り側で開く。
+// 制約付きデコーディング（outputConfig / strict）は現行モデルが未対応のため、ここでのスキーマは
+// 強制ではなく誘導。型の取り違え・必須欠落は後段の機械検証で落とす（cortex-engine Issue #13）。
+const STR = { type: "string" };
+const STR_LIST = { type: "array", items: STR };
+const PHASE_SCHEMAS = {
+  decision: {
+    unwrap: "items",
+    item: {
+      date: STR, title: STR, description: STR, deciders: STR_LIST,
+      category: STR, based_on: STR, quote: STR, supersedes: STR_LIST,
+    },
+  },
+  term: {
+    unwrap: "items",
+    item: { term: STR, yomi: STR, definition: STR, synonyms: STR_LIST, conflicts_with: STR },
+  },
+  member: {
+    unwrap: "items",
+    // side / rel は取りうる値が決まっている。enum を書かないとモデルが自然な語（"自社"・"prohibits" 等）を
+    // 入れてくるため、スキーマ側で許容値を宣言して誘導する。
+    item: {
+      name: STR, yomi: STR, org: STR, role: STR,
+      side: { type: "string", enum: ["cm", "client", "vendor", ""] },
+    },
+  },
+  rule: {
+    unwrap: "items",
+    item: {
+      title: STR, description: STR, target: STR, conflicts_with: STR,
+      rel: { type: "string", enum: ["derived_from", "based_on", ""] },
+    },
+  },
+  batch: {
+    unwrap: null,
+    object: {
+      duplicates: { type: "array", items: { type: "array", items: STR } },
+      supersedes_candidates: STR_LIST,
+    },
+  },
+};
+
+// フェーズ名から tool use の toolConfig を組み立てる。
+function toolConfigFor(phase) {
+  const s = PHASE_SCHEMAS[phase];
+  if (!s) return null;
+  const json = s.unwrap
+    ? {
+        type: "object",
+        properties: { [s.unwrap]: { type: "array", items: { type: "object", properties: s.item } } },
+        required: [s.unwrap],
+      }
+    : { type: "object", properties: s.object, required: Object.keys(s.object) };
+  return {
+    tools: [{ toolSpec: { name: `submit_${phase}`, description: "抽出結果を提出する", inputSchema: { json } } }],
+    toolChoice: { tool: { name: `submit_${phase}` } },
+  };
+}
+
+// JSON を期待する関数。
+// tool use（toolChoice で強制）を使うので、応答は toolUse.input にパース済みオブジェクトで返る。
+// テキストからのJSON切り出しは、スタブ経路と、ツールを呼ばずに返してきた場合のフォールバックとして残す。
+// パース失敗時は1回だけ再試行。2回失敗なら null（呼び出し側でスキップ・報告）。
 function callJSON(phase, opts) {
+  const tools = toolConfigFor(phase);
+  const unwrap = PHASE_SCHEMAS[phase]?.unwrap;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const text = callLLM(phase, opts);
-    const obj = parseJsonLoose(text);
-    if (obj !== null) return obj;
-    if (attempt === 0) warn(`${phase}: JSON解析に失敗。1回だけ再試行します。`);
+    const res = callLLM(phase, { ...opts, tools });
+    const obj = res && typeof res === "object" && !Array.isArray(res) && "__toolInput" in res
+      ? res.__toolInput
+      : parseJsonLoose(res);
+    if (obj !== null && obj !== undefined) {
+      // 配列フェーズは items で包ませているので開く。包まずに配列で返してきた場合もそのまま受ける。
+      if (unwrap && !Array.isArray(obj)) return Array.isArray(obj[unwrap]) ? obj[unwrap] : [];
+      return obj;
+    }
+    if (attempt === 0) warn(`${phase}: 応答を解釈できませんでした。1回だけ再試行します。`);
   }
   return null;
 }
