@@ -268,6 +268,14 @@ function frontmatterOf(raw) {
   return end === -1 ? "" : raw.slice(0, end);
 }
 
+// frontmatter を除いた本文。既存定義の「今の長さ」を測り、書き直しの目安にするために使う。
+function bodyOf(raw) {
+  if (!raw) return "";
+  if (!raw.startsWith("---")) return raw.trim();
+  const end = raw.indexOf("\n---", 3);
+  return end === -1 ? "" : raw.slice(end + 4).replace(/^\n+/, "").trim();
+}
+
 function fmField(fmText, field) {
   const m = fmText.match(new RegExp(`^${field}:\\s*["']?([^"'\\n#]+?)["']?\\s*$`, "m"));
   return m ? m[1].trim() : "";
@@ -329,18 +337,27 @@ function loadExistingDecisions() {
 function loadExistingTerms() {
   const titles = [];
   const sigs = new Set();
+  const byTitle = new Map(); // title -> { file, description, body }
   for (const e of listDir("Cortex/Glossary/records") || []) {
     if (!e.isFile() || !e.name.endsWith(".md") || e.name.includes("{{")) continue;
     if (PROD_NEW_FILES.has(`Cortex/Glossary/records/${e.name}`)) continue; // 本番が今run起票した分は既存扱いしない
-    const fm = frontmatterOf(readText(`Cortex/Glossary/records/${e.name}`) || "");
+    const raw = readText(`Cortex/Glossary/records/${e.name}`) || "";
+    const fm = frontmatterOf(raw);
     const t = fmField(fm, "title");
     if (t) {
       titles.push(t);
       sigs.add(normalizeSig(t));
+      // 「既存の定義で説明できているか（same / extend / conflict）」の判定に定義本文が要る。
+      byTitle.set(normalizeSig(t), {
+        file: `Cortex/Glossary/records/${e.name}`,
+        title: t,
+        description: fmField(fm, "description") || "",
+        body: bodyOf(raw),
+      });
     }
     for (const s of fmListField(fm, "synonyms")) sigs.add(normalizeSig(s));
   }
-  return { titles, sigs };
+  return { titles, sigs, byTitle };
 }
 
 // 用語集 README の「除外用語」（過去にレビューで却下された語の再追加防止）
@@ -510,7 +527,13 @@ const PHASE_SCHEMAS = {
   },
   term: {
     unwrap: "items",
-    item: { term: STR, yomi: STR, definition: STR, synonyms: STR_LIST, conflicts_with: STR },
+    item: {
+      term: STR, yomi: STR, definition: STR, body: STR, synonyms: STR_LIST, target: STR,
+      // ドメイン語彙のマーカー（オントロジー規約が許す値は domain のみ）。
+      kind: { type: "string", enum: ["domain", ""] },
+      // 既存レコードとの関係。same は「既存で説明できている」ので抽出させない（出力に含めない）。
+      verdict: { type: "string", enum: ["new", "extend", "conflict"] },
+    },
   },
   member: {
     unwrap: "items",
@@ -635,7 +658,21 @@ function llmExtractDecisions(source, existingEntries, rosterNames) {
 }
 
 // B: 用語抽出（update-gold-auto/SKILL.md の Phase B の基準を転記。Webツールなし前提＝定義が明示された語のみ）
-function llmExtractTerms(source, existingTermTitles, excludedList) {
+// 既存定義の提示。全文だと巨大になるので description ＋ 本文の先頭のみを出す（判定に足りる粒度）。
+const EXISTING_DEF_HEAD = 300;
+function existingTermsBlock(existing) {
+  if (!existing.titles.length) return "(なし)";
+  return existing.titles
+    .map((t) => {
+      const rec = existing.byTitle.get(normalizeSig(t));
+      if (!rec) return `- ${t}`;
+      const head = (rec.body || rec.description || "").slice(0, EXISTING_DEF_HEAD);
+      return `- ${t}（現在の定義: ${head}${(rec.body || "").length > EXISTING_DEF_HEAD ? "…" : ""} / 本文${(rec.body || "").length}字）`;
+    })
+    .join("\n");
+}
+
+function llmExtractTerms(source, existing, excludedList) {
   // 前置き（毎回同一。既存用語・除外用語は同一run内で不変なのでここに入れてキャッシュに載せる）
   const prefix = [
     "次のソースから、用語集に登録すべき案件固有の新規用語を抽出してください。",
@@ -643,27 +680,36 @@ function llmExtractTerms(source, existingTermTitles, excludedList) {
     "対象: 案件・業界固有の用語、社内略語、一般語だがこの案件で特別な意味を持つ語。",
     "定義がソース中に明示されている語のみ登録する。文脈からの推測で定義を書かない。",
     "",
-    "判断基準は「その語の意味を知らないと、この案件のやり取りを誤読するか」。",
+    "線引きは「一般語かどうか」ではなく「**業務ドメインの語彙か、実装・運用の道具か**」。",
     "用語集は語の意味を揃える場所であり、何を採用したか・何が存在するかを記録する場所ではない。",
     "",
-    "判断の例（⭕️=登録する / ❌=登録しない）:",
-    "⭕️ 差戻し … 一般語だが、この案件では「承認者が申請を前工程へ戻す操作」という特定の意味を持つ",
-    "⭕️ 一次連携 … 案件独自の工程名。知らないと会話が通じない",
-    "⭕️ 温度 … 一般語だが、この案件では「見込み客の購買意欲の段階」を指す",
-    "❌ PostgreSQL … 製品名。採用した事実は決定（Decision）であって語彙ではない",
-    "❌ リアルユーザーモニタリング … 一般的な技術用語。辞書的な説明しか書けない",
-    "❌ daily-report … スキル名。固有名詞であって語彙ではない",
-    "❌ config.json … ファイル名。同様にリポジトリ名・ディレクトリ名も登録しない",
-    "❌ 山田太郎 … 人名。メンバー名簿の領分",
+    "⭕️ 登録する（業務ドメインの語彙 = このシステムが扱う対象・状態・イベント・役割）:",
+    "  一般語であっても、属性・ライフサイクル・適用ルールが案件ごとに定まるものは登録する。",
+    "  例) クーポン / スタンプカード / 会員 / 加盟店 / 失効 / 差戻し / 一次連携",
+    "  例) 温度 … 一般語だが、この案件では「見込み客の購買意欲の段階」を指す",
     "",
-    "一般的な意味しか書けない語は登録しない。製品名・サービス名・ライブラリ名は、",
-    "この案件でその語自体が独自の意味に転じている場合を除き登録しない（採用の事実はDecisionが持つ）。",
+    "❌ 登録しない（実装・運用の道具 = それを作る手段）:",
+    "  例) PostgreSQL / CloudWatch RUM … 製品名・サービス名。採用した事実は決定（Decision）であって語彙ではない",
+    "  例) daily-report … スキル名。固有名詞であって語彙ではない",
+    "  例) config.json … ファイル名。リポジトリ名・ディレクトリ名も同様",
+    "  例) 山田太郎 … 人名。メンバー名簿の領分",
+    "  一般的な意味しか書けず、この案件での扱いがソースから読み取れない語も登録しない。",
+    "",
+    "ドメイン語彙（上記⭕️の前者。システムが扱う対象・状態・イベント・役割）には kind に \"domain\" を入れる。",
+    "それ以外（案件独自の言い回し・社内略語など、ドメインモデルには現れない語）は kind を空文字にする。",
     "確信が持てない語は登録しない（過剰登録はノイズとなり用語集の信頼を損なう。直コミットされるため保守的に判断する）。",
     PRIVACY_RULE,
     "",
-    "既存用語のタイトル一覧（これらと同一・実質同義の語は抽出しない＝重複回避）。",
-    "ただし既存の定義を否定・変更する新事実（矛盾）なら、破棄せず抽出し conflicts_with に矛盾する既存用語のタイトルを入れる:",
-    existingTermTitles.length ? existingTermTitles.map((t) => `- ${t}`).join("\n") : "(なし)",
+    "既存用語（タイトル: 現在の定義）。既存語に触れているソースは、次の4つに判定して verdict に入れる:",
+    "  new     … 既存にない新規の語（既存語に触れていない場合もこれ）",
+    "  same    … 既存の定義で説明できている → **抽出しない**（何も出力しない）",
+    "  extend  … 既存の定義では説明しきれない新事実がある → 定義を書き直して出力する",
+    "  conflict… 既存の定義を否定・変更する新事実がある → 定義を書き直して出力する",
+    "extend / conflict のときは target に対象の既存タイトルを入れ、definition に**書き直した定義の全文**を入れる。",
+    "書き直しの規律: **現在の定義の長さを目安とし、大きく超えないこと**。新しい内容を入れるために",
+    "長さが必要なら、既存の記述をより抽象度の高い表現にまとめてその分を捻出する。",
+    "事例を列挙して説明するのではなく、事例から言えることを書く（定義は育てるが膨らませない）。",
+    existingTermsBlock(existing),
     excludedList.length ? "除外用語（過去にレビューで却下。再追加しない）:\n" + excludedList.map((t) => `- ${t}`).join("\n") : "",
     "",
   ].join("\n") + "\n";
@@ -672,10 +718,10 @@ function llmExtractTerms(source, existingTermTitles, excludedList) {
     `=== ソース: ${source.label} ===`,
     source.content,
     "",
-    'JSON配列のみを出力（0件なら []）:',
-    '[{"term": "代表表記", "yomi": "よみ", "definition": "この案件における意味（ソースに明示された定義）", "synonyms": ["..."], "conflicts_with": "矛盾する既存用語のタイトル。矛盾でなければ空文字"}]',
+    'JSON配列のみを出力（0件なら []）。verdict が same のものは含めない:',
+    '[{"term": "代表表記", "yomi": "よみ", "definition": "この案件における意味（1文要約）", "body": "定義の本文（数段落。extend/conflictでは書き直した全文）", "synonyms": ["..."], "kind": "domain または空文字", "verdict": "new|extend|conflict", "target": "extend/conflictのとき対象の既存タイトル。newなら空文字"}]',
   ].join("\n");
-  return callJSON("term", { system: SYS_COMMON, prefix, variable, maxTokens: 2048, timeoutMs: 180_000 });
+  return callJSON("term", { system: SYS_COMMON, prefix, variable, maxTokens: 4096, timeoutMs: 240_000 });
 }
 
 // C: メンバー抽出（update-gold-auto/SKILL.md Phase C の基準を転記。未登録のみ・確証なければ起票しない）
@@ -903,11 +949,22 @@ function buildDecisionFiles(extracted, existing, batchSigs) {
   return { files, skipped };
 }
 
-// 用語: 既存title/synonyms・除外リスト・当夜バッチ内の正規化一致を落とし、status: draft で組み立てる
+// 用語レコードの長さの天井。普段は「現在の長さを目安に増やさない」圧力（プロンプト側）が効き、
+// ここは暴走の防波堤としてだけ機能する。天井に達した用語は切り詰めずに報告する
+// ＝長すぎる定義は「2つの概念が混ざっている」「用語ではなく解説文書になっている」サインなので、
+// 分割・移設の判断を人に返す（実測: 375件中 本文の中央値160字・最大1883字）。
+const TERM_DESC_CAP = 200;
+const TERM_BODY_CAP = 3000;
+
+// 用語: 既存title/synonyms・除外リスト・当夜バッチ内の正規化一致を落とし、status: draft で組み立てる。
+// 用語は更新型（1つの正しい定義を保つ）なので、既存の定義では説明しきれない新事実（extend）や
+// 既存を否定する新事実（conflict）では**既存レコードを書き直す**。旧版は git 履歴に残り、
+// 書き直したレコードは status: draft に戻るので人のレビューに乗る。
 function buildTermFiles(extracted, existingTerms, excludedSigs, batchSigs, dateH) {
   const files = [];
   const skipped = [];
   const conflicts = [];
+  const oversized = [];
   for (const t of extracted) {
     const term = String(t.term || "").trim();
     const definition = String(t.definition || "").trim();
@@ -915,18 +972,40 @@ function buildTermFiles(extracted, existingTerms, excludedSigs, batchSigs, dateH
       skipped.push({ item: t, reason: "term または definition が空" });
       continue;
     }
-    // 矛盾（既存の定義を否定・変更する新事実）: 用語は更新型だが、自動化は新規追加のみという原則を
-    // 崩さないため既存レコードは書き換えず、起票もせずログに明記して人の確認に回す。
-    // TODO(将来): 人のレビュー前提で、既存レコードへの定義更新（差分の提案・別ブランチ化等）まで
-    //             自動化する余地がある。現状は「検出して知らせる」までに留める。
-    const conflictWith = String(t.conflicts_with || "").trim();
-    if (conflictWith) {
-      warn(`既存レコード「${conflictWith}」（用語）と矛盾する内容が検出されました。人の確認が必要です（検出語: ${term}）。`);
-      conflicts.push({ kind: "term", title: term, target: conflictWith });
-      skipped.push({ item: t, reason: `既存用語「${conflictWith}」と矛盾（自動更新はしない・人の確認が必要）` });
+    const verdict = String(t.verdict || "new").trim();
+    const target = String(t.target || "").trim();
+    const sig = normalizeSig(term);
+
+    // extend / conflict: 既存レコードを書き直す（更新型）。対象が特定できなければ安全側に倒して見送る。
+    if (verdict === "extend" || verdict === "conflict") {
+      const rec = existingTerms.byTitle.get(normalizeSig(target || term));
+      if (!rec) {
+        skipped.push({ item: t, reason: `${verdict} と判定されたが対象の既存用語「${target || term}」が見つからない` });
+        continue;
+      }
+      if (batchSigs.has(normalizeSig(rec.title))) {
+        skipped.push({ item: t, reason: "当夜バッチ内で同じ用語を既に更新済み" });
+        continue;
+      }
+      batchSigs.add(normalizeSig(rec.title));
+      const body = String(t.body || definition).trim();
+      if (definition.length > TERM_DESC_CAP || body.length > TERM_BODY_CAP) {
+        oversized.push({ title: rec.title, desc: definition.length, body: body.length });
+      }
+      if (verdict === "conflict") {
+        warn(`既存レコード「${rec.title}」（用語）の定義を、矛盾する新事実に基づいて更新します（draftに戻すので要レビュー）。`);
+        conflicts.push({ kind: "term", title: term, target: rec.title });
+      }
+      files.push({
+        path: rec.file,
+        id: `term:${rec.title}`,
+        title: rec.title,
+        update: verdict,
+        content: rewriteTermRecord(rec, { definition, body, kind: String(t.kind || "").trim(), dateH }),
+      });
       continue;
     }
-    const sig = normalizeSig(term);
+
     if (existingTerms.sigs.has(sig)) {
       skipped.push({ item: t, reason: "既存用語（title/synonyms）と一致" });
       continue;
@@ -949,20 +1028,50 @@ function buildTermFiles(extracted, existingTerms, excludedSigs, batchSigs, dateH
       `title: ${yq(safe)}`,
       `description: ${yq(definition.split("\n")[0].slice(0, 120))}`,
       `synonyms: [${synonyms.map(yq).join(", ")}]`,
+      ...(String(t.kind || "").trim() === "domain" ? ["kind: domain"] : []),
       "scope: project",
       "status: draft",
       `date: ${dateH}`,
       ...(t.source ? [`source: ${yq(String(t.source))}`] : []),
       "---",
     ].join("\n");
+    const body = String(t.body || definition).trim();
+    if (definition.length > TERM_DESC_CAP || body.length > TERM_BODY_CAP) {
+      oversized.push({ title: term, desc: definition.length, body: body.length });
+    }
     files.push({
       path: `Cortex/Glossary/records/${safe}.md`,
       id: `term:${safe}`,
       title: safe,
-      content: fm + `\n\n${definition}\n`,
+      content: fm + `\n\n${body}\n`,
     });
   }
-  return { files, skipped, conflicts };
+  for (const o of oversized) {
+    warn(
+      `用語「${o.title}」が長さの目安を超えています（要約${o.desc}字/上限${TERM_DESC_CAP}・本文${o.body}字/上限${TERM_BODY_CAP}）。` +
+        "2つの概念が混ざっている / 用語ではなく解説文書になっている / 決定の経緯が混ざっている、のいずれかの可能性があります。分割・移設を検討してください。",
+    );
+  }
+  return { files, skipped, conflicts, oversized };
+}
+
+// 既存の用語レコードを、新しい定義で書き直す。title / id / synonyms / scope は保持し、
+// description と本文を差し替え、status は draft に戻す（内容が変わったので再レビューが必要）。
+function rewriteTermRecord(rec, { definition, body, kind, dateH }) {
+  const fm = frontmatterOf(readText(rec.file) || "");
+  const lines = fm.split("\n").filter((l) => l !== "---");
+  const out = ["---"];
+  let sawKind = false;
+  for (const line of lines) {
+    if (/^description:/.test(line)) { out.push(`description: ${yq(definition.split("\n")[0].slice(0, TERM_DESC_CAP))}`); continue; }
+    if (/^status:/.test(line)) { out.push("status: draft"); continue; }
+    if (/^date:/.test(line)) { out.push(`date: ${dateH}`); continue; }
+    if (/^kind:/.test(line)) { sawKind = true; out.push(kind === "domain" ? "kind: domain" : line); continue; }
+    out.push(line);
+  }
+  if (!sawKind && kind === "domain") out.push("kind: domain");
+  out.push("---");
+  return out.join("\n") + `\n\n${body}\n`;
 }
 
 // Rule: 既存title・除外リスト・当夜バッチ内の正規化一致を落とし、status: draft で組み立てる（用語Bと同型）。
@@ -1152,7 +1261,7 @@ function main() {
     }
 
     // B: 用語
-    const b = llmExtractTerms(s, existingTerms.titles, excludedTerms.raw);
+    const b = llmExtractTerms(s, existingTerms, excludedTerms.raw);
     if (b === null) {
       entry.notes.push("B(用語抽出)が不正応答→スキップ");
     } else if (Array.isArray(b)) {
