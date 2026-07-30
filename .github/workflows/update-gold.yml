@@ -266,9 +266,10 @@ jobs:
           - 昇格すべき候補が無ければコミット不要です（毎晩走るため、これは通常の状態です）。
           EOF
           )
-          # 無人実行（ephemeralなCIランナー）のため権限確認はスキップする
-          # 決定・用語・メンバー・ルールの4フェーズを1セッションで回すため、単発の60から余裕を見て増やす
-          claude -p "$PROMPT" --max-turns 150 --dangerously-skip-permissions
+          # 無人実行（ephemeralなCIランナー）のため権限確認はスキップする（ラッパが付与）。
+          # 決定・用語・メンバー・ルールの4フェーズを1セッションで回すため、単発の60から余裕を見て増やす。
+          # 使用量（案件別コストの集計に使う）はラッパが「LLM使用量:」1行で出す。
+          printf '%s' "$PROMPT" | bash .cortex-engine/plugin/scripts/claude-with-usage.sh --max-turns 150
 
       # 決定的パイプライン＋LLM関数化の実装。
       #   shadow … エージェント(claude -p)の後に「観察だけ」実行する。リポジトリの変更・コミット・pushはしない
