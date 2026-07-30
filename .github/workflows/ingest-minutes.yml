@@ -144,9 +144,42 @@ jobs:
           - 対象が無ければ何もコミットせず終了する。
           EOF
           )
-          # 無人実行（ephemeralなCIランナー）のため権限確認はスキップする（ラッパが付与）。
-          # 使用量（案件別コストの集計に使う）はラッパが「LLM使用量:」1行で出す。
-          printf '%s' "$PROMPT" | bash .cortex-engine/plugin/scripts/claude-with-usage.sh --max-turns 60
+          # 無人実行（ephemeralなCIランナー）のため権限確認はスキップする。
+          #
+          # --output-format json で使用量を取る。議事録生成はエージェント（claude -p）が残る唯一の
+          # 経路で、Goldパイプラインと違って自己申告が無く**コストが測れなかった**ため。
+          # CloudWatchのBedrockメトリクスは案件横断で混ざる（夜間は9案件が同時に走る）ので、
+          # run単位で切り分けるにはツール自身の申告が必要。
+          #
+          # 副作用として stdout が最終JSONだけになり実行中のログが見えなくなるので、後段で
+          # result本文を必ず出す。抽出が失敗しても生JSONを出して観測性を落とさない。
+          set +e
+          claude -p "$PROMPT" --max-turns 60 --dangerously-skip-permissions \
+            --output-format json > /tmp/claude-result.json
+          CLAUDE_EXIT=$?
+          set -e
+
+          # result本文と使用量を出す（Goldパイプラインの「LLM使用量:」と同じ書式で揃える）。
+          # ここで job を落とさない（|| true）。落とすのは claude 本体の終了コードだけ。
+          node -e '
+            const fs = require("fs");
+            let j;
+            try { j = JSON.parse(fs.readFileSync("/tmp/claude-result.json", "utf8")); }
+            catch { process.exit(9); }
+            if (j.result) console.log(String(j.result));
+            const u = j.usage || {};
+            const inp = u.input_tokens || 0, out = u.output_tokens || 0;
+            const cw = u.cache_creation_input_tokens || 0, cr = u.cache_read_input_tokens || 0;
+            const billed = inp + cw + cr;
+            const saved = billed > 0 ? Math.round((cr / billed) * 100) : 0;
+            console.log(
+              `LLM使用量: ${j.num_turns ?? "?"}ターン / 入力 ${inp} / 出力 ${out} / ` +
+              `キャッシュ書込 ${cw} / キャッシュ読込 ${cr}（入力側の${saved}%がキャッシュ読込）` +
+              (j.total_cost_usd != null ? ` / 申告コスト $${j.total_cost_usd}` : "")
+            );
+          ' || { echo "::warning::usageの抽出に失敗しました。生の出力を出します。"; cat /tmp/claude-result.json || true; }
+
+          exit "$CLAUDE_EXIT"
 
       # always()（＝生成ステップがタイムアウト・失敗しても実行する）。
       # 生成ステップは1件終わるごとに commit する（上のプロンプトで指示）ので、打ち切られた

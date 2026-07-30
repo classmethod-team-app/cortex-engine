@@ -179,9 +179,8 @@ jobs:
           - 変更が無ければ何もコミットせず終了してください。
           EOF
           )
-          # 無人実行（ephemeralなCIランナー）のため権限確認はスキップする（ラッパが付与）。
-          # 使用量（案件別コストの集計に使う）はラッパが「LLM使用量:」1行で出す。
-          printf '%s' "$PROMPT" | bash .cortex-engine/plugin/scripts/claude-with-usage.sh --max-turns 40
+          # 無人実行（ephemeralなCIランナー）のため権限確認はスキップする
+          claude -p "$PROMPT" --max-turns 40 --dangerously-skip-permissions
 
       # AIが構造を壊した状態を配布しない: 公式lintで errors > 0 なら push せず失敗（warningは許容）。
       # 失敗するとSINCE（=直近の成功run）が進まないため、翌晩も同じ増分窓で再試行される。
