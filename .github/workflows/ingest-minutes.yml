@@ -32,6 +32,12 @@ jobs:
     concurrency:
       group: cortex-repo-write-${{ github.repository }}
       cancel-in-progress: false
+    # 25分から延ばさないこと。この group（cortex-repo-write）には書き込み系が全て入っており、
+    # cron は 12:00 ingest → 12:45 sync-designs → 13:00 update-gold（UTC）と詰まっている。
+    # 45分にすると ingest が 12:45 まで枠を占有し、pending に回った sync-designs が
+    # 13:00 の update-gold の登録で**警告も出さずキャンセルされる**（同一グループの pending は
+    # 1本しか保持されない）。滞留の消化は1回で終わらせるのではなく、Push を always() にして
+    # 1回ごとに前進させることで解く。
     timeout-minutes: 25
     env:
       AWS_REGION: ap-northeast-1 # Claude を有効化したリージョン（東京）
@@ -141,23 +147,40 @@ jobs:
             投入フォームやbotがフラットな場所（例: 会議/{YYYYMMDD}-xxx.docx）に置いた文字起こし原本は、生成する議事録と同じ
             {YYYYMMDD}フォルダへ移動してから議事録を作る（create-minute/SKILL.md の配置規約に従う）。日付プレフィックスは除いてよい。
           - .cortex-engine/ 配下（エンジン）は走査対象から除外し、変更・コミットもしない。
-          - 変更があれば git commit までを行う（push は行わない）。
+          - **1件終わるたびに git commit する**（push は行わない）。最後にまとめてコミットしない。
+            1コミットは「文字起こしの移動＋その議事録」で完結させ、第2パスの自己検証まで済ませてから
+            コミットする（検証前のものをコミットすると、次回は「議事録あり」と見なされ二度と検証されない）。
+            滞留が多いとタイムアウトで打ち切られることがあり、**コミット済みの分だけが救出される**ため、
+            まとめてコミットするとその回の成果が全て失われる。
           - 対象が無ければ何もコミットせず終了する。
           EOF
           )
           # 無人実行（ephemeralなCIランナー）のため権限確認はスキップする
           claude -p "$PROMPT" --max-turns 60 --dangerously-skip-permissions
 
+      # always()（＝生成ステップがタイムアウト・失敗しても実行する）。
+      # 生成ステップは1件終わるごとに commit する（上のプロンプトで指示）ので、打ち切られた
+      # 時点までの成果はローカルに残っている。ここを条件付きにすると**その成果ごと捨てられる**
+      # （実測: 滞留8件のリポで25分で打ち切られ Push が skip され、生成済みの議事録が全損した）。
+      # 部分 push で壊れる心配はない——1コミット = 文字起こしの移動＋その議事録で完結しており、
+      # 少なく入るだけ。残りは次回（repository_dispatch / 日次cron / 手動再実行）が拾う。
+      #
+      # 前提: 救出はキャンセル後の猶予（数分）の中で終わる必要がある。push は通常数秒だが、
+      # rebase リトライに入ると猶予を超えて強制終了され救出できないことがある。
       - name: Push（競合時はrebaseで再試行）
-        if: steps.pre.outputs.run == 'true'
+        if: always() && steps.pre.outputs.run == 'true'
         uses: classmethod-team-app/cortex-engine/.github/actions/robust-push@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # 生成された議事録を Slack に通知しレビューを促す（品質ゲート。best-effort＝失敗しても job を落とさない）。
       # notify:true チャンネルへ投稿し、文字起こしに埋め込まれた organizer をメンションする。
+      #
+      # Push と同じく always()。打ち切られたrunで push だけ走って通知が skip されると、
+      # その議事録は**永久に通知されない**（次回は「議事録あり」と見なしてスキップするため
+      # 二度目の機会が来ない）。未レビューのまま Gold 昇格に食われるのを防ぐ。
       - name: 議事録レビュー依頼を通知（best-effort）
-        if: steps.pre.outputs.run == 'true'
+        if: always() && steps.pre.outputs.run == 'true'
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           PRE_HEAD: ${{ steps.prehead.outputs.sha }}

@@ -294,12 +294,30 @@ jobs:
 
       # 生成物がオントロジー規約に違反している場合、ここで止める（壊れたコミットをpushしない）
       # 増分窓が約25時間あるため、生成の揺らぎによる違反は翌晩のリトライで回復する
+      # always() で、精製ステップが打ち切られた場合も検証する（下の Push が検証結果に依存するため）。
       - name: Cortexのスキーマ検証
-        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
+        id: validate
+        if: always() && steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
         run: node .cortex-engine/plugin/scripts/validate-cortex.mjs
 
+      # 精製ステップが打ち切られても、そこまでにコミットされた分は push する（条件付きにすると
+      # その成果ごと捨てられる。議事録生成で実際に全損した経路と同じ）。
+      #
+      # ただし **`always()` だけにしてはいけない**。`always()` は暗黙の success() を落とすため、
+      # 直前の検証が exit 1 で落ちた場合も push してしまう。それは検証ゲートの撤去に等しく、
+      # 次の状態に固定される: 規約外のレコードが main に永住 → 毎晩の検証が落ち続ける →
+      # SINCE は「直近**成功**run」から算出するので成功runが生まれず窓が前進しない → 14日
+      # キャップに張り付いて毎晩14日ぶんを再処理する。人がファイルを直すまで自動回復しない。
+      # よって `steps.validate.outcome == 'success'` を必ず併記する。
+      #
+      # 増分窓(SINCE)は打ち切られたrun（conclusion=cancelled）では進まないため、次回が同じ窓を
+      # 見直す。同じソースを再度掘っても、先にpushしたレコードが「既存」として重複照合に掛かる。
+      # ただし照合は正規化titleの完全一致なので、言い換えが起きると別レコードになり得る（残存リスク）。
+      #
+      # 既知の限界: real モードは全ソースの抽出を終えてから applyReal() で一括コミットするため、
+      # 抽出中に打ち切られると救出できる成果がない。real 移行時にソースごとの適用へ直す必要がある。
       - name: Push（競合時はrebaseで再試行）
-        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
+        if: always() && steps.validate.outcome == 'success' && steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
         uses: classmethod-team-app/cortex-engine/.github/actions/robust-push@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
