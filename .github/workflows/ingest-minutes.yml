@@ -222,21 +222,14 @@ jobs:
             rm -f "$tf"
           done <<< "$NEW_MINUTES"
 
-      # 【移行①シャドーモード】決定的パイプライン＋LLM関数化の新実装を「観察だけ」実行する。
-      # リポジトリの変更・コミット・pushは一切しない（判断ログと生成議事録をrun log / Step Summaryに出すのみ）。
-      # 失敗しても run を落とさない（continue-on-error）。カナリア切替は本シャドーの結果を見て別途。
+      # 【シャドー実行は撤去した（2026-07-30）】決定的パイプライン（plugin/scripts/ingest-minutes-pipeline.mjs）
+      # を毎晩「観察だけ」走らせていたが、次の2点で費用だけ払う状態になっていたため外した。
+      # スクリプト自体は REAL 移行の土台として残してある（再開するなら下の条件を満たしてから）。
       #
-      # **必ず本番(claude -p)と Push の後に置く。** 観察のみで成果物を残さないステップなので、
-      # 本番より前に置くと job の時間を先に食い、本番が飢える。実測: 滞留8件のリポで
-      # シャドーが25分中16分を消費し、本番に9分弱しか残らず議事録が1件も作れなかった。
-      # 時間予算は「成果を残す処理」が先に取り、観察は残りでやる。
+      #   1. **比較結果が残らない**: shadow は無変更要件のため /tmp と $GITHUB_STEP_SUMMARY にしか
+      #      書かない。runに紐づいて消えるので蓄積されず、突き合わせが実際には行われていなかった。
+      #   2. **本番の時間を奪っていた**: 本番(claude -p)より前に置かれていたため、滞留8件のリポで
+      #      25分中16分を消費し、本番に9分弱しか残らず議事録が1件も作れなかった（実測）。
       #
-      # timeout-minutes を付けて上限も切る（continue-on-error があるので超過しても run は落ちない）。
-      - name: 議事録パイプライン（シャドー・観察のみ）
-        if: steps.pre.outputs.run == 'true' && steps.schema.outputs.current == 'true'
-        continue-on-error: true
-        timeout-minutes: 8
-        env:
-          INGEST_PIPELINE_MODE: shadow
-          ANTHROPIC_MODEL: global.anthropic.claude-sonnet-5 # 本番ステップと同一モデル
-        run: node .cortex-engine/plugin/scripts/ingest-minutes-pipeline.mjs
+      # 再開するときの条件: (a) レポートを蓄積できる場所へ出す（tmp/ にコミットする等）。
+      # (b) 本番と Push の**後ろ**に置き timeout-minutes で上限を切る。時間予算は成果を残す処理が先に取る。
