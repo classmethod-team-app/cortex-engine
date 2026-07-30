@@ -26,10 +26,14 @@ on:
         type: string
         default: ""
       gold_pipeline_mode:
-        description: "Gold昇格の実装。shadow=エージェント(claude -p)が書き、パイプラインは観察のみ / real=パイプラインが書き、エージェントは動かさない。カナリアから段階的に real へ移す"
+        description: "Gold昇格の実装。real=パイプラインが書き、エージェントは動かさない（既定）/ shadow=エージェント(claude -p)が書き、パイプラインは観察のみ。問題が出た案件だけ shadow に戻せる"
         required: false
         type: string
-        default: "shadow"
+        # 2026-07-30: カナリア（cortex-context）で 7/28・7/29 と実際に Decision・用語集・
+        # メンバー名簿を起票できたため既定を real にし艦隊へ展開した。案件側スタブは本入力を
+        # 渡していないので、既定値の変更だけで切り替わる（スタブの書き換えは不要）。
+        # 問題が出た案件は、その案件のスタブに `gold_pipeline_mode: shadow` を足せば個別に戻せる。
+        default: "real"
 
     secrets:
       # 別orgのスタブから呼ばれる場合 secrets: inherit は届かないため、受け口を明示的に宣言する。
