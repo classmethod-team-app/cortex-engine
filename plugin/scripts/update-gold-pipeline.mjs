@@ -438,21 +438,46 @@ function callLLM(phase, { system, prefix, variable, maxTokens, timeoutMs, tools 
   const content = prefix.length >= CACHE_MIN_PREFIX_CHARS
     ? [{ text: prefix }, { cachePoint: { type: "default" } }, { text: variable }]
     : [{ text: prefix + variable }]; // 最小トークン数に満たない前置きはキャッシュされないので分割しない
-  const args = [
-    "bedrock-runtime", "converse",
-    "--model-id", MODEL,
-    "--region", REGION,
-    "--messages", JSON.stringify([{ role: "user", content }]),
-    "--inference-config", JSON.stringify({ maxTokens }), // temperature はSonnet 5で廃止（指定するとValidationException）
-  ];
-  if (system) args.push("--system", JSON.stringify([{ text: system }]));
+  // リクエストは**ファイル渡し**（--cli-input-json）にする。コマンドライン引数で渡してはいけない。
+  // Linux には1引数あたり 131,072バイト（MAX_ARG_STRLEN。32ページ固定で ulimit では緩められない）の
+  // 上限があり、`--messages` に本文を直接載せると長いソースで execve が E2BIG で落ちる。
+  // SOURCE_CHAR_CAP は 150,000字＝日本語UTF-8で約450KBを許容しているので上限の3倍以上になりうる。
+  // 実測（2026-08-01）: cortexの最大の文字起こし＋前置きで128,898バイト＝上限まで残り2,174バイト。
+  // 既存レコード一覧は毎晩増えて前置きが伸びるため、放置すると近いうちに必ず発火する。
+  //
+  // 発火したときの壊れ方が悪い: spawnSync がエラーを返す→「不正応答」として3回リトライ→全部同じ失敗
+  // → failedCells に載って run 失敗 → SINCE が前進しない → 翌晩も同じ失敗 → GIVE_UP_AFTER で
+  // 恒久的な取りこぼしが確定する。長い議事録が1本入るだけで起きる。
   // ツール呼び出しを強制すると、応答が toolUse.input にパース済みオブジェクトで返る（自由文で返す事故が消える）。
-  if (tools) args.push("--tool-config", JSON.stringify(tools));
-  const r = spawnSync("aws", args, {
-    encoding: "utf-8",
-    timeout: timeoutMs,
-    maxBuffer: 64 * 1024 * 1024,
-  });
+  const payload = {
+    modelId: MODEL,
+    messages: [{ role: "user", content }],
+    inferenceConfig: { maxTokens }, // temperature はSonnet 5で廃止（指定するとValidationException）
+    ...(system ? { system: [{ text: system }] } : {}),
+    ...(tools ? { toolConfig: tools } : {}),
+  };
+  const reqFile = path.join(os.tmpdir(), `gold-req-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+  let r;
+  try {
+    // mode 0600。一時ディレクトリは他ユーザーからも見えるうえ、本文には顧客の会議文字起こしが入る。
+    fs.writeFileSync(reqFile, JSON.stringify(payload), { encoding: "utf-8", mode: 0o600 });
+    r = spawnSync("aws", [
+      "bedrock-runtime", "converse",
+      "--region", REGION,
+      "--cli-input-json", `file://${reqFile}`,
+    ], {
+      encoding: "utf-8",
+      timeout: timeoutMs,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  } catch (e) {
+    // **本関数は throw しない**（失敗は必ず null で返す）という契約を守る。ここで例外を漏らすと
+    // 呼び出し側に catch が無いためプロセスごと落ち、applyReal 前に死んでその晩の成果が全て消える。
+    warn(`bedrock converse(${phase})のリクエスト書き出しに失敗しました: ${e.message}`);
+    return null;
+  } finally {
+    try { fs.unlinkSync(reqFile); } catch {}
+  }
   if (r.status !== 0 || r.error) {
     warn(`bedrock converse(${phase})が失敗しました: ${r.error ? r.error.message : (r.stderr || `exit ${r.status}`)}`);
     return null;

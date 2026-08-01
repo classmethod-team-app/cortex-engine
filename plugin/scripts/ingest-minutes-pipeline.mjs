@@ -212,19 +212,40 @@ function callLLM(phase, { system, user, maxTokens, timeoutMs }) {
   }
 
   // 本番: aws bedrock-runtime converse
-  const args = [
-    "bedrock-runtime", "converse",
-    "--model-id", MODEL,
-    "--region", REGION,
-    "--messages", JSON.stringify([{ role: "user", content: [{ text: user }] }]),
-    "--inference-config", JSON.stringify({ maxTokens }), // temperature はSonnet 5で廃止（指定するとValidationException）
-  ];
-  if (system) args.push("--system", JSON.stringify([{ text: system }]));
-  const r = spawnSync("aws", args, {
-    encoding: "utf-8",
-    timeout: timeoutMs,
-    maxBuffer: 64 * 1024 * 1024,
-  });
+  // リクエストは**ファイル渡し**（--cli-input-json）にする。コマンドライン引数で渡してはいけない。
+  // Linux には1引数あたり 131,072バイト（MAX_ARG_STRLEN。32ページ固定で ulimit では緩められない）の
+  // 上限があり、`--messages` に本文を直接載せると長い文字起こしで execve が E2BIG で落ちる。
+  // 88KBの文字起こしは実在する（会議1本で上限の7割）。落ちると「不正応答」に化けて再試行も同じ失敗になり、
+  // 原因が分からないまま該当の会議だけ議事録が作られない状態になる。
+  const payload = {
+    modelId: MODEL,
+    messages: [{ role: "user", content: [{ text: user }] }],
+    inferenceConfig: { maxTokens }, // temperature はSonnet 5で廃止（指定するとValidationException）
+    ...(system ? { system: [{ text: system }] } : {}),
+  };
+  const reqFile = path.join(os.tmpdir(), `ingest-req-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+  let r;
+  try {
+    // mode 0600。一時ディレクトリは他ユーザーからも見えるうえ、本文は顧客の会議文字起こしそのもの。
+    fs.writeFileSync(reqFile, JSON.stringify(payload), { encoding: "utf-8", mode: 0o600 });
+    r = spawnSync("aws", [
+      "bedrock-runtime", "converse",
+      "--region", REGION,
+      "--cli-input-json", `file://${reqFile}`,
+    ], {
+      encoding: "utf-8",
+      timeout: timeoutMs,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  } catch (e) {
+    // **本関数は throw しない**（失敗は必ず null で返す）という契約を守る。ここで例外を漏らすと
+    // 呼び出し側に catch が無いためプロセスごと落ちる。applyReal は全対象を処理し終えてから走るので、
+    // 途中で死ぬと**それまでに生成済みの議事録がまるごと捨てられる**。
+    warn(`bedrock converse(${phase})のリクエスト書き出しに失敗しました: ${e.message}`);
+    return null;
+  } finally {
+    try { fs.unlinkSync(reqFile); } catch {}
+  }
   if (r.status !== 0 || r.error) {
     warn(`bedrock converse(${phase})が失敗しました: ${r.error ? r.error.message : (r.stderr || `exit ${r.status}`)}`);
     return null;
