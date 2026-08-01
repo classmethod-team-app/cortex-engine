@@ -143,27 +143,41 @@ Backlogへの書き込みは顧客にも見える慎重な操作のため、承�
 
 #### 3-B. 環境変数経路（Backlog REST API を直接呼び出す）
 
-種別に応じて以下のいずれかを実行します。`BACKLOG_API_KEY` はクエリパラメータ `apiKey` で渡します。本文は `--data-urlencode` で安全にエンコードします。
+種別に応じて以下のいずれかを実行します。`BACKLOG_API_KEY` はクエリパラメータ `apiKey` で渡します。
+
+> ⚠️ **本文はコマンドラインに直接書かず、必ずファイルに書いてから `@ファイルパス` で渡してください。**
+> Linux には1引数あたり **131,072バイト**の上限（`MAX_ARG_STRLEN`。`ulimit` では緩められない）があり、
+> 長いWikiページや仕様ドキュメントを本文に直接書くと `Argument list too long` で失敗します。
+> **macOS にはこの上限が無いため手元では通り、Claude Code Web や CI（Linux）でだけ落ちます。**
+> 切り分けが難しい形で出るので、短い本文でも例外なくファイル経由にしてください。
+
+```bash
+# まず本文をファイルに書く（以降の各コマンドはこれを参照する）
+BODY_FILE="$(mktemp)"
+cat > "$BODY_FILE" <<'EOF'
+コメント本文
+EOF
+```
 
 **課題にコメントを追加**
 
 ```bash
 curl -sS -X POST "https://$DOMAIN/api/v2/issues/PROJ-123/comments?apiKey=$BACKLOG_API_KEY" \
-  --data-urlencode "content=コメント本文"
+  --data-urlencode "content@$BODY_FILE"
 ```
 
 **課題の本文・属性を更新**（`summary`=件名 / `description`=本文 / `statusId`・`assigneeId` 等）
 
 ```bash
 curl -sS -X PATCH "https://$DOMAIN/api/v2/issues/PROJ-123?apiKey=$BACKLOG_API_KEY" \
-  --data-urlencode "description=新しい本文"
+  --data-urlencode "description@$BODY_FILE"
 ```
 
 **Wikiを更新**（`name`=ページ名 / `content`=本文。いずれも任意）
 
 ```bash
 curl -sS -X PATCH "https://$DOMAIN/api/v2/wikis/12345?apiKey=$BACKLOG_API_KEY" \
-  --data-urlencode "content=新しいWiki本文"
+  --data-urlencode "content@$BODY_FILE"
 ```
 
 **ドキュメントを新規追加**（`projectId`=数値のプロジェクトID が必須。`title`=タイトル / `content`=本文(Markdown) / `parentId`=配置先フォルダ・親ドキュメントのID は任意）
@@ -175,8 +189,10 @@ PROJECT_ID=$(curl -sS "https://$DOMAIN/api/v2/projects/$PROJECT_KEY?apiKey=$BACK
 curl -sS -X POST "https://$DOMAIN/api/v2/documents?apiKey=$BACKLOG_API_KEY" \
   --data-urlencode "projectId=$PROJECT_ID" \
   --data-urlencode "title=新規ドキュメントのタイトル" \
-  --data-urlencode "content=本文（Markdown）"
+  --data-urlencode "content@$BODY_FILE"
 ```
+
+投稿が終わったら `rm -f "$BODY_FILE"` で消します（本文には顧客とのやり取りが入るため手元に残さない）。
 
 既存ドキュメントの**本文更新**はこの手順では行いません（APIなし）。依頼された場合はBacklog上で直接編集してもらい、手順4の取り直しのみ行います（「対応範囲」参照）。
 
@@ -191,61 +207,81 @@ curl -sS -X POST "https://$DOMAIN/api/v2/documents?apiKey=$BACKLOG_API_KEY" \
 
 プロキシ経由の投稿は、Backlog上の投稿者が**共有ボットアカウント**になります。誰の記票かを残すため、**本文末尾に `---` 区切りの記名を必ず付け**、`author` フィールドにも同じ名前を入れます（監査ログ用）。利用者名は `git config user.name` 等から推定し、**手順2の🚨承認プレビューで確認**してください。
 
+> ⚠️ **本文はコマンドラインに直接書かず、必ずファイル経由で扱ってください。**
+> `jq --arg` と `curl -d` の二重で argv に載るため、Linux の1引数 **131,072バイト**上限
+> （`MAX_ARG_STRLEN`・`ulimit` 不可）に長い本文で抵触します。**macOS では通り Linux でだけ落ちる**ので、
+> Claude Code Web や CI からのみ失敗するという切り分けにくい形で出ます。
+
 ```bash
 AUTHOR="$(git config user.name)"   # 推定した利用者名。承認プレビューで確認する
-# 本文末尾に記名を付す（実際の本文を BODY に入れる）
-BODY="コメント本文"
-CONTENT="$(printf '%s\n\n---\n_投稿: %s（Cortex経由）_' "$BODY" "$AUTHOR")"
+BODY_FILE="$(mktemp)"; REQ_FILE="$(mktemp)"
+cat > "$BODY_FILE" <<'EOF'
+コメント本文
+EOF
+# 本文末尾に記名を付す（ファイル上で行う）
+printf '\n\n---\n_投稿: %s（Cortex経由）_' "$AUTHOR" >> "$BODY_FILE"
 ```
 
-各アクションは JSON ボディを組み立て、`?op=backlog&t=${TOKEN}` に POST します。`projectKey` は必ず添え、`projectId` はプロキシ側が案件から解決・強制注入するため送りません（送っても案件に強制されます）。
+各アクションは JSON ボディを**ファイルに組み立ててから** `?op=backlog&t=${TOKEN}` に POST します（`jq --rawfile` で本文を読み、`curl -d @ファイル` で送る）。`projectKey` は必ず添え、`projectId` はプロキシ側が案件から解決・強制注入するため送りません（送っても案件に強制されます）。`projectKey` は必ず添え、`projectId` はプロキシ側が案件から解決・強制注入するため送りません（送っても案件に強制されます）。
 
 **課題にコメントを追加**（`comment`）
 
 ```bash
+jq -n --arg pk "$PKEY" --arg author "$AUTHOR" --rawfile content "$BODY_FILE" \
+  '{projectKey:$pk, author:$author, action:"comment", issueKey:"PROJ-123", content:$content}' > "$REQ_FILE"
+
 curl -sS -X POST "${URL}?op=backlog&t=${TOKEN}" \
   -H "content-type: application/json" \
-  -d "$(jq -n --arg pk "$PKEY" --arg author "$AUTHOR" --arg content "$CONTENT" \
-    '{projectKey:$pk, author:$author, action:"comment", issueKey:"PROJ-123", content:$content}')"
+  -d @"$REQ_FILE"
 ```
 
 **課題の本文・属性を更新**（`issue-update`。`params` に `summary`/`description`/`statusId`/`assigneeId` 等を透過で渡す）
 
 ```bash
+jq -n --arg pk "$PKEY" --arg author "$AUTHOR" --rawfile desc "$BODY_FILE" \
+  '{projectKey:$pk, author:$author, action:"issue-update", issueKey:"PROJ-123", params:{description:$desc}}' > "$REQ_FILE"
+
 curl -sS -X POST "${URL}?op=backlog&t=${TOKEN}" \
   -H "content-type: application/json" \
-  -d "$(jq -n --arg pk "$PKEY" --arg author "$AUTHOR" --arg desc "$CONTENT" \
-    '{projectKey:$pk, author:$author, action:"issue-update", issueKey:"PROJ-123", params:{description:$desc}}')"
+  -d @"$REQ_FILE"
 ```
 
 **課題を新規作成**（`issue-create`。`params.summary` 必須・`description` 等任意。`issueTypeId`/`priorityId` 未指定はプロキシが補完）
 
 ```bash
+jq -n --arg pk "$PKEY" --arg author "$AUTHOR" --arg summary "新規課題の件名" --rawfile desc "$BODY_FILE" \
+  '{projectKey:$pk, author:$author, action:"issue-create", params:{summary:$summary, description:$desc}}' > "$REQ_FILE"
+
 curl -sS -X POST "${URL}?op=backlog&t=${TOKEN}" \
   -H "content-type: application/json" \
-  -d "$(jq -n --arg pk "$PKEY" --arg author "$AUTHOR" --arg summary "新規課題の件名" --arg desc "$CONTENT" \
-    '{projectKey:$pk, author:$author, action:"issue-create", params:{summary:$summary, description:$desc}}')"
+  -d @"$REQ_FILE"
 ```
 
 **Wikiを更新**（`wiki-update`。`params` に `name`/`content` を渡す。いずれも任意）
 
 ```bash
+jq -n --arg pk "$PKEY" --arg author "$AUTHOR" --rawfile content "$BODY_FILE" \
+  '{projectKey:$pk, author:$author, action:"wiki-update", wikiId:"12345", params:{content:$content}}' > "$REQ_FILE"
+
 curl -sS -X POST "${URL}?op=backlog&t=${TOKEN}" \
   -H "content-type: application/json" \
-  -d "$(jq -n --arg pk "$PKEY" --arg author "$AUTHOR" --arg content "$CONTENT" \
-    '{projectKey:$pk, author:$author, action:"wiki-update", wikiId:"12345", params:{content:$content}}')"
+  -d @"$REQ_FILE"
 ```
 
 **ドキュメントを新規追加**（`document-create`。`params.title`/`content` を渡す。`parentId` は任意。`projectId` はプロキシが解決）
 
 ```bash
+jq -n --arg pk "$PKEY" --arg author "$AUTHOR" --arg title "新規ドキュメントのタイトル" --rawfile content "$BODY_FILE" \
+  '{projectKey:$pk, author:$author, action:"document-create", params:{title:$title, content:$content}}' > "$REQ_FILE"
+
 curl -sS -X POST "${URL}?op=backlog&t=${TOKEN}" \
   -H "content-type: application/json" \
-  -d "$(jq -n --arg pk "$PKEY" --arg author "$AUTHOR" --arg title "新規ドキュメントのタイトル" --arg content "$CONTENT" \
-    '{projectKey:$pk, author:$author, action:"document-create", params:{title:$title, content:$content}}')"
+  -d @"$REQ_FILE"
 ```
 
 既存ドキュメントの**本文更新**はプロキシ経路でも行いません（APIなし・「対応範囲」参照）。プロキシは削除系アクションを持ちません（記票のみ）。
+
+投稿が終わったら `rm -f "$BODY_FILE" "$REQ_FILE"` で消します（本文には顧客とのやり取りが入るため手元に残さない）。
 
 レスポンスは `{ "result": …Backlogレスポンス…, "url": "…閲覧URL…" }` の形で返り、`url` はプロキシが組み立て済みです。手順5の報告ではこの `url` をそのまま使います。
 
