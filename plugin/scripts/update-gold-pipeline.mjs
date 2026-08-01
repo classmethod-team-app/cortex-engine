@@ -54,11 +54,30 @@ const SINCE = process.env.SINCE || "";
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 // 1ソースあたりの本文上限（converse への引数長の安全上限。超過分は切って警告）
 const SOURCE_CHAR_CAP = 150_000;
-// cachePoint（プロンプトキャッシュ）を置く前置きの最小長。Bedrock はモデルごとにキャッシュ成立の最小トークン数を
-// 要求し（Sonnet系は概ね1024トークン）、それ未満のブロックに cachePoint を置いてもキャッシュされず、
-// 分割のオーバーヘッドだけが残る。トークン数は事前に測れないので文字数で概算する（日本語は概ね1字≒1トークン弱
-// なので、4000字あれば1024トークンを十分に超える）。下回るときは cachePoint を置かず1ブロックで送る。
-const CACHE_MIN_PREFIX_CHARS = 4_000;
+// cachePoint（プロンプトキャッシュ）を置く前置きの最小長。これ未満だと cachePoint を置いても
+// **AWS側が黙って無視する**（エラーにならず課金もされないが、キャッシュされない）。
+//
+// **最小長は cachePoint までの全体で判定される**（`tools` → `system` → `messages` の合計）。
+// prefix 単体ではないので、本番と同じ tools/system を付けた状態で測る必要がある。
+//
+// 2026-08-01 実測（global.anthropic.claude-sonnet-5・本番と同じ system と toolConfig を付与）:
+//   200字 → キャッシュ書込 0（無視）
+//   300字 → キャッシュ書込 1,032（成立）
+//   → tools+system だけで約770トークンあるため、prefix は250トークン程度で足りる。
+//
+// 参考: tools/system 無しで測ると境界は1,200字だった（最小1,024トークン）。この差がそのまま
+// tools+system の寄与。**判定式は prefix.length しか見ていないので、閾値はこの下駄を織り込む。**
+//
+// 以前は 4,000 だった（Opus/Haiku 系の 4,096 を Sonnet に当てはめた値と思われる）。必要量の
+// 10倍以上で、既存レコードが少ない案件ではキャッシュが1回も成立していなかった
+// （2026-07-30の夜間実行で sushiro・tokyu-line・mitsubishi のキャッシュ書込が 0）。
+//
+// 600 は実測値300字の2倍。前置きは日本語だけでなく ASCII（課題キー・JSON例・enum値）を
+// 15〜40%含み、ASCIIは1字あたりのトークン数が小さいので、字数での概算には余裕が要る。
+//
+// **モデルを変えるときは必ず測り直すこと。** 最小トークン数はモデルごとに違う
+// （Sonnet 5 と Sonnet 4.5 は 1,024 だが、Haiku 4.5 と Opus 4.5/4.6 は 4,096）。
+const CACHE_MIN_PREFIX_CHARS = 600;
 
 const log = (msg) => process.stdout.write(`${msg}\n`);
 const warn = (msg) => process.stderr.write(`::warning::update-gold-pipeline: ${msg}\n`);
