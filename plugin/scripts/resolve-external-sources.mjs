@@ -311,7 +311,28 @@ function main() {
     const isExcluded = s.type.startsWith("github") && excludeRepos.has(s.ref);
     if (ALL) {
       // --all: 除外も落とさず gold で表現。slack は notify（channels.json 由来・既定false）と url も注釈する。
-      const item = { type: s.type, ref: s.ref, name: s.name || s.ref, gold: !(isGoldFalse || isGoldUndeclared || isExcluded) };
+      //
+      // **`goldState` で理由まで伝える。** `gold` は真偽値なので「意図的に外した」「宣言し忘れ」
+      // 「exclude リストに入っている」の3つが同じ false に潰れる。表示側はこれらを区別できないと
+      // 「正常な除外」にまで警告を出して麻痺する（意図的なOFFに⚠️が付くのは誤り）。
+      //   on         … 対象。読まれる
+      //   off        … 意図的に外している（gold: false）。正常な状態であり警告してはいけない
+      //   undeclared … 宣言し忘れ。判断されていないので促す価値がある
+      //   excluded   … exclude リストによる除外（github系）
+      const goldState = isGoldFalse
+        ? "off"
+        : isGoldUndeclared
+          ? "undeclared"
+          : isExcluded
+            ? "excluded"
+            : "on";
+      const item = {
+        type: s.type,
+        ref: s.ref,
+        name: s.name || s.ref,
+        gold: goldState === "on",
+        goldState,
+      };
       if (s.type === "slack") item.notify = s.notify === true;
       if (s.url) item.url = s.url;
       if (s.decisions !== undefined) item.decisions = s.decisions;

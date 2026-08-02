@@ -40,7 +40,14 @@ const hasPlaceholder = (t) => !!t && /\{\{[^}]+\}\}/.test(t);
 /** Home.md frontmatter の `tools`（能力→ツール）を { capability: tool } で返す。無しは null */
 function parseTools(text) {
   if (!text) return null;
-  const m = text.match(/^tools:\s*\n((?:[ \t]+\S.*\n?)+)/m);
+  // `tools:` の後に行内コメントが付くケースを許す。scaffold の既定はコメント無しだが、
+  // 手で書き足された案件が実在する。resolve-external-sources.mjs の readFrontmatterMap は
+  // `^tools:\s*(#.*)?$` で許しており、ここだけ「直後に改行が必須」だったため、
+  // **同じ宣言を2つのスクリプトが別々に解釈していた**。実際にそう書かれた案件の tools が
+  // fleet-status.json から丸ごと欠落し、「宣言と実体の食い違いを可視化する」はずの
+  // 計測器自身が食い違いを作っていた。
+  // `\s*` を `[ \t]*` に絞ると `\r` を食えなくなるので、CRLF は `\r?` で明示的に許す。
+  const m = text.match(/^tools:[ \t]*(?:#[^\r\n]*)?\r?\n((?:[ \t]+\S.*\r?\n?)+)/m);
   if (!m) return null;
   const map = {};
   for (const line of m[1].split("\n")) {
@@ -214,6 +221,16 @@ const CHECKS = [
   { id: "submodules", label: "開発 submodule 構成", cat: "開発", applies: usesTool("開発", "github", gitmodules != null),
     status: gitmodules == null ? "missing" : (hasPlaceholder(gitmodules) ? "missing" : "ok"),
     action: "開発リポを submodule として追加" },
+  // 「宣言はあるのに1件も導出されていない」を捕まえる。
+  // 開発リポの Issues は .gitmodules から自動導出されるが、submodule の置き場が `開発/` 以外の案件は
+  // Home.md に engine.dev_dir を宣言しないと導出が空振りする。しかも**その空振りは警告を出さない**
+  // （resolveDevDir が warn するのは危険値のときだけで、未宣言は既定へ静かにフォールバックする）。
+  // 実際に、submodule を持ち `開発: github` と宣言しているのに Issues が一度も読まれていない案件があった。
+  { id: "dev_issues_derived", label: "開発 Issues の導出", cat: "開発",
+    applies: usesTool("開発", "github", gitmodules != null) && gitmodules != null,
+    status: () => (externalSources.some((x) => String(x.type).startsWith("github")) ? "ok" : "missing"),
+    detail: () => externalSources.filter((x) => String(x.type).startsWith("github")).length + "件",
+    action: "submodule の置き場が 開発/ 以外なら Cortex/Home.md に engine.dev_dir を宣言する" },
   // ---- 会議 == google-meet（議事録の自動取得 = Meet/Drive） ----
   { id: "meeting_minutes", label: "議事録(Meet自動取得) ※暫定", cat: "会議", applies: usesTool("会議", "google-meet", true),
     status: meetingCount > 0 ? "ok" : "missing", action: "Google Meet/Drive 連携を設定し文字起こしの自動取り込みを有効化する" },
@@ -260,7 +277,14 @@ function probeSlackGate(ref) {
 
 /** github の物理ゲート実測: トークンスコープでリポが見えるか（repos/{ref} 1コール） */
 function probeGithubGate(ref) {
-  const token = process.env.EXTERNAL_SOURCES_TOKEN || process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+  // **読めなかったとき、原因が「外部ソース用トークンの未設定」なのかを区別する。**
+  // 以前は失敗を一律 `unreachable` にしていたため、「トークンが無い」と「スコープ不足/リポが無い」が
+  // 同じ値になっていた。原因が1本のトークン未設定でも、ソースの行数だけ警告が並ぶ状態だった。
+  //
+  // 自リポの Issues は自動トークンで読めるので、フォールバック自体は残す（外すと読めているものまで
+  // no_token になる）。切り分けるのは**失敗したとき**だけ。
+  const external = process.env.EXTERNAL_SOURCES_TOKEN;
+  const token = external || process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
   if (!token) return "no_token";
   try {
     execFileSync("gh", ["api", `repos/${ref}`, "--jq", ".id"],
@@ -269,14 +293,20 @@ function probeGithubGate(ref) {
     return "ok";
   } catch (e) {
     const s = `${e.stderr || ""}${e.stdout || ""}`;
-    if (/404|403|Not Found/i.test(s)) return "unreachable";
+    if (/404|403|Not Found/i.test(s)) {
+      // 外部ソース用トークンが無い状態で他リポを読もうとして落ちたなら、原因はスコープではなく未設定。
+      // こう分けておくと、表示側が「N件読めていません（原因: トークン未設定）」と原因単位でまとめられる。
+      return external ? "unreachable" : "no_token";
+    }
     return "unknown";
   }
 }
 
 const externalSources = resolveExternalSourcesAll().map((s) => {
   const gate = s.type === "slack" ? probeSlackGate(s.ref) : probeGithubGate(s.ref);
-  const item = { type: s.type, name: s.name, ref: s.ref, gold: s.gold !== false };
+  // goldState は resolver 由来の三値（on/off/undeclared/excluded）。表示側が「意図的な除外」と
+  // 「宣言し忘れ」を区別するために要る（区別できないと正常なOFFにも警告が出て麻痺する）。
+  const item = { type: s.type, name: s.name, ref: s.ref, gold: s.gold !== false, goldState: s.goldState };
   if (s.type === "slack") item.notify = s.notify === true;
   // 表示用URL（判明する場合のみ付与）: slack=channels.json の url / github系=ref から機械導出
   let url;
@@ -475,11 +505,16 @@ const internalSources = listInternalSources();
 // ---------- 評価 ----------
 let okW = 0, denW = 0;
 const checks = CHECKS.map((c) => {
-  const status = c.applies === false ? "na" : c.status;
+  // status / detail / applies は関数で書ける（遅延評価）。CHECKS は externalSources より前に
+  // 定義されるため、後続の値に依存するチェックは関数にしないと参照できない（TDZ）。
+  const applies = typeof c.applies === "function" ? c.applies() : c.applies;
+  const rawStatus = typeof c.status === "function" ? c.status() : c.status;
+  const status = applies === false ? "na" : rawStatus;
   const w = c.weight || 1;
   if (status === "ok") { okW += w; denW += w; } else if (status === "missing") { denW += w; }
   return { id: c.id, label: c.label, category: c.cat, status, weight: w,
-    detail: c.detail || undefined, action: status === "missing" ? c.action : undefined };
+    detail: (typeof c.detail === "function" ? c.detail() : c.detail) || undefined,
+    action: status === "missing" ? c.action : undefined };
 });
 const score = denW > 0 ? Math.round((okW / denW) * 100) : null;
 const nextActions = checks.filter((c) => c.status === "missing" && c.action).map((c) => c.action);
