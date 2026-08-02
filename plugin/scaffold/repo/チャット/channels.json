@@ -1,19 +1,21 @@
 {
-  "_note": "platform は slack | teams（省略時は slack）。Microsoft Teams のチャンネルは \"platform\": \"teams\" を指定する。\"notify\": true を付けたチャンネルには Cortex の自動通知（議事録レビュー依頼・Gold昇格サマリ）が届く（省略時は false=通知しない・複数指定可・現状 slack のみ対応）。前提: Slack App（Bot）に chat:write（メンションには users:read.email）を付与し、通知チャンネルに bot を招待しておくこと。通知先は公開範囲を考慮して選ぶ（顧客同席チャンネルに流すかは案件判断）。\"gold\"（既定 true）: 夜間Gold昇格(update-gold)がこのチャンネルを読み取り対象にするか。platform=slack のチャンネルは既定で自動的に読み取り対象になる（bot招待済みのものだけ実際に読める）。特定チャンネルを蒸留対象から外したいときだけ \"gold\": false を付ける（通知の notify とは独立のフラグ）。",
+  "_note": "platform は slack | teams（省略時は slack）。Microsoft Teams のチャンネルは \"platform\": \"teams\" を指定する。\"notify\": true を付けたチャンネルには Cortex の自動通知（議事録レビュー依頼・Gold昇格サマリ）が届く（省略時は false=通知しない・複数指定可・現状 slack のみ対応）。前提: Slack App（Bot）に chat:write（メンションには users:read.email）を付与し、通知チャンネルに bot を招待しておくこと。通知先は公開範囲を考慮して選ぶ（顧客同席チャンネルに流すかは案件判断）。\"gold\"（既定 false）: 夜間Gold昇格(update-gold)がこのチャンネルを読み取り、顧客も見るGold層（Decision・用語）へ蒸留してよいか。**明示的に \"gold\": true を書いたチャンネルだけが対象**になる（書き忘れは対象外＝安全側）。このファイルは /read-chat の参照先・通知先(notify)としても使う共用の宣言なので、別目的で足したチャンネルが無言でGold昇格の対象にならないようにしてある。「チャットを読みに行く」ことと「顧客が見るGoldに上げる」ことは重さの違う判断。社内限定の議論をするチャンネルには付けないこと（notify とは独立のフラグ）。",
   "channels": [
     {
       "name": "社内議論",
       "platform": "slack",
       "url": "https://your-workspace.slack.com/archives/CHANNEL_ID",
       "notify": true,
-      "description": "このチャンネルの用途・性質を一言で（どんな話題がここに来るか）。read-chat が複数チャンネルから見る先を選ぶ手がかりになる"
+      "description": "このチャンネルの用途・性質を一言で（どんな話題がここに来るか）。read-chat が複数チャンネルから見る先を選ぶ手がかりになる",
+      "gold": false
     },
     {
       "name": "顧客共有",
       "platform": "slack",
       "url": "https://your-workspace.slack.com/archives/CHANNEL_ID",
       "notify": false,
-      "description": "顧客が閲覧・書き込みする場（社内専用ではない。投稿時は社外公開前提で注意）。性質が異なるチャンネルは description で明示する"
+      "description": "顧客が閲覧・書き込みする場（社内専用ではない。投稿時は社外公開前提で注意）。性質が異なるチャンネルは description で明示する",
+      "gold": true
     }
   ]
 }
