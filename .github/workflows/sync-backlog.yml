@@ -15,6 +15,10 @@ on:
       # 同一orgからの inherit も引き続き有効（後方互換）。未設定の案件では空文字で渡り、各ワークフローの前提チェックがskipに倒す。
       BACKLOG_API_KEY:
         required: false
+      # 設定UIから投入されたキーを Secrets Manager から取るために使う。
+      # 未設定の案件は従来どおり repo secret にフォールバックする。
+      AWS_ROLE_TO_ASSUME:
+        required: false
       BACKLOG_DOMAIN:
         required: false
       BACKLOG_PROJECT_KEY:
@@ -23,6 +27,9 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write # Secrets Manager から取得するための OIDC
     # 同一リポ内でBacklogミラーへ書き込む全ワークフロー（cron同期・realtime・decision-log等）を
     # 1グループに直列化し、backlog-settings.json 等の再生成ファイルでのpush競合を構造的に減らす。
     concurrency:
@@ -50,10 +57,33 @@ jobs:
           echo "同時刻バースト回避のため ${wait} 秒待機します"
           sleep "$wait"
 
+      # `secrets` は if: で直接参照できないので、一度 env に落としてから判定する。
+      - name: AWSロールの有無を判定
+        id: awsrole
+        env:
+          ROLE: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+        run: |
+          if [ -n "${ROLE:-}" ]; then echo "has=true" >> "$GITHUB_OUTPUT"; else echo "has=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: AWS認証（Secrets Manager からキーを取るため。未設定ならスキップ）
+        if: steps.awsrole.outputs.has == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ap-northeast-1
+
+      # Backlog の APIキーは**スペース単位**で保管している（同じスペースを使う案件で共有）。
+      - name: BacklogのAPIキーを取得
+        id: backlog_key
+        uses: classmethod-team-app/cortex-engine/.github/actions/fetch-secret@v1
+        with:
+          secret-id: cortex/backlog-api-key/${{ secrets.BACKLOG_DOMAIN }}
+          fallback: ${{ secrets.BACKLOG_API_KEY }}
+
       - name: Backlog同期
         id: sync
         env:
-          BACKLOG_API_KEY: ${{ secrets.BACKLOG_API_KEY }}
+          BACKLOG_API_KEY: ${{ steps.backlog_key.outputs.value }}
           DOMAIN: ${{ secrets.BACKLOG_DOMAIN }}
           PROJECT_KEY: ${{ secrets.BACKLOG_PROJECT_KEY }}
         run: |

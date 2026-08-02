@@ -229,6 +229,15 @@ jobs:
           role-to-assume: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # 設定UIから投入されたトークンは Secrets Manager に入る。無ければ従来の repo secret を使う。
+      - name: 外部ソース用トークンを取得
+        id: ext_token
+        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
+        uses: ./.cortex-engine/.github/actions/fetch-secret
+        with:
+          secret-id: cortex/${{ github.event.repository.name }}/external-sources-token
+          fallback: ${{ secrets.EXTERNAL_SOURCES_TOKEN }}
+
       - name: Claude Code をインストール
         if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
         run: npm i -g @anthropic-ai/claude-code
@@ -247,7 +256,7 @@ jobs:
           ANTHROPIC_MODEL: global.anthropic.claude-sonnet-5 # Sonnet 5。jp.（日本国内推論）に未提供のため当面global.で運用し、jp.anthropic.claude-sonnet-5 が提供され次第そちらへ切り替える（Bedrockで該当モデルのアクセス有効化が必要）
           API_TIMEOUT_MS: "600000" # Bedrockの長いリクエスト（大コンテキスト読み）がCLI既定タイムアウトで「API Error: The operation timed out」死するのを防ぐ（2026-07-23に2連続発生）
           SINCE: ${{ steps.win.outputs.since }} # 増分起点（前回成功以降）。スキルの git log --since に渡す
-          GH_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.ext_token.outputs.value || secrets.GITHUB_TOKEN }}
           SELF_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 自リポのIssues/Discussionsは自動トークンで読む（外部ソース用PATの対象外でも取りこぼさない） # スキルが external-sources.sh で外部ソース(Issues/Discussions)を取得するため
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} # スキルが external-sources.sh で slack ソースを取得するため（未設定なら slack はスキップ）
         run: |
@@ -291,7 +300,7 @@ jobs:
           ANTHROPIC_MODEL: global.anthropic.claude-sonnet-5 # 本番ステップと同一モデル
           SINCE: ${{ steps.win.outputs.since }} # 本番と同じ増分起点
           GOLD_PRE_HEAD: ${{ steps.goldprehead.outputs.sha }} # 本番の起票分を比較表示するための基準
-          GH_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.ext_token.outputs.value || secrets.GITHUB_TOKEN }}
           SELF_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 自リポのIssues/Discussionsは自動トークンで読む（外部ソース用PATの対象外でも取りこぼさない） # external-sources.sh 用（本番と同一）
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} # external-sources.sh の slack ソース用（未設定なら活動なし扱い）
         run: node .cortex-engine/plugin/scripts/update-gold-pipeline.mjs
