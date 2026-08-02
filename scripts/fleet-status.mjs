@@ -40,12 +40,14 @@ const hasPlaceholder = (t) => !!t && /\{\{[^}]+\}\}/.test(t);
 /** Home.md frontmatter の `tools`（能力→ツール）を { capability: tool } で返す。無しは null */
 function parseTools(text) {
   if (!text) return null;
-  // `tools:` の後に行内コメントが付く（scaffold の既定がまさにそう）ケースを許す。
-  // resolve-external-sources.mjs の readFrontmatterMap は `^tools:\s*(#.*)?$` で許しており、
-  // ここだけ「直後に改行が必須」だったため、**同じ宣言を2つのスクリプトが別々に解釈していた**。
-  // 実際に、行内コメント付きで書かれた案件の tools が fleet-status.json から丸ごと欠落し、
-  // 「宣言と実体の食い違いを可視化する」はずの計測器自身が食い違いを作っていた。
-  const m = text.match(/^tools:[ \t]*(?:#[^\n]*)?\n((?:[ \t]+\S.*\n?)+)/m);
+  // `tools:` の後に行内コメントが付くケースを許す。scaffold の既定はコメント無しだが、
+  // 手で書き足された案件が実在する。resolve-external-sources.mjs の readFrontmatterMap は
+  // `^tools:\s*(#.*)?$` で許しており、ここだけ「直後に改行が必須」だったため、
+  // **同じ宣言を2つのスクリプトが別々に解釈していた**。実際にそう書かれた案件の tools が
+  // fleet-status.json から丸ごと欠落し、「宣言と実体の食い違いを可視化する」はずの
+  // 計測器自身が食い違いを作っていた。
+  // `\s*` を `[ \t]*` に絞ると `\r` を食えなくなるので、CRLF は `\r?` で明示的に許す。
+  const m = text.match(/^tools:[ \t]*(?:#[^\r\n]*)?\r?\n((?:[ \t]+\S.*\r?\n?)+)/m);
   if (!m) return null;
   const map = {};
   for (const line of m[1].split("\n")) {
