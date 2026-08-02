@@ -5,14 +5,15 @@
 // 正規化済みリスト [{type, ref, name, ...options}] を標準出力にJSONで出す。
 // fetcher（external-sources.sh）はこの出力を回すだけになる。
 //
-// --all フラグ: 除外済み（gold:false チャンネル・exclude リポ）も落とさず、gold:true/false と
+// --all フラグ: 対象外（gold が true でないチャンネル・exclude リポ）も落とさず、gold:true/false と
 // notify・url（slackのみ・channels.json由来）の注釈付きで全登録を出す。fleet-status の接続状況可視化用。
 // 既定動作（フィルタ済み＝update-gold の取得対象）には影響しない。
 //
 // 入力: cwd（リポジトリルート）。読むもの:
 //   - Cortex/Home.md           の frontmatter tools（チャット/開発 のゲート判定）と
 //                              engine.dev_dir（開発submoduleの置き場の宣言。省略時は「開発」）
-//   - チャット/channels.json    （既定 slack チャンネルの導出元。gold:false は除外）
+//   - チャット/channels.json    （既定 slack チャンネルの導出元。**gold: true を明示したものだけ**が
+//                              Gold昇格の対象。宣言が無いチャンネルは対象外＝安全側）
 //   - .gitmodules              （既定 github-issues の導出元。dev_dir 配下のsubmoduleのみ・wiki除外）
 //   - Cortex/external-sources.json（特殊ソースの明示登録＋exclude）
 // いずれも無ければその導出/マージをスキップする（1件も無ければ空配列）。
@@ -23,7 +24,10 @@
 //     wiki（path末尾が /wiki・リポ名が .wiki で終わるもの）も除外する。
 //   - dev_dir に危険値（`/`始まり・`.`始まり・`..`セグメント等）が宣言されていたら無効として warn し、
 //     既定の「開発」にフォールバックする（宣言ミスで防衛線が広がらないようにする）。
-//   - 除外（gold:false チャンネル・exclude リポ）は最終フィルタとして常に効かせる（読まない側に倒す）。
+//   - 除外（gold が true でないチャンネル・exclude リポ）は最終フィルタとして常に効かせる（読まない側に倒す）。
+//   - **Slackチャンネルの Gold昇格は明示的なopt-in（gold: true）**。channels.json は /read-chat の参照先・
+//     通知先(notify)としても使う共用の宣言なので、別目的で足したチャンネルが無言でGold昇格の対象に
+//     ならないようにする。「読みに行く」と「顧客が見るGoldに上げる」は重さの違う判断として分ける。
 //
 // 設計メモ:
 //   - tools ゲート: チャット:slack でなければ slack を導出しない・開発:github でなければ github を導出しない。
@@ -132,7 +136,33 @@ function deriveSlackChannels() {
       warn(`チャンネル '${label}' の url からIDを抽出できません。スキップします。`);
       continue;
     }
-    out.push({ ref: m[1], name: c.name || m[1], gold: c.gold !== false, notify: c.notify === true, url });
+    // **Gold昇格は明示的なopt-in（gold: true）でのみ有効にする。**
+    // 以前は既定 true（gold: false を書いたときだけ除外）だった。しかし channels.json は
+    // /read-chat の参照先・通知先(notify)としても使う共用の宣言なので、**別の目的でチャンネルを
+    // 1行足した人が、無言でGold昇格の対象を増やせる**構造になっていた。
+    // 実際に、説明に「本案件の社内チャンネル」と書かれたチャンネルが顧客可視のGoldへ昇格しており、
+    // 単価・工数が顧客向けビューアに載る事故が起きた。
+    // 「チャットを読みに行く」ことと「顧客が見るGoldに上げる」ことは重さの違う判断なので、
+    // 後者は必ず明示させる（書き忘れは繋がらない側＝安全側に倒れる）。
+    // 三値で持つ: true=昇格する / false=昇格しない（意思表示）/ undefined=未宣言。
+    // undefined は既定では対象外だが、external-sources.json に明示登録があればそちらを勝たせる
+    // （false との違いはそこ。詳細は下の goldFalseChannels のコメント）。
+    const gold = typeof c.gold === "boolean" ? c.gold : undefined;
+    // 黙って対象外にすると「昇格されない」ことに気づけないので、名前を挙げて知らせる。
+    // **boolean 以外もすべて警告する。** `"true"`（文字列）や `1` を書いた場合、
+    // 「true と書いたつもりなのに効いていない」方向のミスだけが無音になってしまうため。
+    if (typeof c.gold !== "boolean") {
+      const label = c.name || m[1];
+      warn(
+        c.gold === undefined
+          ? `チャンネル '${label}' は Gold昇格の対象外です（gold の宣言がありません）。` +
+              `顧客が見るGoldに上げてよいチャンネルには "gold": true を明示してください。` +
+              `意図して外しているなら "gold": false を明示すればこの警告は消えます。`
+          : `チャンネル '${label}' の gold が真偽値ではありません（${JSON.stringify(c.gold)}）。` +
+              `対象外として扱います。true / false で書いてください。`,
+      );
+    }
+    out.push({ ref: m[1], name: c.name || m[1], gold, notify: c.notify === true, url });
   }
   return out;
 }
@@ -234,9 +264,26 @@ function main() {
   }
   const excludeRepos = new Set((cfg.exclude || []).map((r) => String(r)));
 
-  // gold:false チャンネルID集合（最終フィルタで常に除外）
+  // Gold昇格の対象外チャンネルID集合（最終フィルタで常に除外）。
+  //
+  // **「明示的に false」と「宣言なし」を区別する。** どちらも channels.json 単独では対象外だが、
+  // external-sources.json への明示登録（＝「このソースをGoldに上げてよい」という人間の判断）と
+  // ぶつかったときの強さが違う:
+  //   - `gold: false`  … 除外の意思表示。明示登録より強い（人間が「上げるな」と書いている）
+  //   - 宣言なし        … 単なる未記入。明示登録があるならそちらが人間の判断なので、そちらを勝たせる
+  // 区別しないと、external-sources.json に登録した9チャンネルが channels.json の書き忘れ1つで
+  // 全部黙って消える（実際にそうなっていた）。
   const goldFalseChannels = new Set(
     derived.filter((d) => d.type === "slack" && d.gold === false).map((d) => d.ref),
+  );
+  // 宣言なしのチャンネル。明示登録が無ければ対象外にする（opt-in の既定）。
+  const goldUndeclaredChannels = new Set(
+    derived
+      .filter((d) => d.type === "slack" && d.gold === undefined)
+      .map((d) => d.ref),
+  );
+  const explicitSlackRefs = new Set(
+    explicit.filter((e) => e.type === "slack").map((e) => e.ref),
   );
 
   // マージ＋dedupe（type+ref単位・明示登録優先）。まず導出→上書きで明示を反映。
@@ -254,19 +301,25 @@ function main() {
 
   const result = [];
   for (const s of byKey.values()) {
+    // `gold: false` は明示的な除外の意思表示なので、明示登録より強い（常に落とす）。
     const isGoldFalse = s.type === "slack" && goldFalseChannels.has(s.ref);
+    // 宣言なしは、external-sources.json への明示登録がある場合のみ通す（無ければ opt-in の既定で落とす）。
+    const isGoldUndeclared =
+      s.type === "slack" &&
+      goldUndeclaredChannels.has(s.ref) &&
+      !explicitSlackRefs.has(s.ref);
     const isExcluded = s.type.startsWith("github") && excludeRepos.has(s.ref);
     if (ALL) {
       // --all: 除外も落とさず gold で表現。slack は notify（channels.json 由来・既定false）と url も注釈する。
-      const item = { type: s.type, ref: s.ref, name: s.name || s.ref, gold: !(isGoldFalse || isExcluded) };
+      const item = { type: s.type, ref: s.ref, name: s.name || s.ref, gold: !(isGoldFalse || isGoldUndeclared || isExcluded) };
       if (s.type === "slack") item.notify = s.notify === true;
       if (s.url) item.url = s.url;
       if (s.decisions !== undefined) item.decisions = s.decisions;
       result.push(item);
       continue;
     }
-    // 既定: 最終フィルタ（opt-out は常に効かせる＝読まない側に倒す）。gold/notify/url は内部判定・表示用なので出力に残さない。
-    if (isGoldFalse || isExcluded) continue;
+    // 既定: 最終フィルタ（対象外は常に落とす＝読まない側に倒す）。gold/notify/url は内部判定・表示用なので出力に残さない。
+    if (isGoldFalse || isGoldUndeclared || isExcluded) continue;
     const item = { type: s.type, ref: s.ref, name: s.name || s.ref };
     if (s.decisions !== undefined) item.decisions = s.decisions;
     result.push(item);

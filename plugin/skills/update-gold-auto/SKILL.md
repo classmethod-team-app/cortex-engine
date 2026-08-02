@@ -33,7 +33,7 @@ bash "<SKILL_DIR>/../../scripts/changed-sources.sh" "${SINCE:-}" "Cortex/"
 
 - 出力された各行を「当日の対象リポ差分ソース」とする。
 
-**外部ソースの取得**: 外部ソース（GitHub Issues/Discussions/Slack）から、`SINCE` 以降に更新されたコンテンツを取得する。取得対象は既定の自動導出＋明示登録から `resolve-external-sources.mjs` が解決する——(1)`チャット/channels.json` の slack チャンネル（Home.md `tools` のチャットが slack のとき・`gold: false` は除外）(2)`.gitmodules` の dev_dir（既定: `開発/`。Home.md の `engine.dev_dir` で変更可）配下 submodule（wiki 除外・Home.md `tools` の開発が github のとき）(3)`Cortex/external-sources.json` の明示登録（github-discussions・追加リポ/チャンネル等）。差分ゲートと同一スクリプトを共有する（二重定義防止）。
+**外部ソースの取得**: 外部ソース（GitHub Issues/Discussions/Slack）から、`SINCE` 以降に更新されたコンテンツを取得する。取得対象は既定の自動導出＋明示登録から `resolve-external-sources.mjs` が解決する——(1)`チャット/channels.json` の slack チャンネルのうち **`gold: true` を明示したもの**（Home.md `tools` のチャットが slack のとき。宣言が無いチャンネルは対象外＝安全側）(2)`.gitmodules` の dev_dir（既定: `開発/`。Home.md の `engine.dev_dir` で変更可）配下 submodule（wiki 除外・Home.md `tools` の開発が github のとき）(3)`Cortex/external-sources.json` の明示登録（github-discussions・追加リポ/チャンネル等）。差分ゲートと同一スクリプトを共有する（二重定義防止）。
 
 ```bash
 # 出力（ソース見出し付きテキスト）を「当日の外部コンテンツ」とする。導出も登録も無い/活動なしなら空出力。
@@ -41,8 +41,8 @@ bash "<SKILL_DIR>/../../scripts/changed-sources.sh" "${SINCE:-}" "Cortex/"
 bash "<SKILL_DIR>/../../scripts/external-sources.sh" "${SINCE:-}"
 ```
 
-- 既定ソースは既存宣言（channels.json・.gitmodules）から自動導出され、`external-sources.json` は特殊ソースの追加登録＋除外（opt-out）専用。導出/登録されたソースは「その中身を Gold に昇格してよい」という前提で扱う（record単位のvisibilityフラグは無い）。**ただし公開範囲フィルタは維持する**（下記「注意事項」）。
-- 除外は opt-out で行う——チャンネルは `channels.json` のエントリに `gold: false`、リポは `external-sources.json` の `exclude: ["owner/repo"]`。安全は物理ゲートも担保する（Slack は bot 招待済みチャンネルのみ・GitHub はトークンスコープ内のみ読める）。
+- ソースは既存宣言から解決する——**Slackチャンネルは `channels.json` に `gold: true` を明示したものだけ（opt-in）**、開発リポは `.gitmodules` から自動導出（`external-sources.json` の `exclude` で外す）。`external-sources.json` は特殊ソースの追加登録用。解決されたソースは「その中身を Gold に昇格してよい」という前提で扱う（record単位のvisibilityフラグは無い）。**ただし公開範囲フィルタは維持する**（下記「注意事項」）。
+- **チャンネルは opt-in**——`channels.json` のエントリに `gold: true` を明示したものだけが対象。`channels.json` は読み取り(/read-chat)・通知(notify)にも使う共用の宣言なので、別目的で足したチャンネルが無言で顧客可視のGoldへ流れないようにしてある。**リポは opt-out**——`external-sources.json` の `exclude: ["owner/repo"]` で外す。安全は物理ゲートも担保する（Slack は bot 招待済みチャンネルのみ・GitHub はトークンスコープ内のみ読める）。
 - Slack も外部ソースとして扱われる（`SLACK_BOT_TOKEN` と bot 招待済みチャンネルが前提。未設定/未招待/権限不足はスクリプトが「活動なし」としてスキップする）。**公開範囲フィルタは Slack にも適用する**（下記「注意事項」）。
 - **リポ差分ソースも外部コンテンツも 0 件なら**、以降をスキップして「昇格なし」で正常終了する。ワークフロー経由の実行では、両方0件ならそもそもAI実行前にスキップされている。
 
