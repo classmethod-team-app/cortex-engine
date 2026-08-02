@@ -171,10 +171,13 @@ function findDirByMarker(marker, fallback) {
 
 // ---------- 決定的: ソース列挙 ----------
 
-// リポ内差分ソース: changed-sources.sh "$SINCE" "Cortex/"（ワークフローの差分ゲートと同一スクリプト）。
+// リポ内差分ソース: changed-sources.sh "$SINCE" "Cortex/" "tmp/"（ワークフローの差分ゲートと同一スクリプト・同一除外）。
 // 会議ディレクトリ配下は *_minutes.md のみ（文字起こし原本は読まない＝スキルの規律）。
 function enumerateRepoSources(meetingDir) {
-  const r = spawnSync("bash", [path.join(SCRIPT_DIR, "changed-sources.sh"), SINCE, "Cortex/"], {
+  // tmp/ は作業領域（下書き・調査メモ・検討中の案）で確定した事実ではないので抽出源に入れない。
+  // 呼び出し側（update-gold.yml の差分ゲート）と同じ除外を渡すこと。ここだけ抜けると、
+  // ゲートは通らないのにパイプライン本体が読む、という食い違いが起きる（実際に起きた）。
+  const r = spawnSync("bash", [path.join(SCRIPT_DIR, "changed-sources.sh"), SINCE, "Cortex/", "tmp/"], {
     encoding: "utf-8",
     maxBuffer: 16 * 1024 * 1024,
   });
