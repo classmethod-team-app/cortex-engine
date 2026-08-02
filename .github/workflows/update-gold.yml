@@ -204,7 +204,7 @@ jobs:
           SELF_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 自リポのIssues/Discussionsは自動トークンで読む（外部ソース用PATの対象外でも取りこぼさない）
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} # external-sources.sh が slack ソースを読むため（未設定なら slack は活動なし扱い）
         run: |
-          CHANGED=$(bash .cortex-engine/plugin/scripts/changed-sources.sh "$SINCE" "Cortex/")
+          CHANGED=$(bash .cortex-engine/plugin/scripts/changed-sources.sh "$SINCE" "Cortex/" "tmp/")
           EXT=$(bash .cortex-engine/plugin/scripts/external-sources.sh "$SINCE")
           if [ -n "$CHANGED" ] || [ -n "$EXT" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -262,7 +262,7 @@ jobs:
           - Backlog同期は既にワークフロー側で実行済みなのでスキップしてください。
           - フェーズごと（決定→用語→メンバー→ルール）に、対象ディレクトリだけを git add して逐次コミットしてください（push は行わない）。
           - ルール（Rule）は用語より一段保守的に。継続的に守る制約として明示的に合意されたものだけを status: draft で起票し、一回の決定・単発TODO・推測は起票しないでください（確信が持てなければ起票しない）。
-          - Cortex/ 配下・.cortex-engine/ 配下（エンジン）は抽出源から除外してください（自己参照防止・エンジン不変更）。ただし本セッションの Phase A で自分が作成した Decision を用語フェーズの抽出源に含めるのは例外です（スキルの指示どおり）。
+          - Cortex/ 配下・.cortex-engine/ 配下（エンジン）・tmp/ 配下（作業領域。下書きや検討中の案であり確定した事実ではない）は抽出源から除外してください（自己参照防止・エンジン不変更）。ただし本セッションの Phase A で自分が作成した Decision を用語フェーズの抽出源に含めるのは例外です（スキルの指示どおり）。
           - 昇格すべき候補が無ければコミット不要です（毎晩走るため、これは通常の状態です）。
           EOF
           )
