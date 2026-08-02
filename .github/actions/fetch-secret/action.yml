@@ -1,0 +1,61 @@
+name: シークレットの取得（Secrets Manager 優先・repo secret フォールバック）
+description: >
+  案件のトークンを AWS Secrets Manager から取得する。設定UIから投入された値はここに入る。
+  無ければ従来の GitHub Actions secret を使う（移行中の案件が壊れないようにするため）。
+
+# なぜこの形か:
+#   トークンを設定UIから投入できるようにするため、置き場所を Secrets Manager へ寄せている。
+#   ただし全案件が同時に移行するわけではないので、**両方を見て新しい方を優先する**。
+#   フォールバックが無いと、投入していない案件がエンジン更新の瞬間に一斉に止まる。
+#
+# 値の扱い:
+#   取得した値は ::add-mask:: で伏せてから出力する。マスクしないとログに素で出る。
+
+inputs:
+  secret-id:
+    description: Secrets Manager のシークレット名（例 cortex/kc/figma-token）
+    required: true
+  fallback:
+    description: 見つからない場合に使う値（従来の repo secret）
+    required: false
+    default: ""
+
+outputs:
+  value:
+    description: 取得した値（未設定なら空文字）
+    value: ${{ steps.get.outputs.value }}
+  source:
+    description: どちらから取れたか（secrets-manager | fallback | none）
+    value: ${{ steps.get.outputs.source }}
+
+runs:
+  using: composite
+  steps:
+    - id: get
+      shell: bash
+      env:
+        SECRET_ID: ${{ inputs.secret-id }}
+        FALLBACK: ${{ inputs.fallback }}
+      run: |
+        set -uo pipefail
+        VALUE=""
+        SOURCE="none"
+        # AWS 認証が無い（ロール未設定の案件）ときは静かにフォールバックする。
+        # ここで失敗させると、移行していない案件の同期が止まる。
+        if aws sts get-caller-identity >/dev/null 2>&1; then
+          if VALUE=$(aws secretsmanager get-secret-value --secret-id "$SECRET_ID" \
+                       --query SecretString --output text 2>/dev/null) && [ -n "$VALUE" ]; then
+            SOURCE="secrets-manager"
+          else
+            VALUE=""
+          fi
+        fi
+        if [ -z "$VALUE" ] && [ -n "$FALLBACK" ]; then
+          VALUE="$FALLBACK"
+          SOURCE="fallback"
+        fi
+        # **必ずマスクしてから出力する。** しないと後続ステップのログに素で出る
+        if [ -n "$VALUE" ]; then echo "::add-mask::$VALUE"; fi
+        echo "value=$VALUE" >> "$GITHUB_OUTPUT"
+        echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
+        echo "::notice::${SECRET_ID} の取得元: ${SOURCE}"

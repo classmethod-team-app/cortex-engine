@@ -16,10 +16,17 @@ on:
         required: false
       FIGMA_TOKEN:
         required: false
+      # 設定UIから投入されたトークンを Secrets Manager から取るために使う。
+      # 未設定の案件は従来どおり repo secret の FIGMA_TOKEN にフォールバックする。
+      AWS_ROLE_TO_ASSUME:
+        required: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write # Secrets Manager から取得するための OIDC
     # 同一リポ内でmainへ書き込む同期系ワークフローと直列化し、push競合を構造的に減らす。
     concurrency:
       group: cortex-repo-write-${{ github.repository }}
@@ -40,6 +47,29 @@ jobs:
       - name: エンジンをGit管理対象外にする
         run: echo ".cortex-engine/" >> .git/info/exclude
 
+      # 設定UIから投入されたトークンは Secrets Manager に入る。無ければ従来の repo secret を使う
+      # （移行していない案件が、エンジン更新の瞬間に一斉に止まらないようにするため）。
+      # `secrets` は if: で直接参照できないので、一度 env に落としてから判定する。
+      - name: AWSロールの有無を判定
+        id: awsrole
+        env:
+          ROLE: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+        run: |
+          if [ -n "${ROLE:-}" ]; then echo "has=true" >> "$GITHUB_OUTPUT"; else echo "has=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: AWS認証（Secrets Manager からトークンを取るため。未設定ならスキップ）
+        if: steps.awsrole.outputs.has == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ap-northeast-1
+
+      - name: Figmaトークンを取得
+        id: figma_token
+        uses: ./.cortex-engine/.github/actions/fetch-secret
+        with:
+          secret-id: cortex/${{ github.event.repository.name }}/figma-token
+          fallback: ${{ secrets.FIGMA_TOKEN }}
       - name: 設定の有無を確認
         id: conf
         run: |
@@ -49,7 +79,7 @@ jobs:
           if [ -z "$FJ" ] || ! grep -q '"key"' "$FJ"; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "figma.json が未設定のためスキップします"
-          elif [ -z "${{ secrets.FIGMA_TOKEN }}" ]; then
+          elif [ -z "${{ steps.figma_token.outputs.value }}" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "FIGMA_TOKEN が未設定のためスキップします"
           else
@@ -71,7 +101,7 @@ jobs:
       - name: 画面インベントリを同期
         if: steps.conf.outputs.configured == 'true'
         env:
-          FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN }}
+          FIGMA_TOKEN: ${{ steps.figma_token.outputs.value }}
         run: python3 .cortex-engine/plugin/skills/sync-designs/scripts/sync_designs.py
 
       - name: DESIGN.md lint（公式仕様検証・best-effort）
