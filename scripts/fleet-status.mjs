@@ -57,11 +57,30 @@ function parseTools(text) {
   return Object.keys(map).length ? map : null;
 }
 
-/** env の secret 有無フラグ（'true'/'false'）。未設定は null（=unknown） */
+/** Secrets Manager に入っているか（'true'/'false'）。未設定は null（=見ていない） */
+function inManager(name) {
+  const v = process.env[`IN_MANAGER_${name}`];
+  if (v === undefined || v === "") return null;
+  return v === "true";
+}
+
+/**
+ * env の secret 有無フラグ（'true'/'false'）。未設定は null（=unknown）。
+ * 設定UIから投入されたトークンは Secrets Manager に入り、移行が済んだ案件では
+ * repo secret が消える。**両方を見ないと、移行した案件ほど充足度が落ちる。**
+ */
 function secret(name) {
+  if (inManager(name) === true) return true;
   const v = process.env[`HAS_${name}`];
   if (v === undefined || v === "") return null;
   return v === "true";
+}
+
+/** どこから供給されているか。移行の進み具合を画面に出すために使う */
+function secretSource(name) {
+  if (inManager(name) === true) return "Secrets Manager";
+  if (process.env[`HAS_${name}`] === "true") return "repo secret";
+  return "";
 }
 const okFromBool = (b) => (b === null ? "unknown" : b ? "ok" : "missing");
 /** 自分のリポの直近ワークフローrun結果。取得不可は null */
@@ -208,6 +227,7 @@ const CHECKS = [
   { id: "backlog_secrets", label: "BACKLOG_* シークレット", cat: "課題管理", applies: usesTool("課題管理", "backlog", true),
     status: (() => { const vals = ["BACKLOG_API_KEY", "BACKLOG_DOMAIN", "BACKLOG_PROJECT_KEY"].map(secret);
       if (vals.some((v) => v === null)) return "unknown"; return vals.every(Boolean) ? "ok" : "missing"; })(),
+    detail: secretSource("BACKLOG_API_KEY"),
     action: "案件の Backlog 値を Secret 登録" },
   { id: "backlog_synced", label: "課題管理 同期データ", cat: "課題管理", applies: usesTool("課題管理", "backlog", true),
     status: issuesCount > 0 ? "ok" : "missing", detail: `${issuesCount}件`, action: "sync-backlog を workflow_dispatch で実行（初回全量同期）" },
@@ -236,7 +256,7 @@ const CHECKS = [
     status: meetingCount > 0 ? "ok" : "missing", action: "Google Meet/Drive 連携を設定し文字起こしの自動取り込みを有効化する" },
   // ---- デザイン == figma ----
   { id: "figma_token", label: "FIGMA_TOKEN", cat: "デザイン", applies: usesTool("デザイン", "figma", usesFigmaInfer),
-    status: okFromBool(secret("FIGMA_TOKEN")) },
+    status: okFromBool(secret("FIGMA_TOKEN")), detail: secretSource("FIGMA_TOKEN") },
   { id: "figma_inventory", label: "デザインinventory 同期", cat: "デザイン", applies: usesTool("デザイン", "figma", usesFigmaInfer),
     status: inventoryCount > 0 ? "ok" : "missing", detail: `${inventoryCount}件`, action: "/sync-designs で同期" },
   { id: "figma_sync", label: "夜間 デザイン同期 run", cat: "デザイン", applies: usesTool("デザイン", "figma", usesFigmaInfer),

@@ -6,6 +6,7 @@
   "packageManager": "pnpm@10.14.0",
   "scripts": {
     "lint:cortex": "node plugin/scripts/validate-cortex.mjs",
-    "fleet:status": "node scripts/fleet-status.mjs"
+    "fleet:status": "node scripts/fleet-status.mjs",
+    "test": "node --test \"test/*.test.mjs\""
   }
 }

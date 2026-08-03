@@ -23,13 +23,16 @@ on:
         required: false
       BACKLOG_PROJECT_KEY:
         required: false
+      # エンジン（fetch-secret アクション）を取ってくるために使う。未設定なら github.token。
+      ENGINE_REPO_TOKEN:
+        required: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write # Secrets Manager から取得するための OIDC
+    # permissions はここで宣言しない。呼び出し元より広い権限を要求すると run ごと
+    # startup_failure になる（権限は連鎖の中で減らせても増やせない）。艦隊の型に合わせ、
+    # 呼び出し元スタブが `id-token: write` を宣言し、ここは継承する。
     # 同一リポ内でBacklogミラーへ書き込む全ワークフロー（cron同期・realtime・decision-log等）を
     # 1グループに直列化し、backlog-settings.json 等の再生成ファイルでのpush競合を構造的に減らす。
     concurrency:
@@ -41,6 +44,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # fetch-secret アクションを使うため。`uses:` は式を書けないので、
+      # このワークフローと同一バージョンのエンジンを取ってきてローカル参照する
+      # （`@v1` の固定参照だと、カナリア（@main）で版がずれる）。
+      - name: エンジンをチェックアウト（このワークフローと同一バージョン）
+        uses: actions/checkout@v4
+        with:
+          repository: classmethod-team-app/cortex-engine
+          ref: ${{ github.job_workflow_sha }}
+          path: .cortex-engine
+          token: ${{ secrets.ENGINE_REPO_TOKEN || github.token }}
+
+      - name: エンジンをGit管理対象外にする
+        run: echo ".cortex-engine/" >> .git/info/exclude
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -65,19 +82,20 @@ jobs:
         run: |
           if [ -n "${ROLE:-}" ]; then echo "has=true" >> "$GITHUB_OUTPUT"; else echo "has=false" >> "$GITHUB_OUTPUT"; fi
 
+      # 認証に失敗しても同期は止めない。フォールバック（repo secret）に落ちるだけにする。
       - name: AWS認証（Secrets Manager からキーを取るため。未設定ならスキップ）
         if: steps.awsrole.outputs.has == 'true'
+        continue-on-error: true
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ap-northeast-1
 
-      # Backlog の APIキーは**スペース単位**で保管している（同じスペースを使う案件で共有）。
       - name: BacklogのAPIキーを取得
         id: backlog_key
-        uses: classmethod-team-app/cortex-engine/.github/actions/fetch-secret@v1
+        uses: ./.cortex-engine/.github/actions/fetch-secret
         with:
-          secret-id: cortex/backlog-api-key/${{ secrets.BACKLOG_DOMAIN }}
+          kind: backlog-api-key
           fallback: ${{ secrets.BACKLOG_API_KEY }}
 
       - name: Backlog同期

@@ -8,12 +8,20 @@ description: >
 #   ただし全案件が同時に移行するわけではないので、**両方を見て新しい方を優先する**。
 #   フォールバックが無いと、投入していない案件がエンジン更新の瞬間に一斉に止まる。
 #
+# 名前の組み立てをここに閉じている理由:
+#   `cortex/<リポジトリ名>/<種別>` の綴りを呼び出し側に散らすと、Lambda 側との一致を
+#   保つ約束が箇所の数だけ増える。呼び出し側は種別だけを渡す。
+#
+# 「無い」と「読めない」を区別する理由:
+#   両方を「無い」に丸めると、権限剥奪・スロットリングが起きても**同期は緑のまま何もしない**。
+#   移行が終わって repo secret を消した後にこれが起きると、誰も気づけない。
+#
 # 値の扱い:
 #   取得した値は ::add-mask:: で伏せてから出力する。マスクしないとログに素で出る。
 
 inputs:
-  secret-id:
-    description: Secrets Manager のシークレット名（例 cortex/kc/figma-token）
+  kind:
+    description: 種別（figma-token | backlog-api-key | external-sources-token）
     required: true
   fallback:
     description: 見つからない場合に使う値（従来の repo secret）
@@ -25,7 +33,11 @@ outputs:
     description: 取得した値（未設定なら空文字）
     value: ${{ steps.get.outputs.value }}
   source:
-    description: どちらから取れたか（secrets-manager | fallback | none）
+    description: >
+      どちらから取れたか。manager=Secrets Manager /
+      fallback=repo secret（移行前の正常な状態） /
+      fallback-after-error=読めずに repo secret へ落ちた（要対処） /
+      none=どちらにも無い
     value: ${{ steps.get.outputs.source }}
 
 runs:
@@ -34,28 +46,71 @@ runs:
     - id: get
       shell: bash
       env:
-        SECRET_ID: ${{ inputs.secret-id }}
+        KIND: ${{ inputs.kind }}
         FALLBACK: ${{ inputs.fallback }}
+        # 資格情報が無いときに Azure の IMDS を突きに行って待たされるのを防ぐ。
+        # OIDC の資格情報は環境変数で渡るので、IMDS は元から使わない。
+        AWS_EC2_METADATA_DISABLED: "true"
       run: |
         set -uo pipefail
+
+        # `owner/repo` から repo だけを取る。Lambda 側は config.ts の repository から同じ値を作る。
+        SECRET_ID="cortex/${GITHUB_REPOSITORY#*/}/${KIND}"
+
         VALUE=""
         SOURCE="none"
-        # AWS 認証が無い（ロール未設定の案件）ときは静かにフォールバックする。
-        # ここで失敗させると、移行していない案件の同期が止まる。
+        HAD_ERROR=0
+
+        # AWS 認証が無い（ロール未設定・認証ステップが失敗した）ときは静かにフォールバックする。
         if aws sts get-caller-identity >/dev/null 2>&1; then
+          ERRFILE="$(mktemp)"
+          # stderr に値は載らないので、捕まえて例外名で分岐する。
+          # 終了コードでは判別できない（ResourceNotFound も AccessDenied も同じ 254）。
           if VALUE=$(aws secretsmanager get-secret-value --secret-id "$SECRET_ID" \
-                       --query SecretString --output text 2>/dev/null) && [ -n "$VALUE" ]; then
-            SOURCE="secrets-manager"
+                       --query SecretString --output text 2>"$ERRFILE"); then
+            # SecretString が無い（SecretBinary のみ）と AWS CLI は文字列 "None" を返す。
+            if [ -z "$VALUE" ] || [ "$VALUE" = "None" ]; then
+              VALUE=""
+              HAD_ERROR=1
+              echo "::warning::${SECRET_ID} は存在しますが中身が空です"
+            else
+              SOURCE="manager"
+            fi
           else
             VALUE=""
+            # 部分一致で見る。CLI のバージョンで `aws: [ERROR]: ` プレフィクスの有無が変わる。
+            if grep -q 'ResourceNotFoundException' "$ERRFILE"; then
+              : # まだ投入していないだけ。移行途中の正常な状態
+            else
+              HAD_ERROR=1
+              echo "::warning::${SECRET_ID} を読めませんでした: $(head -c 300 "$ERRFILE" | tr '\n' ' ')"
+            fi
+          fi
+          rm -f "$ERRFILE"
+        fi
+
+        if [ -z "$VALUE" ]; then
+          if [ -n "$FALLBACK" ]; then
+            VALUE="$FALLBACK"
+            # 読めなかった末のフォールバックは、移行前の正常なフォールバックと区別する。
+            if [ "$HAD_ERROR" = "1" ]; then SOURCE="fallback-after-error"; else SOURCE="fallback"; fi
+          elif [ "$HAD_ERROR" = "1" ]; then
+            # 読めず、代わりも無い。ここは黙って進むと後段が「未設定」に倒れて静かに止まる。
+            echo "::error::${SECRET_ID} を読めず、フォールバックもありません"
+            exit 1
           fi
         fi
-        if [ -z "$VALUE" ] && [ -n "$FALLBACK" ]; then
-          VALUE="$FALLBACK"
-          SOURCE="fallback"
-        fi
+
         # **必ずマスクしてから出力する。** しないと後続ステップのログに素で出る
         if [ -n "$VALUE" ]; then echo "::add-mask::$VALUE"; fi
-        echo "value=$VALUE" >> "$GITHUB_OUTPUT"
-        echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
+
+        # 値に改行が混ざっても GITHUB_OUTPUT に別の行を注入できないよう、区切り記法で書く。
+        DELIM="CORTEX_EOF_${GITHUB_RUN_ID:-0}_${RANDOM}"
+        {
+          echo "value<<${DELIM}"
+          printf '%s\n' "$VALUE"
+          echo "${DELIM}"
+          echo "source=${SOURCE}"
+        } >> "$GITHUB_OUTPUT"
+
         echo "::notice::${SECRET_ID} の取得元: ${SOURCE}"

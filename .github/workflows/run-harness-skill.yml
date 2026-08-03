@@ -203,6 +203,15 @@ jobs:
           role-to-assume: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # 設定UIから投入されたトークンは Secrets Manager に入る。無ければ従来の repo secret を使う。
+      - name: 外部ソース用トークンを取得
+        id: ext_token
+        if: steps.pre.outputs.run == 'true' && steps.schema.outputs.current == 'true'
+        uses: ./.cortex-engine/.github/actions/fetch-secret
+        with:
+          kind: external-sources-token
+          fallback: ${{ secrets.EXTERNAL_SOURCES_TOKEN }}
+
       - name: Claude Code をインストール
         if: steps.pre.outputs.run == 'true' && steps.schema.outputs.current == 'true'
         run: npm i -g @anthropic-ai/claude-code
@@ -216,7 +225,7 @@ jobs:
           SINCE: ${{ steps.win.outputs.since }} # 差分起点（前回成功以降）。スキルの git log --since に渡す（空ならスキル既定）
           TARGET_DATE: ${{ inputs.target_date }} # 対象日（巻き取り・再送用。空ならスキルが実行日を使う）
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} # スキルが notify-slack.sh でSlack投稿するため（未設定ならスキルが無害終了）
-          GH_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }} # スキルが外部ソース/リンク解決に使う場合のため
+          GH_TOKEN: ${{ steps.ext_token.outputs.value || secrets.GITHUB_TOKEN }} # スキルが外部ソース/リンク解決に使う場合のため
           SKILL_MD: ${{ steps.skill.outputs.path }}
           SKILL_NAME: ${{ inputs.skill }}
           EXTRA_ARGS: ${{ inputs.args }}

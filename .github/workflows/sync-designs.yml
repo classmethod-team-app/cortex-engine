@@ -24,9 +24,9 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write # Secrets Manager から取得するための OIDC
+    # permissions はここで宣言しない。呼び出し元より広い権限を要求すると run ごと
+    # startup_failure になる（権限は連鎖の中で減らせても増やせない）。艦隊の型に合わせ、
+    # 呼び出し元スタブが `id-token: write` を宣言し、ここは継承する。
     # 同一リポ内でmainへ書き込む同期系ワークフローと直列化し、push競合を構造的に減らす。
     concurrency:
       group: cortex-repo-write-${{ github.repository }}
@@ -57,8 +57,11 @@ jobs:
         run: |
           if [ -n "${ROLE:-}" ]; then echo "has=true" >> "$GITHUB_OUTPUT"; else echo "has=false" >> "$GITHUB_OUTPUT"; fi
 
+      # 認証に失敗しても同期は止めない。フォールバック（repo secret）に落ちるだけにする。
+      # スタブが id-token を宣言する前にエンジンだけ先に出ても、ここで止まらないようにするため。
       - name: AWS認証（Secrets Manager からトークンを取るため。未設定ならスキップ）
         if: steps.awsrole.outputs.has == 'true'
+        continue-on-error: true
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
@@ -68,8 +71,9 @@ jobs:
         id: figma_token
         uses: ./.cortex-engine/.github/actions/fetch-secret
         with:
-          secret-id: cortex/${{ github.event.repository.name }}/figma-token
+          kind: figma-token
           fallback: ${{ secrets.FIGMA_TOKEN }}
+
       - name: 設定の有無を確認
         id: conf
         run: |

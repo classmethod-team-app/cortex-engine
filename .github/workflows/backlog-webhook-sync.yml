@@ -25,6 +25,13 @@ on:
         required: false
       BACKLOG_PROJECT_KEY:
         required: false
+      # 設定UIから投入されたキーを Secrets Manager から取るために使う。
+      # 未設定の案件は従来どおり repo secret にフォールバックする。
+      AWS_ROLE_TO_ASSUME:
+        required: false
+      # エンジン（fetch-secret アクション）を取ってくるために使う。未設定なら github.token。
+      ENGINE_REPO_TOKEN:
+        required: false
 
 jobs:
   sync:
@@ -39,14 +46,51 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # fetch-secret アクションを使うため。`uses:` は式を書けないので、
+      # このワークフローと同一バージョンのエンジンを取ってきてローカル参照する。
+      - name: エンジンをチェックアウト（このワークフローと同一バージョン）
+        uses: actions/checkout@v4
+        with:
+          repository: classmethod-team-app/cortex-engine
+          ref: ${{ github.job_workflow_sha }}
+          path: .cortex-engine
+          token: ${{ secrets.ENGINE_REPO_TOKEN || github.token }}
+
+      - name: エンジンをGit管理対象外にする
+        run: echo ".cortex-engine/" >> .git/info/exclude
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22 # backlog-exporter@1 が node>=22 を要求
 
+      # `secrets` は if: で直接参照できないので、一度 env に落としてから判定する。
+      - name: AWSロールの有無を判定
+        id: awsrole
+        env:
+          ROLE: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+        run: |
+          if [ -n "${ROLE:-}" ]; then echo "has=true" >> "$GITHUB_OUTPUT"; else echo "has=false" >> "$GITHUB_OUTPUT"; fi
+
+      # 認証に失敗しても同期は止めない。フォールバック（repo secret）に落ちるだけにする。
+      - name: AWS認証（Secrets Manager からキーを取るため。未設定ならスキップ）
+        if: steps.awsrole.outputs.has == 'true'
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ap-northeast-1
+
+      - name: BacklogのAPIキーを取得
+        id: backlog_key
+        uses: ./.cortex-engine/.github/actions/fetch-secret
+        with:
+          kind: backlog-api-key
+          fallback: ${{ secrets.BACKLOG_API_KEY }}
+
       - name: 対象（課題／Wiki・複数キー可）をまとめて同期
         env:
-          BACKLOG_API_KEY: ${{ secrets.BACKLOG_API_KEY }}
+          BACKLOG_API_KEY: ${{ steps.backlog_key.outputs.value }}
           DOMAIN: ${{ secrets.BACKLOG_DOMAIN }}
           PROJECT_KEY: ${{ secrets.BACKLOG_PROJECT_KEY }}
           # client_payload はシェルへ直接展開せず env 経由で受ける（スクリプトインジェクション対策）。
