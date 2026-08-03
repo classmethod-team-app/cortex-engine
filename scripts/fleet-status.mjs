@@ -454,6 +454,21 @@ const clientName = (() => {
   const m = home && home.match(/^client:\s*["']?([^"'\n#]*?)["']?\s*(?:#.*)?$/m);
   return m ? m[1].trim() : "";
 })();
+/**
+ * 会議の取り込み状態。
+ *
+ * **「意図的にOFF」と「まだ設置していない」を潰さない。** 設定UIから ON/OFF を押せるように
+ * する以上、画面が現在値を出せないと「押したのに変わらない」と読まれる。
+ * `goldState` を三値にしたときと同じ理由（区別できないと正常なOFFにも警告が出て麻痺する）。
+ */
+function meetingIngestState() {
+  const p = findConfigPath("ingest-config.json");
+  if (!p) return "unset";
+  try {
+    const cfg = JSON.parse(readText(p) || "");
+    return cfg.enabled ? "on" : "off";
+  } catch { return "broken"; }
+}
 /** 会議の照合キー: client名 ＋ ingest-config.json の meetingNamePatterns（無効・未設置は undefined） */
 function meetingMatchKeys() {
   const p = findConfigPath("ingest-config.json");
@@ -466,22 +481,27 @@ function meetingMatchKeys() {
     return keys.length ? [...new Set(keys)] : undefined;
   } catch { return undefined; }
 }
-/** 共有資料の Drive 同期状態: 有効なら url（先頭）＋複数時 urls、未設置/無効/空なら driveSync:false */
+/**
+ * 共有資料の Drive 同期状態。
+ * `driveSync: false` は後方互換のため残す（既存の読み手が見ている）。
+ * **`driveState` で理由まで区別する**（未設置 / OFF / フォルダ未登録 / ON）。
+ */
 function materialsExtras() {
   const p = findConfigPath("materials-config.json");
-  if (p) {
-    try {
-      const cfg = JSON.parse(readText(p) || "");
-      const ids = (cfg.driveFolderIds || []).filter(Boolean);
-      if (cfg.enabled && ids.length) {
-        const urls = ids.map((id) => `https://drive.google.com/drive/folders/${id}`);
-        const ex = { url: urls[0] };
-        if (urls.length > 1) ex.urls = urls;
-        return ex;
-      }
-    } catch {}
+  if (!p) return { driveSync: false, driveState: "unset", driveFolderCount: 0 };
+  let cfg;
+  try {
+    cfg = JSON.parse(readText(p) || "");
+  } catch {
+    return { driveSync: false, driveState: "broken", driveFolderCount: 0 };
   }
-  return { driveSync: false };
+  const ids = (cfg.driveFolderIds || []).filter(Boolean);
+  if (!cfg.enabled) return { driveSync: false, driveState: "off", driveFolderCount: ids.length };
+  if (!ids.length) return { driveSync: false, driveState: "empty", driveFolderCount: 0 };
+  const urls = ids.map((id) => `https://drive.google.com/drive/folders/${id}`);
+  const ex = { url: urls[0], driveState: "on", driveFolderCount: ids.length };
+  if (urls.length > 1) ex.urls = urls;
+  return ex;
 }
 function listInternalSources() {
   const defs = [
@@ -491,7 +511,7 @@ function listInternalSources() {
     { kind: "会議", def: "google-meet",
       label: (t) => (t === "google-meet" ? "会議の文字起こし・議事録" : `会議の文字起こし・議事録（${toolDisp(t)}）`),
       // 取り込み対象の会議名の照合キー（ビューアが「この語が会議名に入れば取り込まれる」を表示）
-      extra: () => { const keys = meetingMatchKeys(); return keys ? { matchKeys: keys } : {}; },
+      extra: () => { const keys = meetingMatchKeys(); return { ingestState: meetingIngestState(), ...(keys ? { matchKeys: keys } : {}) }; },
       pipeline: "ingest-minutes" },
     { kind: "共有資料", def: "google-drive",
       label: (t) => (t === "google-drive" ? "共有資料（Drive同期・Markdown変換）" : `共有資料（Markdown変換）（${toolDisp(t)}）`),
