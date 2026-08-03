@@ -151,6 +151,10 @@ jobs:
           HAS_BACKLOG_PROJECT_KEY: ${{ secrets.BACKLOG_PROJECT_KEY != '' }}
           HAS_FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN != '' }}
           HAS_ENGINE_REPO_TOKEN: ${{ secrets.ENGINE_REPO_TOKEN != '' }}
+          # **これを渡し忘れると、repo secret を持っている案件が「未設定」と表示される。**
+          # 下の EXTERNAL_SOURCES_TOKEN は値（ゲート実測用）で、有無の判定には使えない
+          # （Secrets Manager から取れた場合も値が入るため、供給元を区別できない）。
+          HAS_EXTERNAL_SOURCES_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN != '' }}
           # 外部ソース接続状況のゲート実測用（未設定の案件では gate: no_token になるだけで壊れない）
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           EXTERNAL_SOURCES_TOKEN: ${{ steps.ext_token.outputs.value }}
