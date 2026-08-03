@@ -1,0 +1,11 @@
+name: zz-sec-callee
+on:
+  workflow_call:
+    secrets:
+      KNOWN:
+        required: false
+jobs:
+  callee:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "callee ran"

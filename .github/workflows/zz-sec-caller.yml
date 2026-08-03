@@ -1,0 +1,10 @@
+name: zz-sec-caller
+on:
+  push:
+    branches: [feat/secrets-from-manager]
+jobs:
+  call:
+    uses: ./.github/workflows/zz-sec-callee.yml
+    secrets:
+      KNOWN: ${{ secrets.GITHUB_TOKEN }}
+      UNDECLARED: ${{ secrets.GITHUB_TOKEN }}
