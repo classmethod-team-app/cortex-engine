@@ -1,0 +1,8 @@
+name: zz-perm-caller
+on:
+  workflow_dispatch: {}
+jobs:
+  call:
+    permissions:
+      contents: write
+    uses: ./.github/workflows/zz-perm-callee.yml
