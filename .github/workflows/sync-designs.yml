@@ -40,7 +40,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: classmethod-team-app/cortex-engine
-          ref: ${{ github.job_workflow_sha || inputs.engine_ref }}
+          ref: ${{ job.workflow_sha || inputs.engine_ref }}
           path: .cortex-engine
           token: ${{ secrets.ENGINE_REPO_TOKEN || github.token }}
 
@@ -97,17 +97,33 @@ jobs:
 
       - name: 設定の有無を確認
         id: conf
+        env:
+          # **シークレットをシェル本文に直接展開しない。** `${{ }}` はスクリプトに値を
+          # 埋め込むので、値の中身次第でコマンドとして解釈されうる。env 経由で渡す。
+          FIGMA_TOKEN: ${{ steps.figma_token.outputs.value || secrets.FIGMA_TOKEN }}
         run: |
           # figma.json の場所は案件でカスタマイズされ得る（例: デザイン/ ではなく Figma/）ため探索する
           FJ=$(find . -maxdepth 2 -name figma.json -not -path './node_modules/*' -not -path './.git/*' | head -1)
           echo "design_dir=$(dirname "${FJ:-デザイン/figma.json}")" >> "$GITHUB_OUTPUT"
+
           # 判定は scripts/figma-configured.mjs に集約している（fleet-status と同じ基準にするため）。
           # 「"key" という文字列があるか」だけだと、scaffold のプレースホルダのままでも
           # 「設定済み」になり、未設定の案件で無駄な同期が走る。
-          if [ -z "$FJ" ] || ! node .cortex-engine/scripts/figma-configured.mjs "$FJ"; then
+          #
+          # **判定器そのものが無い場合を「未設定」に丸めない。** 丸めると、設定済みの案件で
+          # デザイン同期が無言でスキップされ、run は緑のままになる（判定器はエンジン側にあるので、
+          # 版がずれると存在しないことがありうる）。
+          JUDGE=.cortex-engine/scripts/figma-configured.mjs
+          if [ -z "$FJ" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "figma.json が見つからないためスキップします"
+          elif [ ! -f "$JUDGE" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::$JUDGE がありません（エンジンの版がずれている可能性）。判定できないためスキップします"
+          elif ! node "$JUDGE" "$FJ"; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "figma.json が未設定（またはプレースホルダのまま）のためスキップします"
-          elif [ -z "${{ steps.figma_token.outputs.value || secrets.FIGMA_TOKEN }}" ]; then
+          elif [ -z "${FIGMA_TOKEN:-}" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "FIGMA_TOKEN が未設定のためスキップします"
           else
