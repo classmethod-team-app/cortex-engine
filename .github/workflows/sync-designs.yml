@@ -16,10 +16,17 @@ on:
         required: false
       FIGMA_TOKEN:
         required: false
+      # 設定UIから投入されたトークンを Secrets Manager から取るために使う。
+      # 未設定の案件は従来どおり repo secret の FIGMA_TOKEN にフォールバックする。
+      AWS_ROLE_TO_ASSUME:
+        required: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+    # permissions はここで宣言しない。呼び出し元より広い権限を要求すると run ごと
+    # startup_failure になる（権限は連鎖の中で減らせても増やせない）。艦隊の型に合わせ、
+    # 呼び出し元スタブが `id-token: write` を宣言し、ここは継承する。
     # 同一リポ内でmainへ書き込む同期系ワークフローと直列化し、push競合を構造的に減らす。
     concurrency:
       group: cortex-repo-write-${{ github.repository }}
@@ -40,6 +47,39 @@ jobs:
       - name: エンジンをGit管理対象外にする
         run: echo ".cortex-engine/" >> .git/info/exclude
 
+      # 設定UIから投入されたトークンは Secrets Manager に入る。無ければ従来の repo secret を使う
+      # （移行していない案件が、エンジン更新の瞬間に一斉に止まらないようにするため）。
+      # `secrets` は if: で直接参照できないので、一度 env に落としてから判定する。
+      - name: AWSロールの有無を判定
+        id: awsrole
+        env:
+          ROLE: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+        run: |
+          if [ -n "${ROLE:-}" ]; then echo "has=true" >> "$GITHUB_OUTPUT"; else echo "has=false" >> "$GITHUB_OUTPUT"; fi
+
+      # 認証に失敗しても同期は止めない。フォールバック（repo secret）に落ちるだけにする。
+      # スタブが id-token を宣言する前にエンジンだけ先に出ても、ここで止まらないようにするため。
+      - name: AWS認証（Secrets Manager からトークンを取るため。未設定ならスキップ）
+        id: awsauth
+        if: steps.awsrole.outputs.has == 'true'
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ap-northeast-1
+
+      # 認証が壊れたときに黙ってフォールバックへ落ちると、「読めない」が「未設定」に丸まる。
+      - name: AWS認証の失敗を記録（続行はする）
+        if: steps.awsauth.outcome == 'failure'
+        run: echo "::warning::AWS認証に失敗しました。従来の repo secret で続行します（設定UIから投入した値は効きません）"
+
+      - name: Figmaトークンを取得
+        id: figma_token
+        uses: ./.cortex-engine/.github/actions/fetch-secret
+        with:
+          kind: figma-token
+          fallback: ${{ secrets.FIGMA_TOKEN }}
+
       - name: 設定の有無を確認
         id: conf
         run: |
@@ -49,7 +89,7 @@ jobs:
           if [ -z "$FJ" ] || ! grep -q '"key"' "$FJ"; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "figma.json が未設定のためスキップします"
-          elif [ -z "${{ secrets.FIGMA_TOKEN }}" ]; then
+          elif [ -z "${{ steps.figma_token.outputs.value }}" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "FIGMA_TOKEN が未設定のためスキップします"
           else
@@ -71,7 +111,7 @@ jobs:
       - name: 画面インベントリを同期
         if: steps.conf.outputs.configured == 'true'
         env:
-          FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN }}
+          FIGMA_TOKEN: ${{ steps.figma_token.outputs.value }}
         run: python3 .cortex-engine/plugin/skills/sync-designs/scripts/sync_designs.py
 
       - name: DESIGN.md lint（公式仕様検証・best-effort）

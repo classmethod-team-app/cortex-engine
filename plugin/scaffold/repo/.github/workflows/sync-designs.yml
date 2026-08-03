@@ -10,6 +10,7 @@ concurrency:
   cancel-in-progress: false
 permissions:
   contents: write
+  id-token: write # Secrets Manager からトークンを取得するための OIDC
 jobs:
   sync:
     uses: classmethod-team-app/cortex-engine/.github/workflows/sync-designs.yml@v1
@@ -17,3 +18,5 @@ jobs:
     secrets:
       ENGINE_REPO_TOKEN: ${{ secrets.ENGINE_REPO_TOKEN }}
       FIGMA_TOKEN: ${{ secrets.FIGMA_TOKEN }}
+      # Secrets Manager からトークンを取得するために使う（未設定なら従来の repo secret を使う）
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}

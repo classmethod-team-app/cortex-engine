@@ -1,0 +1,129 @@
+name: シークレットの取得（Secrets Manager 優先・repo secret フォールバック）
+description: >
+  案件のトークンを AWS Secrets Manager から取得する。設定UIから投入された値はここに入る。
+  無ければ従来の GitHub Actions secret を使う（移行中の案件が壊れないようにするため）。
+
+# なぜこの形か:
+#   トークンを設定UIから投入できるようにするため、置き場所を Secrets Manager へ寄せている。
+#   ただし全案件が同時に移行するわけではないので、**両方を見て新しい方を優先する**。
+#   フォールバックが無いと、投入していない案件がエンジン更新の瞬間に一斉に止まる。
+#
+# 名前の組み立てをここに閉じている理由:
+#   `cortex/<リポジトリ名>/<種別>` の綴りを呼び出し側に散らすと、Lambda 側との一致を
+#   保つ約束が箇所の数だけ増える。呼び出し側は種別だけを渡す。
+#
+# 「無い」と「読めない」を区別する理由:
+#   両方を「無い」に丸めると、権限剥奪・スロットリングが起きても**同期は緑のまま何もしない**。
+#   移行が終わって repo secret を消した後にこれが起きると、誰も気づけない。
+#
+# それでも**ここでジョブを落とさない**理由:
+#   このアクションは「そのトークンが必須か」を知らない。外部ソース用トークンのように
+#   設定しない案件が普通のものもある。読めないだけでジョブを落とすと、移行の途中
+#   （権限をデプロイする前など）に**艦隊の夜間処理が一斉に赤くなる**。
+#   気づかせる役目は `::warning::` と、fleet-status に出す取得元が担う。
+#
+# 値の扱い:
+#   取得した値は ::add-mask:: で伏せてから出力する。マスクしないとログに素で出る。
+
+inputs:
+  kind:
+    description: 種別（figma-token | backlog-api-key | external-sources-token）
+    required: true
+  fallback:
+    description: 見つからない場合に使う値（従来の repo secret）
+    required: false
+    default: ""
+
+outputs:
+  value:
+    description: 取得した値（未設定なら空文字）
+    value: ${{ steps.get.outputs.value }}
+  source:
+    description: >
+      どちらから取れたか。manager=Secrets Manager /
+      fallback=repo secret（移行前の正常な状態） /
+      fallback-after-error=読めずに repo secret へ落ちた（要対処） /
+      none=どちらにも無い
+    value: ${{ steps.get.outputs.source }}
+
+runs:
+  using: composite
+  steps:
+    - id: get
+      shell: bash
+      env:
+        KIND: ${{ inputs.kind }}
+        FALLBACK: ${{ inputs.fallback }}
+        # 資格情報が無いときに Azure の IMDS を突きに行って待たされるのを防ぐ。
+        # OIDC の資格情報は環境変数で渡るので、IMDS は元から使わない。
+        AWS_EC2_METADATA_DISABLED: "true"
+      run: |
+        set -uo pipefail
+
+        # `owner/repo` から repo だけを取る。Lambda 側は config.ts の repository から同じ値を作る。
+        SECRET_ID="cortex/${GITHUB_REPOSITORY#*/}/${KIND}"
+
+        VALUE=""
+        SOURCE="none"
+        HAD_ERROR=0
+
+        # AWS 認証が無い（ロール未設定・認証ステップが失敗した）ときは静かにフォールバックする。
+        if aws sts get-caller-identity >/dev/null 2>&1; then
+          ERRFILE="$(mktemp)"
+          # stderr に値は載らないので、捕まえて例外名で分岐する。
+          # 終了コードでは判別できない（ResourceNotFound も AccessDenied も同じ 254）。
+          if VALUE=$(aws secretsmanager get-secret-value --secret-id "$SECRET_ID" \
+                       --query SecretString --output text 2>"$ERRFILE"); then
+            # SecretString が無い（SecretBinary のみ）と AWS CLI は文字列 "None" を返す。
+            if [ -z "$VALUE" ] || [ "$VALUE" = "None" ]; then
+              VALUE=""
+              HAD_ERROR=1
+              echo "::warning::${SECRET_ID} は存在しますが中身が空です"
+            else
+              SOURCE="manager"
+            fi
+          else
+            VALUE=""
+            # 部分一致で見る。CLI のバージョンで `aws: [ERROR]: ` プレフィクスの有無が変わる。
+            if grep -q 'ResourceNotFoundException' "$ERRFILE"; then
+              : # まだ投入していないだけ。移行途中の正常な状態
+            else
+              HAD_ERROR=1
+              echo "::warning::${SECRET_ID} を読めませんでした: $(head -c 300 "$ERRFILE" | tr '\n' ' ')"
+            fi
+          fi
+          rm -f "$ERRFILE"
+        fi
+
+        if [ -z "$VALUE" ]; then
+          if [ -n "$FALLBACK" ]; then
+            VALUE="$FALLBACK"
+            # 読めなかった末のフォールバックは、移行前の正常なフォールバックと区別する。
+            if [ "$HAD_ERROR" = "1" ]; then SOURCE="fallback-after-error"; else SOURCE="fallback"; fi
+          elif [ "$HAD_ERROR" = "1" ]; then
+            # 読めず、代わりも無い。後段は「未設定」に倒れてスキップするので、
+            # ここで大きく警告を出す（落としはしない。上のコメント参照）。
+            SOURCE="unreadable"
+            echo "::warning::${SECRET_ID} を読めず、フォールバックもありません。この連携は未設定として扱われます"
+          fi
+        fi
+
+        # **必ず行ごとにマスクする。** ::add-mask:: は行指向なので、複数行の値を
+        # そのまま渡すと1行目しか登録されず、2行目以降が素でログに出る。
+        if [ -n "$VALUE" ]; then
+          while IFS= read -r line; do
+            [ -n "$line" ] && echo "::add-mask::$line"
+          done <<< "$VALUE"
+        fi
+
+        # 値に改行が混ざっても GITHUB_OUTPUT に別の行を注入できないよう、区切り記法で書く。
+        # 乱数は openssl（$RANDOM は 0..32767 しかなく衝突しうる）。
+        DELIM="CORTEX_EOF_$(openssl rand -hex 16)"
+        {
+          echo "value<<${DELIM}"
+          printf '%s\n' "$VALUE"
+          echo "${DELIM}"
+          echo "source=${SOURCE}"
+        } >> "$GITHUB_OUTPUT"
+
+        echo "::notice::${SECRET_ID} の取得元: ${SOURCE}"

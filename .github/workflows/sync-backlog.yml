@@ -4,6 +4,11 @@ name: Backlog同期
 on:
   workflow_call:
     inputs:
+      engine_ref:
+        description: "エンジンのcheckout ref。スタブのチャンネルと揃える（stable=v1 / canary=main）"
+        required: false
+        type: string
+        default: "v1"
       issue_key_filename:
         description: "Backlogミラーのファイル名を課題キーにする（長い日本語タイトルによるLinux 255バイト超を回避。案件でオプトイン）"
         required: false
@@ -15,14 +20,24 @@ on:
       # 同一orgからの inherit も引き続き有効（後方互換）。未設定の案件では空文字で渡り、各ワークフローの前提チェックがskipに倒す。
       BACKLOG_API_KEY:
         required: false
+      # 設定UIから投入されたキーを Secrets Manager から取るために使う。
+      # 未設定の案件は従来どおり repo secret にフォールバックする。
+      AWS_ROLE_TO_ASSUME:
+        required: false
       BACKLOG_DOMAIN:
         required: false
       BACKLOG_PROJECT_KEY:
+        required: false
+      # エンジン（fetch-secret アクション）を取ってくるために使う。未設定なら github.token。
+      ENGINE_REPO_TOKEN:
         required: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+    # permissions はここで宣言しない。呼び出し元より広い権限を要求すると run ごと
+    # startup_failure になる（権限は連鎖の中で減らせても増やせない）。艦隊の型に合わせ、
+    # 呼び出し元スタブが `id-token: write` を宣言し、ここは継承する。
     # 同一リポ内でBacklogミラーへ書き込む全ワークフロー（cron同期・realtime・decision-log等）を
     # 1グループに直列化し、backlog-settings.json 等の再生成ファイルでのpush競合を構造的に減らす。
     concurrency:
@@ -34,6 +49,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # fetch-secret アクションを使うため。`uses:` は式を書けないので、
+      # このワークフローと同一バージョンのエンジンを取ってきてローカル参照する
+      # （`@v1` の固定参照だと、カナリア（@main）で版がずれる）。
+      - name: エンジンをチェックアウト（このワークフローと同一バージョン）
+        uses: actions/checkout@v4
+        with:
+          repository: classmethod-team-app/cortex-engine
+          ref: ${{ github.job_workflow_sha || inputs.engine_ref }}
+          path: .cortex-engine
+          token: ${{ secrets.ENGINE_REPO_TOKEN || github.token }}
+
+      - name: エンジンをGit管理対象外にする
+        run: echo ".cortex-engine/" >> .git/info/exclude
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -50,10 +79,40 @@ jobs:
           echo "同時刻バースト回避のため ${wait} 秒待機します"
           sleep "$wait"
 
+      # `secrets` は if: で直接参照できないので、一度 env に落としてから判定する。
+      - name: AWSロールの有無を判定
+        id: awsrole
+        env:
+          ROLE: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+        run: |
+          if [ -n "${ROLE:-}" ]; then echo "has=true" >> "$GITHUB_OUTPUT"; else echo "has=false" >> "$GITHUB_OUTPUT"; fi
+
+      # 認証に失敗しても同期は止めない。フォールバック（repo secret）に落ちるだけにする。
+      - name: AWS認証（Secrets Manager からキーを取るため。未設定ならスキップ）
+        id: awsauth
+        if: steps.awsrole.outputs.has == 'true'
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ap-northeast-1
+
+      # 認証が壊れたときに黙ってフォールバックへ落ちると、「読めない」が「未設定」に丸まる。
+      - name: AWS認証の失敗を記録（続行はする）
+        if: steps.awsauth.outcome == 'failure'
+        run: echo "::warning::AWS認証に失敗しました。従来の repo secret で続行します（設定UIから投入した値は効きません）"
+
+      - name: BacklogのAPIキーを取得
+        id: backlog_key
+        uses: ./.cortex-engine/.github/actions/fetch-secret
+        with:
+          kind: backlog-api-key
+          fallback: ${{ secrets.BACKLOG_API_KEY }}
+
       - name: Backlog同期
         id: sync
         env:
-          BACKLOG_API_KEY: ${{ secrets.BACKLOG_API_KEY }}
+          BACKLOG_API_KEY: ${{ steps.backlog_key.outputs.value }}
           DOMAIN: ${{ secrets.BACKLOG_DOMAIN }}
           PROJECT_KEY: ${{ secrets.BACKLOG_PROJECT_KEY }}
         run: |

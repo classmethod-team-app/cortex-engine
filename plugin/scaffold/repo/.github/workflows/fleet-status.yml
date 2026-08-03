@@ -11,6 +11,7 @@ concurrency:
 permissions:
   contents: write
   actions: read
+  id-token: write # Secrets Manager からトークンを取得するための OIDC
 jobs:
   status:
     uses: classmethod-team-app/cortex-engine/.github/workflows/fleet-status.yml@v1

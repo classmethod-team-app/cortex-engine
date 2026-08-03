@@ -83,9 +83,67 @@ jobs:
         with:
           node-version: 20
 
+      # `secrets` は if: で直接参照できないので、一度 env に落としてから判定する。
+      - name: AWSロールの有無を判定
+        id: awsrole
+        env:
+          ROLE: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+        run: |
+          if [ -n "${ROLE:-}" ]; then echo "has=true" >> "$GITHUB_OUTPUT"; else echo "has=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: AWS認証（Secrets Manager を見るため。未設定ならスキップ）
+        id: awsauth
+        if: steps.awsrole.outputs.has == 'true'
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ap-northeast-1
+
+      # 認証が壊れたときに黙ってフォールバックへ落ちると、「読めない」が「未設定」に丸まる。
+      - name: AWS認証の失敗を記録（続行はする）
+        if: steps.awsauth.outcome == 'failure'
+        run: echo "::warning::AWS認証に失敗しました。従来の repo secret で続行します（設定UIから投入した値は効きません）"
+
+      # 設定UIから投入されたトークンは Secrets Manager に入る。移行が済んだ案件では
+      # repo secret が消えるので、**両方を見ないと充足度が軒並み落ちる**（移行できたかを
+      # 見るための計器が、移行すると赤くなる）。
+      # ここでは値を読まず、存在だけを確かめる（状況表示のジョブがトークンの中身を持たないようにするため）。
+      - name: Secrets Manager にトークンが入っているかを確認
+        id: manager
+        if: steps.awsrole.outputs.has == 'true'
+        continue-on-error: true
+        env:
+          AWS_EC2_METADATA_DISABLED: "true"
+        run: |
+          set -uo pipefail
+          for kind in figma-token backlog-api-key external-sources-token; do
+            name="cortex/${GITHUB_REPOSITORY#*/}/${kind}"
+            var="IN_MANAGER_$(echo "$kind" | tr 'a-z-' 'A-Z_')"
+            if aws secretsmanager describe-secret --secret-id "$name" >/dev/null 2>&1; then
+              echo "${var}=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "${var}=false" >> "$GITHUB_OUTPUT"
+            fi
+          done
+
+      # 外部ソースのゲート実測（実際に読めているか）は**値**が要るのでここだけ取得する。
+      # 失敗しても状況表示は止めない（gate: no_token として出るだけ）。
+      - name: 外部ソース用トークンを取得
+        id: ext_token
+        continue-on-error: true
+        uses: ./.cortex-engine/.github/actions/fetch-secret
+        with:
+          kind: external-sources-token
+          fallback: ${{ secrets.EXTERNAL_SOURCES_TOKEN }}
+
       - name: セットアップ状況を生成
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # gh run list 用
+          # Secrets Manager 側の有無（移行が済んだ案件は repo secret が無くても ok にする）
+          IN_MANAGER_FIGMA_TOKEN: ${{ steps.manager.outputs.IN_MANAGER_FIGMA_TOKEN }}
+          IN_MANAGER_BACKLOG_API_KEY: ${{ steps.manager.outputs.IN_MANAGER_BACKLOG_API_KEY }}
+          IN_MANAGER_EXTERNAL_SOURCES_TOKEN: ${{ steps.manager.outputs.IN_MANAGER_EXTERNAL_SOURCES_TOKEN }}
           # シークレットの「有無」だけを渡す（値は渡さない・管理者権限も不要）
           HAS_AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME != '' }}
           HAS_BACKLOG_API_KEY: ${{ secrets.BACKLOG_API_KEY != '' }}
@@ -95,7 +153,7 @@ jobs:
           HAS_ENGINE_REPO_TOKEN: ${{ secrets.ENGINE_REPO_TOKEN != '' }}
           # 外部ソース接続状況のゲート実測用（未設定の案件では gate: no_token になるだけで壊れない）
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-          EXTERNAL_SOURCES_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN }}
+          EXTERNAL_SOURCES_TOKEN: ${{ steps.ext_token.outputs.value }}
           # エンジンのバージョン（本ワークフローのコミットSHA）を報告に含める
           ENGINE_VERSION: ${{ github.job_workflow_sha }}
         run: node .cortex-engine/scripts/fleet-status.mjs

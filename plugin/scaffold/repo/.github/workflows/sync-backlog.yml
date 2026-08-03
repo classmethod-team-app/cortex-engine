@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+  id-token: write # Secrets Manager からトークンを取得するための OIDC
 jobs:
   sync:
     uses: classmethod-team-app/cortex-engine/.github/workflows/sync-backlog.yml@v1
@@ -15,3 +16,6 @@ jobs:
       BACKLOG_API_KEY: ${{ secrets.BACKLOG_API_KEY }}
       BACKLOG_DOMAIN: ${{ secrets.BACKLOG_DOMAIN }}
       BACKLOG_PROJECT_KEY: ${{ secrets.BACKLOG_PROJECT_KEY }}
+      ENGINE_REPO_TOKEN: ${{ secrets.ENGINE_REPO_TOKEN }}
+      # Secrets Manager からトークンを取得するために使う（未設定なら従来の repo secret を使う）
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}

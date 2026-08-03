@@ -101,13 +101,10 @@ jobs:
       # 必要なシークレットの有無を判定する。
       # - AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）なら Gold昇格自体をスキップ（セットアップ途中の案件で毎晩failしない）
       # - Backlog のシークレットが揃っていなければ Backlog同期だけスキップし、git差分（議事録等）からは更新する
-      - name: 前提チェック（シークレットの有無）
+      - name: 前提チェック（ロールの有無）
         id: pre
         env:
           ROLE: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
-          BK_KEY: ${{ secrets.BACKLOG_API_KEY }}
-          BK_DOM: ${{ secrets.BACKLOG_DOMAIN }}
-          BK_PRJ: ${{ secrets.BACKLOG_PROJECT_KEY }}
         run: |
           if [ -z "$ROLE" ]; then
             echo "::notice::AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）。Gold昇格をスキップします。"
@@ -115,6 +112,50 @@ jobs:
           else
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
+
+      # トークンの取得を**差分ゲートより前**に置く。
+      # ゲート自身が外部ソース用トークンを使うため、ここが後ろだとゲートだけ repo secret を見ることになり、
+      # 移行して repo secret を消したときに「活動なし」と誤判定して Gold昇格が丸ごとスキップされる（しかも緑）。
+      # Bedrock 用の認証は従来どおりゲートの後に置いたまま（1時間の資格情報がGoldパイプラインの間に切れないようにするため）。
+      - name: AWS認証（シークレット取得用。失敗しても続行）
+        id: secretauth
+        if: steps.pre.outputs.run == 'true'
+        continue-on-error: true
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+
+      # 認証が壊れたときに黙ってフォールバックへ落ちると、「読めない」が「未設定」に丸まる。
+      - name: AWS認証の失敗を記録（続行はする）
+        if: steps.secretauth.outcome == 'failure'
+        run: echo "::warning::AWS認証に失敗しました。従来の repo secret で続行します（設定UIから投入した値は効きません）"
+
+      - name: BacklogのAPIキーを取得
+        id: backlog_key
+        if: steps.pre.outputs.run == 'true'
+        uses: ./.cortex-engine/.github/actions/fetch-secret
+        with:
+          kind: backlog-api-key
+          fallback: ${{ secrets.BACKLOG_API_KEY }}
+
+      - name: 外部ソース用トークンを取得
+        id: ext_token
+        if: steps.pre.outputs.run == 'true'
+        uses: ./.cortex-engine/.github/actions/fetch-secret
+        with:
+          kind: external-sources-token
+          fallback: ${{ secrets.EXTERNAL_SOURCES_TOKEN }}
+
+      - name: Backlogの前提チェック
+        id: bk
+        if: steps.pre.outputs.run == 'true'
+        env:
+          BK_KEY: ${{ steps.backlog_key.outputs.value }}
+          BK_DOM: ${{ secrets.BACKLOG_DOMAIN }}
+          BK_PRJ: ${{ secrets.BACKLOG_PROJECT_KEY }}
+        run: |
           if [ -n "$BK_KEY" ] && [ -n "$BK_DOM" ] && [ -n "$BK_PRJ" ]; then
             echo "backlog=true" >> "$GITHUB_OUTPUT"
           else
@@ -128,10 +169,10 @@ jobs:
         # ここでハード失敗させると、以降のGold昇格まで丸ごとskipされ「使っていないdocs/wikiの403で
         # Gold精製が毎晩止まる」事故になる。恒常的な同期失敗はスタンドアロンの sync-backlog が可視化する。
         continue-on-error: true
-        if: steps.pre.outputs.run == 'true' && steps.pre.outputs.backlog == 'true'
+        if: steps.pre.outputs.run == 'true' && steps.bk.outputs.backlog == 'true'
         run: npx --yes backlog-exporter@1 update --force ${{ inputs.issue_key_filename && '--issueKeyFileName' || '' }}
         env:
-          BACKLOG_API_KEY: ${{ secrets.BACKLOG_API_KEY }}
+          BACKLOG_API_KEY: ${{ steps.backlog_key.outputs.value }}
           DOMAIN: ${{ secrets.BACKLOG_DOMAIN }}
           PROJECT_KEY: ${{ secrets.BACKLOG_PROJECT_KEY }}
 
@@ -200,7 +241,7 @@ jobs:
         if: steps.pre.outputs.run == 'true'
         env:
           SINCE: ${{ steps.win.outputs.since }}
-          GH_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.ext_token.outputs.value || secrets.GITHUB_TOKEN }}
           SELF_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 自リポのIssues/Discussionsは自動トークンで読む（外部ソース用PATの対象外でも取りこぼさない）
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} # external-sources.sh が slack ソースを読むため（未設定なら slack は活動なし扱い）
         run: |
@@ -221,13 +262,23 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: AWS認証（OIDC）
+      # **Claude が動く間だけ、資格情報を Bedrock だけに絞る。**
+      # このジョブは Bedrock を使うため資格情報が環境に残るが、Claude が読む素材
+      # （投入された文字起こし・課題・Slack）は外部から影響を受け、書き出す先は顧客が見るリポジトリ。
+      # ロールはトークン取得のため Secrets Manager を読めるので、そのままだと
+      # Claude の実行中も鍵に手が届く。セッションポリシーは**ロールの権限との積集合**になるので、
+      # ここで取り直すと以降は Bedrock 以外へ届かない（新しいロールも鍵も増やさずに閉じられる）。
+      - name: AWS認証（OIDC・Bedrockのみに絞る）
         if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           # cortex-tools/infra の GithubActionsOidc が作成したロールARN
           role-to-assume: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[{"Effect":"Allow",
+            "Action":["bedrock:InvokeModel","bedrock:InvokeModelWithResponseStream"],
+            "Resource":"*"}]}
 
       - name: Claude Code をインストール
         if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
@@ -247,7 +298,7 @@ jobs:
           ANTHROPIC_MODEL: global.anthropic.claude-sonnet-5 # Sonnet 5。jp.（日本国内推論）に未提供のため当面global.で運用し、jp.anthropic.claude-sonnet-5 が提供され次第そちらへ切り替える（Bedrockで該当モデルのアクセス有効化が必要）
           API_TIMEOUT_MS: "600000" # Bedrockの長いリクエスト（大コンテキスト読み）がCLI既定タイムアウトで「API Error: The operation timed out」死するのを防ぐ（2026-07-23に2連続発生）
           SINCE: ${{ steps.win.outputs.since }} # 増分起点（前回成功以降）。スキルの git log --since に渡す
-          GH_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.ext_token.outputs.value || secrets.GITHUB_TOKEN }}
           SELF_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 自リポのIssues/Discussionsは自動トークンで読む（外部ソース用PATの対象外でも取りこぼさない） # スキルが external-sources.sh で外部ソース(Issues/Discussions)を取得するため
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} # スキルが external-sources.sh で slack ソースを取得するため（未設定なら slack はスキップ）
         run: |
@@ -291,7 +342,7 @@ jobs:
           ANTHROPIC_MODEL: global.anthropic.claude-sonnet-5 # 本番ステップと同一モデル
           SINCE: ${{ steps.win.outputs.since }} # 本番と同じ増分起点
           GOLD_PRE_HEAD: ${{ steps.goldprehead.outputs.sha }} # 本番の起票分を比較表示するための基準
-          GH_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.ext_token.outputs.value || secrets.GITHUB_TOKEN }}
           SELF_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 自リポのIssues/Discussionsは自動トークンで読む（外部ソース用PATの対象外でも取りこぼさない） # external-sources.sh 用（本番と同一）
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} # external-sources.sh の slack ソース用（未設定なら活動なし扱い）
         run: node .cortex-engine/plugin/scripts/update-gold-pipeline.mjs
