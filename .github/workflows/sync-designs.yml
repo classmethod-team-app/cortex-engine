@@ -101,9 +101,12 @@ jobs:
           # figma.json の場所は案件でカスタマイズされ得る（例: デザイン/ ではなく Figma/）ため探索する
           FJ=$(find . -maxdepth 2 -name figma.json -not -path './node_modules/*' -not -path './.git/*' | head -1)
           echo "design_dir=$(dirname "${FJ:-デザイン/figma.json}")" >> "$GITHUB_OUTPUT"
-          if [ -z "$FJ" ] || ! grep -q '"key"' "$FJ"; then
+          # 判定は scripts/figma-configured.mjs に集約している（fleet-status と同じ基準にするため）。
+          # 「"key" という文字列があるか」だけだと、scaffold のプレースホルダのままでも
+          # 「設定済み」になり、未設定の案件で無駄な同期が走る。
+          if [ -z "$FJ" ] || ! node .cortex-engine/scripts/figma-configured.mjs "$FJ"; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "figma.json が未設定のためスキップします"
+            echo "figma.json が未設定（またはプレースホルダのまま）のためスキップします"
           elif [ -z "${{ steps.figma_token.outputs.value || secrets.FIGMA_TOKEN }}" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "FIGMA_TOKEN が未設定のためスキップします"
