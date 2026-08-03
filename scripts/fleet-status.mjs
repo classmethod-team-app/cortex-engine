@@ -21,6 +21,8 @@ import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+// figma.json が使える状態かの判定は1箇所に集約する（sync-designs も同じものを呼ぶ）
+import { hasRealFigmaKey } from "./figma-configured.mjs";
 
 const NOW = process.env.FLEET_NOW || new Date().toISOString();
 const REPO = process.env.GITHUB_REPOSITORY || tryGitRepo();
@@ -136,7 +138,7 @@ const meetingCount = (listDir(meetingDir) || []).length;
 // 案件の利用ツール宣言（Cortex/Home.md の `tools`: 能力→ツール）。
 // 宣言があればそれで applicability を決め、無ければ推測にフォールバックする（未移行案件のため）。
 const tools = parseTools(home);
-const usesFigmaInfer = !!(figmaJson && !hasPlaceholder(figmaJson) && /"key"\s*:\s*"[^"\s]+"/.test(figmaJson));
+const usesFigmaInfer = hasRealFigmaKey(figmaJson);
 /** capability のツールが expected か。tools 未宣言なら fallback */
 const usesTool = (cap, expected, fallback) => (tools === null ? fallback : tools[cap] === expected);
 
