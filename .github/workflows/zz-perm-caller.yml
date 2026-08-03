@@ -1,6 +1,7 @@
 name: zz-perm-caller
 on:
-  workflow_dispatch: {}
+  push:
+    branches: [feat/secrets-from-manager]
 jobs:
   call:
     permissions:
