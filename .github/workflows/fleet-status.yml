@@ -92,12 +92,18 @@ jobs:
           if [ -n "${ROLE:-}" ]; then echo "has=true" >> "$GITHUB_OUTPUT"; else echo "has=false" >> "$GITHUB_OUTPUT"; fi
 
       - name: AWS認証（Secrets Manager を見るため。未設定ならスキップ）
+        id: awsauth
         if: steps.awsrole.outputs.has == 'true'
         continue-on-error: true
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ap-northeast-1
+
+      # 認証が壊れたときに黙ってフォールバックへ落ちると、「読めない」が「未設定」に丸まる。
+      - name: AWS認証の失敗を記録（続行はする）
+        if: steps.awsauth.outcome == 'failure'
+        run: echo "::warning::AWS認証に失敗しました。従来の repo secret で続行します（設定UIから投入した値は効きません）"
 
       # 設定UIから投入されたトークンは Secrets Manager に入る。移行が済んだ案件では
       # repo secret が消えるので、**両方を見ないと充足度が軒並み落ちる**（移行できたかを

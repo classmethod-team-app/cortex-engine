@@ -1,10 +1,10 @@
 name: CI
 
 # エンジン自身のテスト。案件リポからは呼ばれない（workflow_call を持たない）。
+# PRを立てる前のブランチでも走らせる（PR時だけだと、押した変更が初めて検証されるのが遅い）
 on:
   pull_request:
   push:
-    branches: [main]
 
 jobs:
   test:

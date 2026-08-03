@@ -16,6 +16,12 @@ description: >
 #   両方を「無い」に丸めると、権限剥奪・スロットリングが起きても**同期は緑のまま何もしない**。
 #   移行が終わって repo secret を消した後にこれが起きると、誰も気づけない。
 #
+# それでも**ここでジョブを落とさない**理由:
+#   このアクションは「そのトークンが必須か」を知らない。外部ソース用トークンのように
+#   設定しない案件が普通のものもある。読めないだけでジョブを落とすと、移行の途中
+#   （権限をデプロイする前など）に**艦隊の夜間処理が一斉に赤くなる**。
+#   気づかせる役目は `::warning::` と、fleet-status に出す取得元が担う。
+#
 # 値の扱い:
 #   取得した値は ::add-mask:: で伏せてから出力する。マスクしないとログに素で出る。
 
@@ -95,17 +101,24 @@ runs:
             # 読めなかった末のフォールバックは、移行前の正常なフォールバックと区別する。
             if [ "$HAD_ERROR" = "1" ]; then SOURCE="fallback-after-error"; else SOURCE="fallback"; fi
           elif [ "$HAD_ERROR" = "1" ]; then
-            # 読めず、代わりも無い。ここは黙って進むと後段が「未設定」に倒れて静かに止まる。
-            echo "::error::${SECRET_ID} を読めず、フォールバックもありません"
-            exit 1
+            # 読めず、代わりも無い。後段は「未設定」に倒れてスキップするので、
+            # ここで大きく警告を出す（落としはしない。上のコメント参照）。
+            SOURCE="unreadable"
+            echo "::warning::${SECRET_ID} を読めず、フォールバックもありません。この連携は未設定として扱われます"
           fi
         fi
 
-        # **必ずマスクしてから出力する。** しないと後続ステップのログに素で出る
-        if [ -n "$VALUE" ]; then echo "::add-mask::$VALUE"; fi
+        # **必ず行ごとにマスクする。** ::add-mask:: は行指向なので、複数行の値を
+        # そのまま渡すと1行目しか登録されず、2行目以降が素でログに出る。
+        if [ -n "$VALUE" ]; then
+          while IFS= read -r line; do
+            [ -n "$line" ] && echo "::add-mask::$line"
+          done <<< "$VALUE"
+        fi
 
         # 値に改行が混ざっても GITHUB_OUTPUT に別の行を注入できないよう、区切り記法で書く。
-        DELIM="CORTEX_EOF_${GITHUB_RUN_ID:-0}_${RANDOM}"
+        # 乱数は openssl（$RANDOM は 0..32767 しかなく衝突しうる）。
+        DELIM="CORTEX_EOF_$(openssl rand -hex 16)"
         {
           echo "value<<${DELIM}"
           printf '%s\n' "$VALUE"

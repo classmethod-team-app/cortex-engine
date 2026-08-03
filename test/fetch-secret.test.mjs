@@ -67,7 +67,9 @@ exit 0
   let code = 0;
   let stdout = "";
   try {
-    stdout = execFileSync("bash", [script], {
+    // GitHub の `shell: bash` は `bash --noprofile --norc -eo pipefail {0}` で起動する。
+    // **-e を付けずに試すと、本番だけ落ちる分岐を素通りさせる。**
+    stdout = execFileSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", script], {
       encoding: "utf8",
       env: {
         ...process.env,
@@ -94,7 +96,7 @@ exit 0
   const source = (rest.match(/^source=(.*)$/m) || [])[1] ?? null;
   let seen = "";
   try { seen = readFileSync(path.join(dir, "seen"), "utf8").trim(); } catch {}
-  return { code, stdout, value, source, seen };
+  return { code, stdout, value, source, seen, delim: m ? m[1] : null };
 }
 
 test("[正常系] Secrets Manager から取れたら manager", () => {
@@ -147,12 +149,16 @@ test("[異常系] 読めなかった末のフォールバックは fallback と�
   assert.match(r.stdout, /::warning::/);
 });
 
-test("[異常系] 読めず、フォールバックも無ければ失敗させる", () => {
+test("[異常系] 読めず、フォールバックも無くてもジョブは落とさない（大きく警告する）", () => {
+  // ここで落とすと、権限をデプロイする前の移行途中に艦隊の夜間処理が一斉に赤くなる。
+  // このアクションは「そのトークンが必須か」を知らないので、判断を持たない。
   const r = runAction({
     get: { err: "An error occurred (AccessDeniedException) when calling the GetSecretValue operation: not authorized" },
   });
-  assert.equal(r.code, 1);
-  assert.match(r.stdout, /::error::/);
+  assert.equal(r.code, 0);
+  assert.equal(r.value, "");
+  assert.equal(r.source, "unreadable", "「未投入(none)」と同じに丸めてはいけない");
+  assert.match(r.stdout, /::warning::/);
 });
 
 test("[異常系] スロットリングも「無い」に丸めない", () => {
@@ -180,4 +186,17 @@ test("[正常系] 値は必ずマスクしてから出力する", () => {
   const r = runAction({ get: { out: "figd_SECRET" } });
   const mask = r.stdout.indexOf("::add-mask::figd_SECRET");
   assert.notEqual(mask, -1, "::add-mask:: が出ていません");
+});
+
+test("[異常系] 複数行の値は行ごとにマスクする（1行目だけだと2行目以降が素で出る）", () => {
+  const r = runAction({ get: { out: "line1-SECRET\nline2-SECRET" } });
+  assert.match(r.stdout, /::add-mask::line1-SECRET/);
+  assert.match(r.stdout, /::add-mask::line2-SECRET/, "2行目がマスク登録されていません");
+});
+
+test("[正常系] 区切り記号は毎回変わる（値の中の文字列で終端させられない）", () => {
+  const a = runAction({ get: { out: "x" } });
+  const b = runAction({ get: { out: "x" } });
+  assert.notEqual(a.delim, b.delim);
+  assert.match(a.delim, /^CORTEX_EOF_[0-9a-f]{32}$/);
 });

@@ -126,6 +126,12 @@ jobs:
           role-to-assume: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
+
+      # 認証が壊れたときに黙ってフォールバックへ落ちると、「読めない」が「未設定」に丸まる。
+      - name: AWS認証の失敗を記録（続行はする）
+        if: steps.secretauth.outcome == 'failure'
+        run: echo "::warning::AWS認証に失敗しました。従来の repo secret で続行します（設定UIから投入した値は効きません）"
+
       - name: BacklogのAPIキーを取得
         id: backlog_key
         if: steps.pre.outputs.run == 'true'
@@ -256,13 +262,23 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: AWS認証（OIDC）
+      # **Claude が動く間だけ、資格情報を Bedrock だけに絞る。**
+      # このジョブは Bedrock を使うため資格情報が環境に残るが、Claude が読む素材
+      # （投入された文字起こし・課題・Slack）は外部から影響を受け、書き出す先は顧客が見るリポジトリ。
+      # ロールはトークン取得のため Secrets Manager を読めるので、そのままだと
+      # Claude の実行中も鍵に手が届く。セッションポリシーは**ロールの権限との積集合**になるので、
+      # ここで取り直すと以降は Bedrock 以外へ届かない（新しいロールも鍵も増やさずに閉じられる）。
+      - name: AWS認証（OIDC・Bedrockのみに絞る）
         if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           # cortex-tools/infra の GithubActionsOidc が作成したロールARN
           role-to-assume: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[{"Effect":"Allow",
+            "Action":["bedrock:InvokeModel","bedrock:InvokeModelWithResponseStream"],
+            "Resource":"*"}]}
 
       - name: Claude Code をインストール
         if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'

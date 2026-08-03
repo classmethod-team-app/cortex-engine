@@ -76,8 +76,13 @@ function secret(name) {
   return v === "true";
 }
 
-/** どこから供給されているか。移行の進み具合を画面に出すために使う */
+/**
+ * どこから供給されているか。移行の進み具合を画面に出すために使う。
+ * **その値自体が揃っているときだけ答える。** 揃っていないのに供給元を書くと、
+ * 欠けているものがあるのに「repo secret から来ています」と読めてしまう。
+ */
 function secretSource(name) {
+  if (secret(name) !== true) return "";
   if (inManager(name) === true) return "Secrets Manager";
   if (process.env[`HAS_${name}`] === "true") return "repo secret";
   return "";
@@ -227,7 +232,9 @@ const CHECKS = [
   { id: "backlog_secrets", label: "BACKLOG_* シークレット", cat: "課題管理", applies: usesTool("課題管理", "backlog", true),
     status: (() => { const vals = ["BACKLOG_API_KEY", "BACKLOG_DOMAIN", "BACKLOG_PROJECT_KEY"].map(secret);
       if (vals.some((v) => v === null)) return "unknown"; return vals.every(Boolean) ? "ok" : "missing"; })(),
-    detail: secretSource("BACKLOG_API_KEY"),
+    // DOMAIN / PROJECT_KEY が欠けていれば供給元を語らない（APIキーだけ見ると誤解を招く）
+    detail: ["BACKLOG_DOMAIN", "BACKLOG_PROJECT_KEY"].every((n) => secret(n) === true)
+      ? secretSource("BACKLOG_API_KEY") : "",
     action: "案件の Backlog 値を Secret 登録" },
   { id: "backlog_synced", label: "課題管理 同期データ", cat: "課題管理", applies: usesTool("課題管理", "backlog", true),
     status: issuesCount > 0 ? "ok" : "missing", detail: `${issuesCount}件`, action: "sync-backlog を workflow_dispatch で実行（初回全量同期）" },
@@ -549,6 +556,14 @@ const out = {
   score, checks, nextActions,
   // 外部ソース接続状況（gate=物理ゲート実測）・リポ内同期ソース一覧・夜間パイプライン一覧（AISビューア表示用）
   externalSources, internalSources, pipelines,
+  // 各トークンをどこから取っているか（AISビューアの「連携の鍵」に出す）。
+  // 「入れたのに、まだ repo secret で動いている」が画面で分かるようにするためのもの。
+  // キーは設定UI側の連携名（resolveSecretTarget の kind）と揃える。
+  secretSources: {
+    figma: secretSource("FIGMA_TOKEN"),
+    backlog: secretSource("BACKLOG_API_KEY"),
+    "external-sources": secretSource("EXTERNAL_SOURCES_TOKEN"),
+  },
 };
 writeFileSync("fleet-status.json", JSON.stringify(out, null, 2) + "\n");
 

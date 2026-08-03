@@ -16,10 +16,18 @@
  * 常にフォールバック（＝従来の repo secret）で動く。壊れはしないが、
  * **設定UIから投入した値が一切効かない**。
  *
- * autoApply: true（追記のみ・冪等・非破壊）:
- * 既存の宣言は書き換えない。判断がつかない形の案件（permissions を持たない・
- * ジョブレベルで独自に宣言している・secrets ブロックが無い）は**何もせず警告を出す**。
- * 勝手に新設すると、既定のトークン権限が丸ごと絞られて案件独自のステップを壊す。
+ * **autoApply: false（手で適用する）**:
+ * 変更内容は追記のみ・冪等・非破壊だが、**GITHUB_TOKEN は `.github/workflows/` 配下を
+ * push できない**（`workflows` 権限が要り、これはジョブの permissions では付与できない）。
+ * 自動適用にすると夜間の engine-migrate が毎晩 push で失敗し、しかも schema_version が
+ * 前進しないので、それをゲートにしている Gold昇格・議事録生成まで静かに止まる。
+ * 同じ理由で 0027（ワークフローを書き換えた回）も人手で push されている。
+ *
+ * 手順は scripts/apply-0031.mjs を参照（9案件へまとめて適用し、schema_version も同時に上げる）。
+ *
+ * 判断がつかない形の案件（permissions を持たない・ジョブレベルで独自に宣言している・
+ * secrets ブロックが無い）は**その項目だけ飛ばして警告を出す**（permissions を勝手に新設すると、
+ * 既定のトークン権限が丸ごと絞られて案件独自のステップを壊すため）。
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -28,7 +36,7 @@ export const meta = {
   to: 31,
   description:
     "スタブに id-token: write と AWS_ROLE_TO_ASSUME / ENGINE_REPO_TOKEN の受け渡しを追加（Secrets Manager からトークンを取るため）",
-  autoApply: true,
+  autoApply: false,
 };
 
 /**
