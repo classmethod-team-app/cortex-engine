@@ -83,6 +83,21 @@ jobs:
       - name: エンジンをGit管理対象外にする
         run: echo ".cortex-engine/" >> .git/info/exclude
 
+      # チェックアウトしたエンジンに、このワークフローが使うアクションが在るかを確かめる。
+      # スタブの `uses: ...@<channel>` と `engine_ref` が揃っていないと**別の版**が落ちてきて、
+      # `uses: ./…` がアクションを見つけられずジョブ全体が落ちる（実際にカナリアで起きた）。
+      # ここで気づけるようにし、落とさずに従来の repo secret へ退避する。
+      - name: エンジンの版が揃っているか確認
+        if: steps.engineok.outputs.has == 'true'
+        id: engineok
+        run: |
+          if [ -f .cortex-engine/.github/actions/fetch-secret/action.yml ]; then
+            echo "has=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::チェックアウトしたエンジンに fetch-secret がありません。スタブの engine_ref が uses: のチャンネルと揃っているか確認してください。従来の repo secret で続行します"
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -134,7 +149,7 @@ jobs:
 
       - name: BacklogのAPIキーを取得
         id: backlog_key
-        if: steps.pre.outputs.run == 'true'
+        if: steps.pre.outputs.run == 'true' && steps.engineok.outputs.has == 'true'
         uses: ./.cortex-engine/.github/actions/fetch-secret
         with:
           kind: backlog-api-key
@@ -142,7 +157,7 @@ jobs:
 
       - name: 外部ソース用トークンを取得
         id: ext_token
-        if: steps.pre.outputs.run == 'true'
+        if: steps.pre.outputs.run == 'true' && steps.engineok.outputs.has == 'true'
         uses: ./.cortex-engine/.github/actions/fetch-secret
         with:
           kind: external-sources-token
@@ -152,7 +167,7 @@ jobs:
         id: bk
         if: steps.pre.outputs.run == 'true'
         env:
-          BK_KEY: ${{ steps.backlog_key.outputs.value }}
+          BK_KEY: ${{ steps.backlog_key.outputs.value || secrets.BACKLOG_API_KEY }}
           BK_DOM: ${{ secrets.BACKLOG_DOMAIN }}
           BK_PRJ: ${{ secrets.BACKLOG_PROJECT_KEY }}
         run: |
@@ -172,7 +187,7 @@ jobs:
         if: steps.pre.outputs.run == 'true' && steps.bk.outputs.backlog == 'true'
         run: npx --yes backlog-exporter@1 update --force ${{ inputs.issue_key_filename && '--issueKeyFileName' || '' }}
         env:
-          BACKLOG_API_KEY: ${{ steps.backlog_key.outputs.value }}
+          BACKLOG_API_KEY: ${{ steps.backlog_key.outputs.value || secrets.BACKLOG_API_KEY }}
           DOMAIN: ${{ secrets.BACKLOG_DOMAIN }}
           PROJECT_KEY: ${{ secrets.BACKLOG_PROJECT_KEY }}
 
@@ -241,7 +256,7 @@ jobs:
         if: steps.pre.outputs.run == 'true'
         env:
           SINCE: ${{ steps.win.outputs.since }}
-          GH_TOKEN: ${{ steps.ext_token.outputs.value || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.ext_token.outputs.value || secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }}
           SELF_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 自リポのIssues/Discussionsは自動トークンで読む（外部ソース用PATの対象外でも取りこぼさない）
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} # external-sources.sh が slack ソースを読むため（未設定なら slack は活動なし扱い）
         run: |
@@ -298,7 +313,7 @@ jobs:
           ANTHROPIC_MODEL: global.anthropic.claude-sonnet-5 # Sonnet 5。jp.（日本国内推論）に未提供のため当面global.で運用し、jp.anthropic.claude-sonnet-5 が提供され次第そちらへ切り替える（Bedrockで該当モデルのアクセス有効化が必要）
           API_TIMEOUT_MS: "600000" # Bedrockの長いリクエスト（大コンテキスト読み）がCLI既定タイムアウトで「API Error: The operation timed out」死するのを防ぐ（2026-07-23に2連続発生）
           SINCE: ${{ steps.win.outputs.since }} # 増分起点（前回成功以降）。スキルの git log --since に渡す
-          GH_TOKEN: ${{ steps.ext_token.outputs.value || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.ext_token.outputs.value || secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }}
           SELF_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 自リポのIssues/Discussionsは自動トークンで読む（外部ソース用PATの対象外でも取りこぼさない） # スキルが external-sources.sh で外部ソース(Issues/Discussions)を取得するため
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} # スキルが external-sources.sh で slack ソースを取得するため（未設定なら slack はスキップ）
         run: |
@@ -342,7 +357,7 @@ jobs:
           ANTHROPIC_MODEL: global.anthropic.claude-sonnet-5 # 本番ステップと同一モデル
           SINCE: ${{ steps.win.outputs.since }} # 本番と同じ増分起点
           GOLD_PRE_HEAD: ${{ steps.goldprehead.outputs.sha }} # 本番の起票分を比較表示するための基準
-          GH_TOKEN: ${{ steps.ext_token.outputs.value || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.ext_token.outputs.value || secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }}
           SELF_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 自リポのIssues/Discussionsは自動トークンで読む（外部ソース用PATの対象外でも取りこぼさない） # external-sources.sh 用（本番と同一）
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} # external-sources.sh の slack ソース用（未設定なら活動なし扱い）
         run: node .cortex-engine/plugin/scripts/update-gold-pipeline.mjs

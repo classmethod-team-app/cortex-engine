@@ -122,6 +122,21 @@ jobs:
           echo ".cortex-engine/" >> .git/info/exclude
           echo ".harness/" >> .git/info/exclude
 
+      # チェックアウトしたエンジンに、このワークフローが使うアクションが在るかを確かめる。
+      # スタブの `uses: ...@<channel>` と `engine_ref` が揃っていないと**別の版**が落ちてきて、
+      # `uses: ./…` がアクションを見つけられずジョブ全体が落ちる（実際にカナリアで起きた）。
+      # ここで気づけるようにし、落とさずに従来の repo secret へ退避する。
+      - name: エンジンの版が揃っているか確認
+        if: steps.engineok.outputs.has == 'true'
+        id: engineok
+        run: |
+          if [ -f .cortex-engine/.github/actions/fetch-secret/action.yml ]; then
+            echo "has=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::チェックアウトしたエンジンに fetch-secret がありません。スタブの engine_ref が uses: のチャンネルと揃っているか確認してください。従来の repo secret で続行します"
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -206,7 +221,7 @@ jobs:
       # 設定UIから投入されたトークンは Secrets Manager に入る。無ければ従来の repo secret を使う。
       - name: 外部ソース用トークンを取得
         id: ext_token
-        if: steps.pre.outputs.run == 'true' && steps.schema.outputs.current == 'true'
+        if: steps.pre.outputs.run == 'true' && steps.schema.outputs.current == 'true' && steps.engineok.outputs.has == 'true'
         uses: ./.cortex-engine/.github/actions/fetch-secret
         with:
           kind: external-sources-token
@@ -242,7 +257,7 @@ jobs:
           SINCE: ${{ steps.win.outputs.since }} # 差分起点（前回成功以降）。スキルの git log --since に渡す（空ならスキル既定）
           TARGET_DATE: ${{ inputs.target_date }} # 対象日（巻き取り・再送用。空ならスキルが実行日を使う）
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} # スキルが notify-slack.sh でSlack投稿するため（未設定ならスキルが無害終了）
-          GH_TOKEN: ${{ steps.ext_token.outputs.value || secrets.GITHUB_TOKEN }} # スキルが外部ソース/リンク解決に使う場合のため
+          GH_TOKEN: ${{ steps.ext_token.outputs.value || secrets.EXTERNAL_SOURCES_TOKEN || secrets.GITHUB_TOKEN }} # スキルが外部ソース/リンク解決に使う場合のため
           SKILL_MD: ${{ steps.skill.outputs.path }}
           SKILL_NAME: ${{ inputs.skill }}
           EXTRA_ARGS: ${{ inputs.args }}

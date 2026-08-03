@@ -47,6 +47,21 @@ jobs:
       - name: エンジンをGit管理対象外にする
         run: echo ".cortex-engine/" >> .git/info/exclude
 
+      # チェックアウトしたエンジンに、このワークフローが使うアクションが在るかを確かめる。
+      # スタブの `uses: ...@<channel>` と `engine_ref` が揃っていないと**別の版**が落ちてきて、
+      # `uses: ./…` がアクションを見つけられずジョブ全体が落ちる（実際にカナリアで起きた）。
+      # ここで気づけるようにし、落とさずに従来の repo secret へ退避する。
+      - name: エンジンの版が揃っているか確認
+        if: steps.engineok.outputs.has == 'true'
+        id: engineok
+        run: |
+          if [ -f .cortex-engine/.github/actions/fetch-secret/action.yml ]; then
+            echo "has=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::チェックアウトしたエンジンに fetch-secret がありません。スタブの engine_ref が uses: のチャンネルと揃っているか確認してください。従来の repo secret で続行します"
+          fi
+
       # 設定UIから投入されたトークンは Secrets Manager に入る。無ければ従来の repo secret を使う
       # （移行していない案件が、エンジン更新の瞬間に一斉に止まらないようにするため）。
       # `secrets` は if: で直接参照できないので、一度 env に落としてから判定する。
@@ -74,6 +89,7 @@ jobs:
         run: echo "::warning::AWS認証に失敗しました。従来の repo secret で続行します（設定UIから投入した値は効きません）"
 
       - name: Figmaトークンを取得
+        if: steps.engineok.outputs.has == 'true'
         id: figma_token
         uses: ./.cortex-engine/.github/actions/fetch-secret
         with:
@@ -89,7 +105,7 @@ jobs:
           if [ -z "$FJ" ] || ! grep -q '"key"' "$FJ"; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "figma.json が未設定のためスキップします"
-          elif [ -z "${{ steps.figma_token.outputs.value }}" ]; then
+          elif [ -z "${{ steps.figma_token.outputs.value || secrets.FIGMA_TOKEN }}" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "FIGMA_TOKEN が未設定のためスキップします"
           else
@@ -111,7 +127,7 @@ jobs:
       - name: 画面インベントリを同期
         if: steps.conf.outputs.configured == 'true'
         env:
-          FIGMA_TOKEN: ${{ steps.figma_token.outputs.value }}
+          FIGMA_TOKEN: ${{ steps.figma_token.outputs.value || secrets.FIGMA_TOKEN }}
         run: python3 .cortex-engine/plugin/skills/sync-designs/scripts/sync_designs.py
 
       - name: DESIGN.md lint（公式仕様検証・best-effort）

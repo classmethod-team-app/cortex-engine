@@ -64,6 +64,21 @@ jobs:
       - name: エンジンをGit管理対象外にする
         run: echo ".cortex-engine/" >> .git/info/exclude
 
+      # チェックアウトしたエンジンに、このワークフローが使うアクションが在るかを確かめる。
+      # スタブの `uses: ...@<channel>` と `engine_ref` が揃っていないと**別の版**が落ちてきて、
+      # `uses: ./…` がアクションを見つけられずジョブ全体が落ちる（実際にカナリアで起きた）。
+      # ここで気づけるようにし、落とさずに従来の repo secret へ退避する。
+      - name: エンジンの版が揃っているか確認
+        if: steps.engineok.outputs.has == 'true'
+        id: engineok
+        run: |
+          if [ -f .cortex-engine/.github/actions/fetch-secret/action.yml ]; then
+            echo "has=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::チェックアウトしたエンジンに fetch-secret がありません。スタブの engine_ref が uses: のチャンネルと揃っているか確認してください。従来の repo secret で続行します"
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -103,6 +118,7 @@ jobs:
         run: echo "::warning::AWS認証に失敗しました。従来の repo secret で続行します（設定UIから投入した値は効きません）"
 
       - name: BacklogのAPIキーを取得
+        if: steps.engineok.outputs.has == 'true'
         id: backlog_key
         uses: ./.cortex-engine/.github/actions/fetch-secret
         with:
@@ -112,7 +128,7 @@ jobs:
       - name: Backlog同期
         id: sync
         env:
-          BACKLOG_API_KEY: ${{ steps.backlog_key.outputs.value }}
+          BACKLOG_API_KEY: ${{ steps.backlog_key.outputs.value || secrets.BACKLOG_API_KEY }}
           DOMAIN: ${{ secrets.BACKLOG_DOMAIN }}
           PROJECT_KEY: ${{ secrets.BACKLOG_PROJECT_KEY }}
         run: |

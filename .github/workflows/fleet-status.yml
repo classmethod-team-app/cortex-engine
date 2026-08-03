@@ -78,6 +78,21 @@ jobs:
       - name: エンジンをGit管理対象外にする
         run: echo ".cortex-engine/" >> .git/info/exclude
 
+      # チェックアウトしたエンジンに、このワークフローが使うアクションが在るかを確かめる。
+      # スタブの `uses: ...@<channel>` と `engine_ref` が揃っていないと**別の版**が落ちてきて、
+      # `uses: ./…` がアクションを見つけられずジョブ全体が落ちる（実際にカナリアで起きた）。
+      # ここで気づけるようにし、落とさずに従来の repo secret へ退避する。
+      - name: エンジンの版が揃っているか確認
+        if: steps.engineok.outputs.has == 'true'
+        id: engineok
+        run: |
+          if [ -f .cortex-engine/.github/actions/fetch-secret/action.yml ]; then
+            echo "has=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::チェックアウトしたエンジンに fetch-secret がありません。スタブの engine_ref が uses: のチャンネルと揃っているか確認してください。従来の repo secret で続行します"
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -130,6 +145,7 @@ jobs:
       # 外部ソースのゲート実測（実際に読めているか）は**値**が要るのでここだけ取得する。
       # 失敗しても状況表示は止めない（gate: no_token として出るだけ）。
       - name: 外部ソース用トークンを取得
+        if: steps.engineok.outputs.has == 'true'
         id: ext_token
         continue-on-error: true
         uses: ./.cortex-engine/.github/actions/fetch-secret
@@ -157,7 +173,7 @@ jobs:
           HAS_EXTERNAL_SOURCES_TOKEN: ${{ secrets.EXTERNAL_SOURCES_TOKEN != '' }}
           # 外部ソース接続状況のゲート実測用（未設定の案件では gate: no_token になるだけで壊れない）
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-          EXTERNAL_SOURCES_TOKEN: ${{ steps.ext_token.outputs.value }}
+          EXTERNAL_SOURCES_TOKEN: ${{ steps.ext_token.outputs.value || secrets.EXTERNAL_SOURCES_TOKEN }}
           # エンジンのバージョン（本ワークフローのコミットSHA）を報告に含める
           ENGINE_VERSION: ${{ github.job_workflow_sha }}
         run: node .cortex-engine/scripts/fleet-status.mjs
