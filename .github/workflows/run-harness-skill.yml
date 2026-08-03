@@ -127,7 +127,6 @@ jobs:
       # `uses: ./…` がアクションを見つけられずジョブ全体が落ちる（実際にカナリアで起きた）。
       # ここで気づけるようにし、落とさずに従来の repo secret へ退避する。
       - name: エンジンの版が揃っているか確認
-        if: steps.engineok.outputs.has == 'true'
         id: engineok
         run: |
           if [ -f .cortex-engine/.github/actions/fetch-secret/action.yml ]; then
