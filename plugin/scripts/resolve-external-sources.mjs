@@ -262,7 +262,10 @@ function main() {
     if (s.decisions !== undefined) item.decisions = s.decisions;
     explicit.push(item);
   }
-  const excludeRepos = new Set((cfg.exclude || []).map((r) => String(r)));
+  // **GitHubのリポジタリ名は大小文字を区別しない。** 照合も区別しない。
+  // `.gitmodules` が `Owner/Repo` で exclude が `owner/repo` だと、**除外したつもりが効かない**。
+  // 「読まない側に倒す」という最終フィルタの趣旨からも、揃わないことによる取りこぼしは許容できない。
+  const excludeRepos = new Set((cfg.exclude || []).map((r) => String(r).toLowerCase()));
 
   // Gold昇格の対象外チャンネルID集合（最終フィルタで常に除外）。
   //
@@ -290,7 +293,11 @@ function main() {
   // 明示側に無いフィールド（name・notify・url 等の表示系）は導出側から補完し、
   // 明示側にあるフィールド（decisions 等の動作オプション・明示的な name）は明示を優先する。
   const byKey = new Map();
-  const keyOf = (s) => `${s.type}\t${s.ref}`;
+  // github系は大小文字を区別しないので、dedupeのキーも揃える。
+  // 揃えないと `Owner/Repo`（.gitmodules 由来）と `owner/repo`（明示登録）が別物として
+  // 2件出力され、同じリポを2回読みに行く。
+  const keyOf = (s) =>
+    `${s.type}\t${s.type.startsWith("github") ? String(s.ref).toLowerCase() : s.ref}`;
   for (const d of derived) {
     byKey.set(keyOf(d), { ...d });
   }
@@ -308,7 +315,7 @@ function main() {
       s.type === "slack" &&
       goldUndeclaredChannels.has(s.ref) &&
       !explicitSlackRefs.has(s.ref);
-    const isExcluded = s.type.startsWith("github") && excludeRepos.has(s.ref);
+    const isExcluded = s.type.startsWith("github") && excludeRepos.has(String(s.ref).toLowerCase());
     if (ALL) {
       // --all: 除外も落とさず gold で表現。slack は notify（channels.json 由来・既定false）と url も注釈する。
       //
