@@ -6,4 +6,5 @@ jobs:
   call:
     permissions:
       contents: write
+      id-token: write
     uses: ./.github/workflows/zz-perm-callee.yml
