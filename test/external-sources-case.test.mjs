@@ -161,3 +161,14 @@ test("導出・明示・両方 を区別できる", () => {
   assert.equal(by("C0EXPONLY").origin, "explicit", "external-sources.json だけ");
   assert.equal(by("o/explicit-only").origin, "explicit");
 });
+
+test("origin が fleet-status.json まで届く（許可リストで落とさない）", () => {
+  // resolver が付けても、fleet-status.mjs の明示の許可リストに書かないと落ちる。
+  // build.ts（ビューア）で同じ罠を踏んだばかりで、その一段手前にも同じものがあった。
+  const src = readFileSync(path.join(HERE, "..", "scripts", "fleet-status.mjs"), "utf8");
+  // externalSources の組み立ては「ここは明示の許可リスト」のコメントで始まる
+  const at = src.indexOf("ここは明示の許可リスト");
+  assert.notEqual(at, -1, "externalSources の組み立てが見つかりません（構造が変わった可能性）");
+  const block = src.slice(at, at + 400);
+  assert.match(block, /origin: s\.origin/, "origin を通していません（設定UIが消してよいか判断できなくなる）");
+});

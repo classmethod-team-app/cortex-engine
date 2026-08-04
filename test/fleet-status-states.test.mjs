@@ -26,7 +26,7 @@ function run(files) {
   // Home.md は tools の宣言に使う（applicability のゲート）
   const home = [
     "---", "type: overview", 'id: "overview:home"', "kind: 案件", "lifecycle: active",
-    "tools:", "  会議: google-meet", "  共有資料: google-drive", "---", "", "# Home",
+    "tools:", "  会議: google-meet", "  共有資料: google-drive", "  デザイン: figma", "---", "", "# Home",
   ].join("\n");
   mkdirSync(path.join(dir, "Cortex"), { recursive: true });
   writeFileSync(path.join(dir, "Cortex", "Home.md"), home);
@@ -42,7 +42,12 @@ function run(files) {
   const out = JSON.parse(readFileSync(path.join(dir, "fleet-status.json"), "utf8"));
   const by = (kind) => (out.internalSources || []).find((s) => s.kind === kind) || {};
   const check = (id) => (out.checks || []).find((c) => c.id === id) || {};
-  return { meeting: by("会議"), materials: by("共有資料"), duplicates: check("config_duplicates") };
+  return {
+    meeting: by("会議"),
+    materials: by("共有資料"),
+    design: by("デザイン"),
+    duplicates: check("config_duplicates"),
+  };
 }
 
 const INGEST = (enabled) => JSON.stringify({ enabled, meetingNamePatterns: ["KC"] });
@@ -104,4 +109,33 @@ test("[異常系] 同名の設定ファイルが複数あることを検知す�
   // 1つだけなら正常
   const ok = run({ "共有資料/materials-config.json": MATERIALS(true, ["1A"]) });
   assert.equal(ok.duplicates.status, "ok");
+});
+
+test("[正常系] 設定UIが「どれを外すか」を選ぶための材料を出す", () => {
+  // 先頭1件のURLだけでは選べない（三菱電機様は6ファイル）。
+  // Driveも「2件以上かつ有効」のときしか出しておらず、唯一Driveを使う案件が
+  // ちょうど1件なので一度も使えなかった。
+  const r = run({
+    "デザイン/figma.json": JSON.stringify({
+      files: [
+        { key: "AAAAAAAAAAAAAAAAAAAAAA", name: "Sprint22" },
+        { key: "BBBBBBBBBBBBBBBBBBBBBB", name: "Sprint21" },
+        { key: "{プレースホルダ}", name: "未設定" },
+      ],
+    }),
+    "共有資料/materials-config.json": MATERIALS(true, ["1AAA"]),
+  });
+  const design = r.design;
+  assert.equal(design.figmaFiles.length, 2, "プレースホルダは除く");
+  assert.deepEqual(design.figmaFiles.map((f) => f.name), ["Sprint22", "Sprint21"]);
+
+  // 1件でもフォルダ一覧を出す
+  assert.deepEqual(r.materials.driveFolderIds, ["1AAA"]);
+  assert.equal(r.materials.urls.length, 1);
+});
+
+test("[正常系] 止めている案件でもフォルダ一覧は出す（1件だけ外せるように）", () => {
+  const r = run({ "共有資料/materials-config.json": MATERIALS(false, ["1AAA", "2BBB"]) });
+  assert.equal(r.materials.driveState, "off");
+  assert.deepEqual(r.materials.driveFolderIds, ["1AAA", "2BBB"]);
 });
