@@ -298,12 +298,18 @@ function main() {
   // 2件出力され、同じリポを2回読みに行く。
   const keyOf = (s) =>
     `${s.type}\t${s.type.startsWith("github") ? String(s.ref).toLowerCase() : s.ref}`;
+  // **どこから来たかを残す（origin）。** 設定UIが「消してよいか」を判断するために要る。
+  //   derived  … 既存宣言からの自動導出（channels.json の gold:true / dev_dir 配下の submodule）
+  //   explicit … Cortex/external-sources.json への明示登録
+  //   both     … 両方にある
+  // 導出されたものは「消す」対象が無い（消しても導出で戻る／exclude を消すと逆に読み始める）。
+  // 設定UIはこれを見て、explicit のときだけ削除を出す。
   for (const d of derived) {
-    byKey.set(keyOf(d), { ...d });
+    byKey.set(keyOf(d), { ...d, origin: "derived" });
   }
   for (const e of explicit) {
     const prev = byKey.get(keyOf(e));
-    byKey.set(keyOf(e), prev ? { ...prev, ...e } : e);
+    byKey.set(keyOf(e), prev ? { ...prev, ...e, origin: "both" } : { ...e, origin: "explicit" });
   }
 
   const result = [];
@@ -339,6 +345,9 @@ function main() {
         name: s.name || s.ref,
         gold: goldState === "on",
         goldState,
+        // どこから来たか。設定UIが「消してよいか」を判断するために使う
+        // （derived / both は消す対象が無い。消しても導出で戻る・exclude を消すと逆に読み始める）
+        origin: s.origin || "derived",
       };
       if (s.type === "slack") item.notify = s.notify === true;
       if (s.url) item.url = s.url;
