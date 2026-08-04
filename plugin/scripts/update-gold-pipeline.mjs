@@ -130,6 +130,28 @@ function jstToday() {
   return { ymd, dateH: d.toISOString().slice(0, 10) };
 }
 
+/**
+ * 既存とタイトルが衝突した決定を、それでも起票してよいか（＝撤回・方針転換とみなすか）。
+ *
+ * **同じ日の決定を置き換える supersedes は、撤回ではなく同じ決定の再抽出とみなす。**
+ * 決定日は元ソース（議事録・Slack）から決まるので、同じ決定を何度抽出しても date は同じになる。
+ * 一方、本物の撤回は後日に起きる。艦隊628件の実データでも supersedes 45件のうち**43件が別日**で、
+ * 同日の6件は5件が再抽出だった（残る1件も supersedes の張り方の誤り）。
+ *
+ * 免除が無条件だったため、LLM が再抽出に supersedes を張ると素通りしていた。しかも
+ * **回を重ねるほど成立しやすくなる**（衝突相手が増えても、その全部を supersedes に入れれば
+ * 条件を満たせる）。実際に同じ決定が3晩で3件書かれた。
+ *
+ * @param supersedes  この決定が置き換えると主張している既存ID
+ * @param collidingIds 正規化titleが衝突した既存ID
+ * @param date        この決定の日付（YYYYMMDD）
+ */
+export function allowsSupersedeOverride(supersedes, collidingIds, date) {
+  if (!supersedes?.length || !collidingIds?.length) return false;
+  // 衝突相手のすべてを置き換えると言っていること。かつ、そのどれもが別日であること
+  return collidingIds.every((id) => supersedes.includes(id) && String(id).slice(0, 8) !== String(date));
+}
+
 // 重複照合用の正規化（空白・記号を落として小文字化。プログラム側の完全一致判定に使う）
 function normalizeSig(s) {
   return String(s || "")
@@ -899,7 +921,7 @@ function resolveSupersedes(value, existingIds, title) {
 
 // LLM抽出の決定を検証・採番し、status: draft（AI生成・人間未確認）で「起票予定ファイル」に確定する。
 // 重複排除: 既存title・当夜バッチ内titleの正規化完全一致はプログラム側でも落とす（LLM任せにしない保険）。
-function buildDecisionFiles(extracted, existing, batchSigs) {
+export function buildDecisionFiles(extracted, existing, batchSigs) {
   const files = [];
   const skipped = [];
   const allocated = [];
@@ -917,8 +939,7 @@ function buildDecisionFiles(extracted, existing, batchSigs) {
     // ただし衝突相手に supersedes 対象でないレコードが混じるなら、それは同じ決定の再抽出
     // （実行窓のオーバーラップ・前夜に起票した撤回レコードとの衝突等）なので従来どおり重複として落とす。
     const collidingIds = existing.sigToIds.get(sig) || [];
-    const overridesCollision =
-      supersedes.length > 0 && collidingIds.length > 0 && collidingIds.every((id) => supersedes.includes(id));
+    const overridesCollision = allowsSupersedeOverride(supersedes, collidingIds, date);
     if (batchSigs.has(sig) || (existing.sigs.has(sig) && !overridesCollision)) {
       skipped.push({ item: d, reason: "既存/当夜バッチ内の Decision と正規化titleが一致（重複）" });
       continue;
@@ -1541,5 +1562,8 @@ function applyReal(r) {
   log("[update-gold-pipeline] REAL 完了（push はワークフロー側）。");
 }
 
-main();
-logUsageSummary();
+// 直接実行されたときだけ走らせる（テストからは純粋関数だけを使う）
+if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+  main();
+  logUsageSummary();
+}
