@@ -252,9 +252,15 @@ def organize(path: Path) -> None:
         #
         # 走査し直す（`targets` から導かない）。整理で `{名}/{名}.ext` へ**移動**するため、
         # `targets` が持っているのは移動前のパスで、そこに md は無い。
-        no_text = sorted(
-            m for m in path.rglob("*.md") if NO_TEXT_MARKER in m.read_text(encoding="utf-8", errors="ignore")
-        )
+        def _has_marker(md: Path) -> bool:
+            # 読めないファイルで集計ごと落とさない（列挙後に消える等）。
+            # is_effectively_empty() と同じ構え——**数え上げの失敗で変換処理を巻き添えにしない**
+            try:
+                return NO_TEXT_MARKER in md.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                return False
+
+        no_text = sorted(m for m in path.rglob("*.md") if _has_marker(m))
         if no_text:
             print(
                 f"警告: {len(no_text)} 件はテキストを取り出せませんでした（元ファイルを直接読む必要があります）:",
