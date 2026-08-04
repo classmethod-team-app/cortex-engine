@@ -199,3 +199,22 @@ test("[同期] 排他グループを占有したまま待たせない（リア�
     assert.doesNotMatch(text, /^\s+- name: .*待機/m, `${f}: 待つだけのステップがあります（排他グループを占有します）`);
   }
 });
+
+test("[リアルタイム同期] 削除をローカルへ反映する（全体差分のときだけprune）", () => {
+  // `update` は取ってくるだけで、Backlog から消えたものを消さない。消す役は `prune`。
+  // これまで prune は定期同期にしか無く、**削除は最大1時間（夜間・土日は翌営業日まで）
+  // 反映されなかった**。削除イベントは番兵（key=""）で全体差分に倒れてくるので、
+  // 全体差分のときに prune を走らせるのが削除の受け口になる。
+  const text = readFileSync(path.join(DIR, "backlog-webhook-sync.yml"), "utf8");
+  assert.match(text, /backlog-exporter@1 prune --force/, "削除が反映されない");
+
+  // **個別指定のときは走らせない。** 「その1件を取り直す」操作は削除と無関係で、
+  // 毎回 prune すると全件の一覧取得が乗って重くなる
+  const at = text.indexOf("prune --force");
+  const guard = text.slice(text.lastIndexOf("if [", at), at);
+  assert.match(guard, /issue_full/, "全体差分のときだけ、という条件が無い");
+  assert.match(guard, /doc_full/);
+
+  // 失敗しても同期そのものは落とさない（次回に再試行できる）
+  assert.match(text.slice(at, at + 200), /\|\| echo/, "pruneの失敗で同期を落としている");
+});
