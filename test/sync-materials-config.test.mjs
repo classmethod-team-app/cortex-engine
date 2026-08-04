@@ -23,20 +23,33 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.join(HERE, "..", "plugin", "skills", "sync-materials", "scripts", "convert.py");
 
-/** 共有資料ディレクトリを作って変換を走らせ、結果のファイル一覧を返す */
+/**
+ * 共有資料ディレクトリを作って変換を走らせ、結果を調べられる形で返す。
+ *
+ * **毎回「動いたことの証拠」を確かめる。** 以前はスクリプトが起動に失敗しても
+ * try/catch で握りつぶしていたため、「移動されていない」という否定形の検証が
+ * **1行も動かないまま素通りで通っていた**（CIには markitdown が無く、実際そうなっていた）。
+ * 何も動かなければ何も移動しないので、否定形の検証は必ず通ってしまう。
+ * そこで、確実に整理されるはずの見張り役を毎回1つ混ぜ、それが移動していることを先に確かめる。
+ */
 function convert(files) {
   const dir = mkdtempSync(path.join(tmpdir(), "mat-"));
   const base = path.join(dir, "共有資料");
   mkdirSync(base, { recursive: true });
+  const SENTINEL = "見張り役.txt";
+  writeFileSync(path.join(base, SENTINEL), "整理されるはずの資料");
   for (const [name, body] of Object.entries(files)) {
     writeFileSync(path.join(base, name), body);
   }
+  // 変換は markitdown を必要とするので失敗しうる。整理（移動）はそれに依存しない。
   try {
     execFileSync("python3", [SCRIPT, base, "--organize"], { stdio: ["ignore", "ignore", "pipe"] });
-  } catch (e) {
-    // markitdown が無い環境では変換自体は失敗しうるが、**移動したかどうか**は判定できる
+  } catch {
+    // 変換の失敗は許容する（この検証の対象は整理のほう）
   }
-  return { dir, base, exists: (p) => existsSync(path.join(base, p)) };
+  const exists = (p) => existsSync(path.join(base, p));
+  assert.equal(exists("見張り役/見張り役.txt"), true, "整理が動いていない（この状態では否定形の検証が意味を持たない）");
+  return { dir, base, exists };
 }
 
 const CONFIG = JSON.stringify({ enabled: true, driveFolderIds: ["1S1W9wxMiPc6x0h"] });
