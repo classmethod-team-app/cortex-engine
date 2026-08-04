@@ -512,13 +512,18 @@ function meetingIngestState() {
     return cfg.enabled ? "on" : "off";
   } catch { return "broken"; }
 }
-/** 会議の照合キー: client名 ＋ ingest-config.json の meetingNamePatterns（無効・未設置は undefined） */
+/**
+ * 会議の照合キー: client名 ＋ ingest-config.json の meetingNamePatterns（未設置・壊れは undefined）。
+ *
+ * **`enabled` で出し分けない。** 照合キーは設定そのものの性質で、ON/OFFとは別の情報。
+ * 画面は「どんな会議名なら取り込まれるか」を常に示す必要がある——招待しても名前が合わなければ
+ * 届かないので、これは招待の判断に要る材料。ON/OFFは `ingestState` が別に伝える。
+ */
 function meetingMatchKeys() {
   const p = findConfigPath("ingest-config.json");
   if (!p) return undefined;
   try {
     const cfg = JSON.parse(readText(p) || "");
-    if (!cfg.enabled) return undefined;
     const keys = [clientName, ...(cfg.meetingNamePatterns || [])]
       .map((s) => String(s).trim()).filter((s) => s && !/\{\{/.test(s));
     return keys.length ? [...new Set(keys)] : undefined;

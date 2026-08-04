@@ -91,9 +91,16 @@ test("[資料] 設定ファイルの置き場が案件で違っても読める",
   assert.equal(r.materials.driveState, "on");
 });
 
-test("[会議] 照合キーは ON のときだけ出す（従来どおり）", () => {
+test("[会議] 照合キーは ON/OFF に関わらず出す", () => {
+  // **画面は「どんな会議名なら取り込まれるか」を常に示す必要がある。**
+  // 取り込みの可否は「Botを会議に招待したか」で決まる（Router.gs の設計）。
+  // 招待しても名前が合わなければ届かないので、照合キーは招待の判断に要る材料。
+  // ON/OFF は ingestState が別に伝えるので、キーをそれで出し分けると情報が消えるだけ。
   assert.ok(run({ "会議/ingest-config.json": INGEST(true) }).meeting.matchKeys?.includes("KC"));
-  assert.equal(run({ "会議/ingest-config.json": INGEST(false) }).meeting.matchKeys, undefined);
+  assert.ok(run({ "会議/ingest-config.json": INGEST(false) }).meeting.matchKeys?.includes("KC"));
+  // 設置されていなければ出しようがない
+  assert.equal(run({}).meeting.matchKeys, undefined);
+  assert.equal(run({ "会議/ingest-config.json": "{ 壊れ" }).meeting.matchKeys, undefined);
 });
 
 test("[異常系] 同名の設定ファイルが複数あることを検知する", () => {
