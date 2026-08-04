@@ -921,7 +921,7 @@ function resolveSupersedes(value, existingIds, title) {
 
 // LLM抽出の決定を検証・採番し、status: draft（AI生成・人間未確認）で「起票予定ファイル」に確定する。
 // 重複排除: 既存title・当夜バッチ内titleの正規化完全一致はプログラム側でも落とす（LLM任せにしない保険）。
-function buildDecisionFiles(extracted, existing, batchSigs) {
+export function buildDecisionFiles(extracted, existing, batchSigs) {
   const files = [];
   const skipped = [];
   const allocated = [];
