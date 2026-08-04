@@ -90,6 +90,13 @@ function secretSource(name) {
   return "";
 }
 const okFromBool = (b) => (b === null ? "unknown" : b ? "ok" : "missing");
+/** 同名の設定ファイルが複数あるもの（移動・複製の事故の兆候） */
+function duplicateConfigs() {
+  const names = ["materials-config.json", "ingest-config.json", "figma.json", "channels.json", "external-sources.json"];
+  return names
+    .map((name) => ({ name, paths: findConfigPathsAll(name) }))
+    .filter((d) => d.paths.length > 1);
+}
 /** 自分のリポの直近ワークフローrun結果。取得不可は null */
 function lastRun(workflowFile) {
   try {
@@ -226,6 +233,11 @@ const CHECKS = [
     action: "cortex-engine への read 専用 PAT を repo secret に登録（org secret は Free プランでは private リポに届かない）" },
   { id: "role_secret", label: "AWS_ROLE_TO_ASSUME", cat: "シークレット",
     status: okFromBool(secret("AWS_ROLE_TO_ASSUME")), action: "案件リポに RoleArn を登録" },
+  // 同名の設定ファイルが複数あると、読み手は浅い方だけを見る。移動・複製の事故に気づけるようにする。
+  { id: "config_duplicates", label: "設定ファイルの重複", cat: "Cortex",
+    status: () => (duplicateConfigs().length ? "missing" : "ok"),
+    detail: () => duplicateConfigs().map((d) => `${d.name}（${d.paths.join(" / ")}）`).join(" , "),
+    action: "重複した設定ファイルを1つに整理する（読み手は浅い方だけを見ます）" },
   { id: "decisions_content", label: "Cortex/Decisions 実データ", cat: "Cortex",
     status: decisionsCount > 0 ? "ok" : "missing", detail: `${decisionsCount}件` },
   { id: "nightly_decisionlog", label: "夜間 Gold昇格 run", cat: "自動化",
@@ -436,6 +448,27 @@ function figmaFileUrl() {
   } catch { return undefined; }
 }
 /** 設定ファイルをリポ内から探す（ルート直下→1階層→2階層。notetakerのProjects.gsと同じ発想の探索） */
+/**
+ * 同名の設定ファイルがリポジトリ内に複数あるか（浅い順で見つかったパスの一覧）。
+ *
+ * **なぜ見るか**: 資料の変換が設定ファイルを `共有資料/materials-config/` へ move する事故があり、
+ * 読み手が空の正本を見て**2案件の資料同期が数週間止まった**。複数あること自体が異常の兆候なので、
+ * 気づけるようにする。
+ */
+function findConfigPathsAll(marker) {
+  const hits = [];
+  if (readText(marker) != null) hits.push(marker);
+  try {
+    for (const d of readdirSync(".", { withFileTypes: true })) {
+      if (!d.isDirectory() || d.name === "node_modules" || d.name.startsWith(".")) continue;
+      if (readText(`${d.name}/${marker}`) != null) hits.push(`${d.name}/${marker}`);
+      for (const sub of (listDir(d.name) || [])) {
+        if (readText(`${d.name}/${sub}/${marker}`) != null) hits.push(`${d.name}/${sub}/${marker}`);
+      }
+    }
+  } catch {}
+  return hits;
+}
 function findConfigPath(marker) {
   if (readText(marker) != null) return marker;
   try {

@@ -41,7 +41,8 @@ function run(files) {
   });
   const out = JSON.parse(readFileSync(path.join(dir, "fleet-status.json"), "utf8"));
   const by = (kind) => (out.internalSources || []).find((s) => s.kind === kind) || {};
-  return { meeting: by("会議"), materials: by("共有資料") };
+  const check = (id) => (out.checks || []).find((c) => c.id === id) || {};
+  return { meeting: by("会議"), materials: by("共有資料"), duplicates: check("config_duplicates") };
 }
 
 const INGEST = (enabled) => JSON.stringify({ enabled, meetingNamePatterns: ["KC"] });
@@ -86,4 +87,21 @@ test("[資料] 設定ファイルの置き場が案件で違っても読める",
 test("[会議] 照合キーは ON のときだけ出す（従来どおり）", () => {
   assert.ok(run({ "会議/ingest-config.json": INGEST(true) }).meeting.matchKeys?.includes("KC"));
   assert.equal(run({ "会議/ingest-config.json": INGEST(false) }).meeting.matchKeys, undefined);
+});
+
+test("[異常系] 同名の設定ファイルが複数あることを検知する", () => {
+  // 資料の変換が設定ファイルを移動する事故があり、読み手が空の正本を見て
+  // 2案件の資料同期が数週間止まった。複数あること自体が異常の兆候なので気づけるようにする。
+  const dup = run({
+    "共有資料/materials-config.json": MATERIALS(false, []),
+    "共有資料/materials-config/materials-config.json": MATERIALS(true, ["1A"]),
+  });
+  assert.equal(dup.duplicates.status, "missing");
+  assert.match(dup.duplicates.detail, /materials-config\.json/);
+  // 読み手が見る方（浅い方）が先に出る
+  assert.match(dup.duplicates.detail, /共有資料\/materials-config\.json \/ 共有資料\/materials-config\//);
+
+  // 1つだけなら正常
+  const ok = run({ "共有資料/materials-config.json": MATERIALS(true, ["1A"]) });
+  assert.equal(ok.duplicates.status, "ok");
 });
