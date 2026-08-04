@@ -42,7 +42,9 @@ function run(files) {
   const out = JSON.parse(readFileSync(path.join(dir, "fleet-status.json"), "utf8"));
   const by = (kind) => (out.internalSources || []).find((s) => s.kind === kind) || {};
   const check = (id) => (out.checks || []).find((c) => c.id === id) || {};
+  const pipe = (id) => (out.pipelines || []).find((p) => p.id === id) || {};
   return {
+    designPipe: pipe("sync-designs"),
     meeting: by("会議"),
     materials: by("共有資料"),
     design: by("デザイン"),
@@ -138,4 +140,39 @@ test("[正常系] 止めている案件でもフォルダ一覧は出す（1件�
   const r = run({ "共有資料/materials-config.json": MATERIALS(false, ["1AAA", "2BBB"]) });
   assert.equal(r.materials.driveState, "off");
   assert.deepEqual(r.materials.driveFolderIds, ["1AAA", "2BBB"]);
+});
+
+// パイプラインは .github/workflows/ のスタブ（engineのreusableを uses しているもの）から列挙される
+const DESIGN_STUB = [
+  "name: デザイン同期",
+  "on: { schedule: [{ cron: \"45 12 * * *\" }] }",
+  "jobs:",
+  "  sync:",
+  "    uses: classmethod-team-app/cortex-engine/.github/workflows/sync-designs.yml@v1",
+].join("\n");
+
+test("[デザイン] 実キーが無ければ「稼働中」に見せない", () => {
+  // 同期は figma.json が未記入だと何もせず正常終了する。宣言（tools: figma）だけで
+  // 適用扱いにすると ✅ が並び、何も同期していないのに動いているように見える。
+  // 雛形のプレースホルダのまま放置された案件と、設定UIから最後の1件を外した案件が
+  // どちらもこの状態になる（後者は実際に踏んだ）。
+  const stub = { ".github/workflows/sync-designs.yml": DESIGN_STUB };
+  const real = JSON.stringify({ files: [{ key: "AAAAAAAAAAAAAAAAAAAAAA", name: "UI" }] });
+  const ok = run({ ...stub, "デザイン/figma.json": real }).designPipe;
+  assert.equal(ok.id, "sync-designs", "前提: パイプラインが列挙されている");
+  assert.equal(ok.applicable, undefined, "実キーがあれば適用（印を付けない）");
+
+  for (const [label, body] of [
+    ["空", JSON.stringify({ files: [] })],
+    ["雛形のプレースホルダ", JSON.stringify({ files: [{ key: "{FigmaのURL ... をここに}", name: "{メモ}" }] })],
+  ]) {
+    assert.equal(run({ ...stub, "デザイン/figma.json": body }).designPipe.applicable, false, `${label} は適用外にする`);
+  }
+  assert.equal(run(stub).designPipe.applicable, false, "figma.json が無い案件も適用外");
+
+  // **宣言側の条件も要る。** 別ツールを使う（あるいは使わないと決めた）案件で、
+  // 雛形の figma.json に実キーが残っていると適用扱いに戻ってしまう。
+  const declineDesign = ["---", "type: overview", 'id: "overview:home"', "tools:", "  デザイン: none", "---", "", "# Home"].join("\n");
+  const r = run({ ...stub, "Cortex/Home.md": declineDesign, "デザイン/figma.json": real });
+  assert.equal(r.designPipe.applicable, false, "デザインを使わないと宣言した案件は適用外");
 });
