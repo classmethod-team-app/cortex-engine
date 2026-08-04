@@ -137,3 +137,46 @@ test("版ずれのガードは、取得ステップより前にあり条件を�
     }
   }
 });
+
+test("[sync-backlog] 取りこぼしの検出をコミットより前に置き、意図した失敗を消さない", () => {
+  // 検出→回収→コミット の順でないと、拾ったファイルがコミットに乗らない。
+  // また continue-on-error を付けると「24時間以上入っていない」という
+  // 意図した失敗まで消える（この検知は、緑のままデータが失われるのを防ぐためにある）。
+  const text = readFileSync(path.join(DIR, "sync-backlog.yml"), "utf8");
+  const audit = text.indexOf("- name: ドキュメントの取りこぼしを検出・回収");
+  const commit = text.indexOf("- name: 変更をコミット・プッシュ");
+  assert.notEqual(audit, -1, "取りこぼしの検出ステップがありません");
+  assert.ok(audit < commit, "検出・回収はコミットより前に置く（拾った分をコミットに乗せるため）");
+
+  const step = text.slice(audit, commit);
+  assert.doesNotMatch(step, /continue-on-error/, "意図した失敗まで握りつぶしてしまう");
+  assert.match(step, /backlog-document-audit\.mjs/);
+  // キーの受け渡し: Secrets Manager 優先・repo secret フォールバックという艦隊の型に揃える
+  assert.match(step, /steps\.backlog_key\.outputs\.value \|\| secrets\.BACKLOG_API_KEY/);
+  assert.match(step, /BACKLOG_DOMAIN/);
+  assert.match(step, /BACKLOG_PROJECT_KEY/);
+});
+
+test("[sync-backlog] 意図的に失敗するステップの後ろでも、診断ステップが飛ばない", () => {
+  // GitHub Actions は `if:` に状態関数（success/failure/always/cancelled）が無いと
+  // 暗黙に `success() && …` として評価する。取りこぼし検出は意図的に失敗することがあるので、
+  // それだけで後続の診断ステップが丸ごと飛び、**別の障害の原因が読めなくなる**。
+  const text = readFileSync(path.join(DIR, "sync-backlog.yml"), "utf8");
+  const audit = text.indexOf("- name: ドキュメントの取りこぼしを検出・回収");
+  assert.notEqual(audit, -1);
+
+  const STATE_FN = /\b(success|failure|always|cancelled)\s*\(/;
+  // 取りこぼし検出より後ろのステップは、すべて状態関数を明示していること
+  const after = text.slice(audit);
+  for (const m of after.matchAll(/^      - name: (.+)$/gm)) {
+    const start = m.index;
+    const body = after.slice(start, after.indexOf("\n      - name:", start + 1) + 1 || undefined);
+    const ifLine = /^\s+if:\s*(.+)$/m.exec(body);
+    if (!ifLine) continue; // if が無ければ常に走るので問題ない
+    assert.match(
+      ifLine[1],
+      STATE_FN,
+      `${m[1]}: if に状態関数が無いため暗黙の success() が付き、前のステップが失敗すると飛ぶ`,
+    );
+  }
+});
