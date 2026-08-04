@@ -164,6 +164,26 @@ jobs:
           echo "::warning::Backlog同期が3回失敗（403等で一部リソース未取得）。取得済み分だけコミットして続行します" >&2
           echo "ok=false" >> "$GITHUB_OUTPUT"
 
+      # 同期の取りこぼしを、コミットの前に拾い直す。
+      #
+      # exporter はドキュメントをツリーAPIだけから取得し、取得できたかに関わらず
+      # 差分カーソルを「実行時刻」まで進める。そのためツリーAPIに一時的に載らなかった
+      # ドキュメントは、あとで載っても「もう見た」と判定されて**永久に入らない**
+      # （実際に1件失われ、顧客側メンバーの指摘で発覚した。同期は6回とも緑だった）。
+      #
+      # 一覧API（ツリーに依存しない）を正として突き合わせ、欠けを取り直す。
+      # ここで拾えた分は下のコミットに含まれる。
+      # 版がずれたエンジンを引いた場合はスクリプトが無い。落とさずに飛ばす（既存の型に合わせる）。
+      # 突き合わせ自体の失敗はスクリプト内で握りつぶしている。**ここで continue-on-error を
+      # 付けない** — 付けると「24時間以上入っていない」という意図した失敗まで消える。
+      - name: ドキュメントの取りこぼしを検出・回収
+        if: ${{ !cancelled() && steps.engineok.outputs.has == 'true' }}
+        env:
+          BACKLOG_API_KEY: ${{ steps.backlog_key.outputs.value || secrets.BACKLOG_API_KEY }}
+          BACKLOG_DOMAIN: ${{ secrets.BACKLOG_DOMAIN }}
+          BACKLOG_PROJECT_KEY: ${{ secrets.BACKLOG_PROJECT_KEY }}
+        run: node .cortex-engine/scripts/backlog-document-audit.mjs
+
       - name: 変更をコミット・プッシュ
         if: ${{ !cancelled() }} # 同期が途中失敗しても取得済み分はコミットする
         run: |

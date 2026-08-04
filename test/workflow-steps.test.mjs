@@ -137,3 +137,22 @@ test("版ずれのガードは、取得ステップより前にあり条件を�
     }
   }
 });
+
+test("[sync-backlog] 取りこぼしの検出をコミットより前に置き、意図した失敗を消さない", () => {
+  // 検出→回収→コミット の順でないと、拾ったファイルがコミットに乗らない。
+  // また continue-on-error を付けると「24時間以上入っていない」という
+  // 意図した失敗まで消える（この検知は、緑のままデータが失われるのを防ぐためにある）。
+  const text = readFileSync(path.join(DIR, "sync-backlog.yml"), "utf8");
+  const audit = text.indexOf("- name: ドキュメントの取りこぼしを検出・回収");
+  const commit = text.indexOf("- name: 変更をコミット・プッシュ");
+  assert.notEqual(audit, -1, "取りこぼしの検出ステップがありません");
+  assert.ok(audit < commit, "検出・回収はコミットより前に置く（拾った分をコミットに乗せるため）");
+
+  const step = text.slice(audit, commit);
+  assert.doesNotMatch(step, /continue-on-error/, "意図した失敗まで握りつぶしてしまう");
+  assert.match(step, /backlog-document-audit\.mjs/);
+  // キーの受け渡し: Secrets Manager 優先・repo secret フォールバックという艦隊の型に揃える
+  assert.match(step, /steps\.backlog_key\.outputs\.value \|\| secrets\.BACKLOG_API_KEY/);
+  assert.match(step, /BACKLOG_DOMAIN/);
+  assert.match(step, /BACKLOG_PROJECT_KEY/);
+});
