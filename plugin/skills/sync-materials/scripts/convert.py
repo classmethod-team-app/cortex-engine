@@ -60,6 +60,30 @@ MARKITDOWN_EXTENSIONS = {
 # 変換対象外（生のまま置く）。必要時にClaudeが直接読む。
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".svg"}
 
+# **仕組みの設定ファイルは資料ではない。絶対に触らない。**
+#
+# 実際に事故が起きた: 共有資料/materials-config.json（Drive同期の設定）が資料と誤認され、
+# 共有資料/materials-config/ へ **move** された。設定が消えたので後日マイグレーションが
+# 空の雛形を作り直し、読み手はその空ファイルを見て **2案件の資料同期が止まっていた**。
+#
+# move してしまうと元の場所から消えるため、影響が「余計な .md が増える」では済まない。
+# 名前で判定する（拡張子だけでは .json 一般を弾いてしまい、資料としてのJSONが変換できなくなる）。
+CONFIG_FILENAMES = {
+    "materials-config.json",
+    "ingest-config.json",
+    "figma.json",
+    "channels.json",
+    "external-sources.json",
+    "backlog-settings.json",
+    "backlog-proxy.json",
+    "fleet-status.json",
+}
+
+
+def is_config_file(path: Path) -> bool:
+    """仕組みの設定ファイルか（資料として扱ってはいけないもの）"""
+    return path.name in CONFIG_FILENAMES
+
 
 def convert(file_path: Path) -> str:
     if not file_path.exists():
@@ -139,6 +163,9 @@ def import_to_dest(file_path: Path, dest_dir: Path, name_override: str | None = 
 def organize(path: Path) -> None:
     if path.is_file():
         suffix = path.suffix.lower()
+        if is_config_file(path):
+            print(f"スキップ（仕組みの設定ファイル・資料ではない）: {path}", file=sys.stderr)
+            return
         if suffix in IMAGE_EXTENSIONS:
             print(f"スキップ（画像は変換対象外・生のまま置く）: {path}", file=sys.stderr)
             return
@@ -157,7 +184,7 @@ def organize(path: Path) -> None:
         targets = sorted(
             f
             for f in path.rglob("*")
-            if f.is_file() and f.suffix.lower() in MARKITDOWN_EXTENSIONS
+            if f.is_file() and f.suffix.lower() in MARKITDOWN_EXTENSIONS and not is_config_file(f)
         )
         processed = 0
         for f in targets:
