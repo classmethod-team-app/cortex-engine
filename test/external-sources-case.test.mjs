@@ -120,3 +120,55 @@ test("既にある登録ファイルは内容を問わず触らない", async ()
   await mig.run(dir);
   assert.equal(readFileSync(path.join(dir, "Cortex", "external-sources.json"), "utf8"), mine, "既存の設定を壊さない");
 });
+
+// ---- origin（どこから来たか）----
+
+test("導出・明示・両方 を区別できる", () => {
+  // 設定UIが「消してよいか」を判断するために要る。
+  // derived / both は消す対象が無い（消しても導出で戻る・exclude を消すと逆に読み始める）。
+  const dir = mkdtempSync(path.join(tmpdir(), "origin-"));
+  mkdirSync(path.join(dir, "Cortex"), { recursive: true });
+  mkdirSync(path.join(dir, "開発"), { recursive: true });
+  mkdirSync(path.join(dir, "チャット"), { recursive: true });
+  writeFileSync(
+    path.join(dir, "Cortex", "Home.md"),
+    ["---", "type: overview", "tools:", "  開発: github", "  チャット: slack", "---", "", "# Home"].join("\n"),
+  );
+  writeFileSync(
+    path.join(dir, ".gitmodules"),
+    ['[submodule "開発/src"]', "\tpath = 開発/src", "\turl = https://github.com/o/derived.git"].join("\n"),
+  );
+  writeFileSync(
+    path.join(dir, "チャット", "channels.json"),
+    JSON.stringify({ channels: [{ name: "#両方", url: "https://x/archives/C0BOTHAAA", gold: true }] }),
+  );
+  writeFileSync(
+    path.join(dir, "Cortex", "external-sources.json"),
+    JSON.stringify({
+      sources: [
+        { type: "slack", channel: "C0BOTHAAA" },
+        { type: "slack", channel: "C0EXPONLY" },
+        { type: "github-issues", repo: "o/explicit-only" },
+      ],
+    }),
+  );
+  const all = JSON.parse(
+    execFileSync("node", [SCRIPT, "--all"], { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }),
+  );
+  const by = (ref) => all.find((s) => s.ref === ref) || {};
+  assert.equal(by("o/derived").origin, "derived", "submodule 由来");
+  assert.equal(by("C0BOTHAAA").origin, "both", "channels.json と external-sources.json の両方");
+  assert.equal(by("C0EXPONLY").origin, "explicit", "external-sources.json だけ");
+  assert.equal(by("o/explicit-only").origin, "explicit");
+});
+
+test("origin が fleet-status.json まで届く（許可リストで落とさない）", () => {
+  // resolver が付けても、fleet-status.mjs の明示の許可リストに書かないと落ちる。
+  // build.ts（ビューア）で同じ罠を踏んだばかりで、その一段手前にも同じものがあった。
+  const src = readFileSync(path.join(HERE, "..", "scripts", "fleet-status.mjs"), "utf8");
+  // externalSources の組み立ては「ここは明示の許可リスト」のコメントで始まる
+  const at = src.indexOf("ここは明示の許可リスト");
+  assert.notEqual(at, -1, "externalSources の組み立てが見つかりません（構造が変わった可能性）");
+  const block = src.slice(at, at + 400);
+  assert.match(block, /origin: s\.origin/, "origin を通していません（設定UIが消してよいか判断できなくなる）");
+});

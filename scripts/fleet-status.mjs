@@ -347,7 +347,13 @@ const externalSources = resolveExternalSourcesAll().map((s) => {
   const gate = s.type === "slack" ? probeSlackGate(s.ref) : probeGithubGate(s.ref);
   // goldState は resolver 由来の三値（on/off/undeclared/excluded）。表示側が「意図的な除外」と
   // 「宣言し忘れ」を区別するために要る（区別できないと正常なOFFにも警告が出て麻痺する）。
-  const item = { type: s.type, name: s.name, ref: s.ref, gold: s.gold !== false, goldState: s.goldState };
+  // **ここは明示の許可リスト。列挙しないと画面まで届かない。**
+  // resolver が付けた origin を落として、設定UIが「消してよいか」を判断できなくなっていた。
+  const item = {
+    type: s.type, name: s.name, ref: s.ref,
+    gold: s.gold !== false, goldState: s.goldState,
+    origin: s.origin,
+  };
   if (s.type === "slack") item.notify = s.notify === true;
   // 表示用URL（判明する場合のみ付与）: slack=channels.json の url / github系=ref から機械導出
   let url;
@@ -529,12 +535,30 @@ function materialsExtras() {
     return { driveSync: false, driveState: "broken", driveFolderCount: 0 };
   }
   const ids = (cfg.driveFolderIds || []).filter(Boolean);
-  if (!cfg.enabled) return { driveSync: false, driveState: "off", driveFolderCount: ids.length };
+  if (!cfg.enabled) {
+    return { driveSync: false, driveState: "off", driveFolderCount: ids.length, driveFolderIds: ids };
+  }
   if (!ids.length) return { driveSync: false, driveState: "empty", driveFolderCount: 0 };
+  // **urls は件数にも enabled にも関わらず出す。** 設定UIが「どのフォルダを外すか」を
+  // 選ばせるのに要る。以前は「2件以上かつ有効」のときしか出しておらず、
+  // 艦隊で唯一Driveを使っている案件がちょうど1件なので、一度も使えなかった。
   const urls = ids.map((id) => `https://drive.google.com/drive/folders/${id}`);
-  const ex = { url: urls[0], driveState: "on", driveFolderCount: ids.length };
-  if (urls.length > 1) ex.urls = urls;
-  return ex;
+  return { url: urls[0], urls, driveFolderIds: ids, driveState: "on", driveFolderCount: ids.length };
+}
+/**
+ * 同期対象のFigmaファイル一覧。
+ * **設定UIが「どのファイルを外すか」を選ばせるのに要る**（以前は先頭1件のURLしか出していなかった）。
+ * 三菱電機様のように6ファイル持つ案件では、先頭だけでは選べない。
+ */
+function figmaFileList() {
+  const p = findConfigPath("figma.json");
+  if (!p) return undefined;
+  try {
+    const files = (JSON.parse(readText(p) || "").files || [])
+      .filter((f) => f && typeof f.key === "string" && /^[A-Za-z0-9_-]{8,}$/.test(f.key))
+      .map((f) => ({ key: f.key, name: String(f.name || f.key) }));
+    return files.length ? files : undefined;
+  } catch { return undefined; }
 }
 function listInternalSources() {
   const defs = [
@@ -553,7 +577,10 @@ function listInternalSources() {
       pipeline: "sync-materials" },
     { kind: "デザイン", def: "figma",
       label: (t) => (t === "figma" ? "デザイン（画面インベントリ・DESIGN.md）" : `デザイン（${toolDisp(t)}）`),
-      url: (t) => (t === "figma" ? figmaFileUrl() : undefined), pipeline: "sync-designs" },
+      url: (t) => (t === "figma" ? figmaFileUrl() : undefined),
+      // 設定UIが「どのファイルを外すか」を選ばせるのに要る（先頭1件のURLだけでは選べない）
+      extra: () => { const files = figmaFileList(); return files ? { figmaFiles: files } : {}; },
+      pipeline: "sync-designs" },
   ];
   const out = [];
   for (const d of defs) {
