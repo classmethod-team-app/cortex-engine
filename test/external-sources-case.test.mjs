@@ -13,7 +13,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -77,4 +77,46 @@ test("除外が無ければ導出される（前提の確認）", () => {
   const r = resolve({ gitmodulesUrl: URL_MIXED });
   assert.equal(r.length, 1);
   assert.equal(r[0].type, "github-issues");
+});
+
+// ---- 外部ソースの登録ファイルの配布（migration 0032）----
+
+test("空の登録ファイルを配っても取り込み対象は変わらない", async () => {
+  // 9案件中8案件にこのファイルが無い（設定UIの書き込み先なので配る必要がある）。
+  // **配布そのものが取り込み対象を変えてはいけない**（既定の自動導出だけが効く状態を保つ）。
+  const dir = mkdtempSync(path.join(tmpdir(), "mig32-"));
+  mkdirSync(path.join(dir, "Cortex"), { recursive: true });
+  mkdirSync(path.join(dir, "\u958b\u767a"), { recursive: true });
+  writeFileSync(
+    path.join(dir, "Cortex", "Home.md"),
+    ["---", "type: overview", "tools:", "  \u958b\u767a: github", "  \u30c1\u30e3\u30c3\u30c8: none", "---", "", "# Home"].join("\n"),
+  );
+  writeFileSync(
+    path.join(dir, ".gitmodules"),
+    ['[submodule "\u958b\u767a/src"]', "\tpath = \u958b\u767a/src", "\turl = https://github.com/Owner/App.git"].join("\n"),
+  );
+  const list = () =>
+    JSON.parse(execFileSync("node", [SCRIPT], { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }));
+
+  const before = list();
+  assert.equal(before.length, 1, "前提: 導出が空でない状態で比べる");
+
+  const mig = await import(path.join(HERE, "..", "migrations", "0032-\u5916\u90e8\u30bd\u30fc\u30b9\u306e\u767b\u9332\u30d5\u30a1\u30a4\u30eb\u306e\u914d\u5e03.mjs"));
+  await mig.run(dir);
+  await mig.run(dir); // 冪等
+  assert.deepEqual(list(), before, "配布で取り込み対象が変わってはいけない");
+
+  const written = JSON.parse(readFileSync(path.join(dir, "Cortex", "external-sources.json"), "utf8"));
+  assert.deepEqual(written.sources, [], "空の雛形が置かれる（設定UIの書き込み先になる）");
+  assert.deepEqual(written.exclude, []);
+});
+
+test("既にある登録ファイルは内容を問わず触らない", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "mig32-"));
+  mkdirSync(path.join(dir, "Cortex"), { recursive: true });
+  const mine = JSON.stringify({ sources: [{ type: "github-issues", repo: "o/r" }] }, null, 2);
+  writeFileSync(path.join(dir, "Cortex", "external-sources.json"), mine);
+  const mig = await import(path.join(HERE, "..", "migrations", "0032-\u5916\u90e8\u30bd\u30fc\u30b9\u306e\u767b\u9332\u30d5\u30a1\u30a4\u30eb\u306e\u914d\u5e03.mjs"));
+  await mig.run(dir);
+  assert.equal(readFileSync(path.join(dir, "Cortex", "external-sources.json"), "utf8"), mine, "既存の設定を壊さない");
 });
