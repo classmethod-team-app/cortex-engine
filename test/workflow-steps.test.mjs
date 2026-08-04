@@ -180,3 +180,22 @@ test("[sync-backlog] 意図的に失敗するステップの後ろでも、診�
     );
   }
 });
+
+test("[同期] 排他グループを占有したまま待たせない（リアルタイム同期が詰まる）", () => {
+  // **寝ているだけの run が、リアルタイム同期を最大10分ブロックしていた。**
+  // 定期同期（sync-backlog / sync-designs）は、Backlogのレート上限を避けるため
+  // 0〜10分（デザインは0〜30分）のランダム待機を入れていた。ところが、この待機中も
+  // `cortex-repo-write-<repo>` の排他グループを占有し続けるため、Webhook起点の
+  // リアルタイム同期が順番待ちで動けなくなっていた（実際に困った）。
+  //
+  // そもそもBacklogのレート上限は**ユーザー単位**で（公式ドキュメント）、案件ごとの
+  // キーへ移行しつつある今は前提も弱い。分散が必要になったら、実行時間を食わない方法
+  // （案件ごとに固定オフセットで cron の分をずらす）で行う。
+  for (const f of ["sync-backlog.yml", "sync-designs.yml", "backlog-webhook-sync.yml"]) {
+    const text = readFileSync(path.join(DIR, f), "utf8");
+    assert.doesNotMatch(text, /RANDOM/, `${f}: ランダム待機が復活しています`);
+    // 「待つだけのステップ」を禁じる。失敗後のリトライ待ち（sleep $((attempt * 60))）は
+    // 仕事をした結果の待機なので対象外——**着手前に寝るステップだけ**が問題
+    assert.doesNotMatch(text, /^\s+- name: .*待機/m, `${f}: 待つだけのステップがあります（排他グループを占有します）`);
+  }
+});
