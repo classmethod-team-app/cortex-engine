@@ -15,4 +15,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # 資料変換（convert.py）を実際に走らせるテストがあるため、その依存を入れる。
+      # **入れないとスクリプトが起動せず、「設定ファイルを移動しない」という否定形の検証が
+      # 素通りで通る**（実際そうなっていた。何も動かなければ何も移動しないため）。
+      # 本番は uv が `[all]` を解決する。ここはテストが扱う txt/json に足りる最小構成でよい。
+      - run: pip install --quiet markitdown
       - run: npm test
