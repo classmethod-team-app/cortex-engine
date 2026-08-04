@@ -36,6 +36,7 @@ Usage:
         ... 変換しない。生ファイルのまま置く（必要時にClaudeが直接読む）。
 """
 
+import re
 import shutil
 import sys
 from datetime import datetime, timezone, timedelta
@@ -85,6 +86,25 @@ def is_config_file(path: Path) -> bool:
     return path.name in CONFIG_FILENAMES
 
 
+# 「テキストを取り出せなかった」ことを機械的に見つけるための印。将来の集計・再処理に使う
+NO_TEXT_MARKER = "<!-- no-text-extracted -->"
+
+
+def is_effectively_empty(md_path: Path) -> bool:
+    """既存のmdが実質空か（HTMLコメントを除いて本文が無い）。
+
+    **空のmdは情報を持たないので、書き直しても失うものが無い。** 逆に、
+    人が手で書き足していれば本文が残るので上書きされない。
+    閾値は設けない——「短い資料」を機械的に切ると、正常な資料に誤った印が付き、
+    警告そのものが読まれなくなる。
+    """
+    try:
+        body = md_path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+    return not re.sub(r"<!--.*?-->", "", body, flags=re.S).strip()
+
+
 def convert(file_path: Path) -> str:
     if not file_path.exists():
         print(f"Error: ファイルが見つかりません: {file_path}", file=sys.stderr)
@@ -102,7 +122,27 @@ def convert(file_path: Path) -> str:
     result = md.convert(str(file_path))
     jst = timezone(timedelta(hours=9))
     now = datetime.now(jst).strftime("%Y-%m-%d %H:%M JST")
-    return f"<!-- converted: {now} -->\n\n{result.text_content}"
+    text = result.text_content or ""
+
+    # **テキストを取り出せなかったことを、そう書いて残す。**
+    # 以前は空のmdを書いて「変換完了」と報告していた。画像だけのPDF（スキャン・図面）が
+    # これに当たり、AIはその資料を「空」として読む。変換は成功しているので誰も気づけない。
+    #
+    # ここは `generate_md()` ではなく convert() に置く。`-o` 指定と標準出力の経路は
+    # generate_md() を通らないので、あちらに書くとその経路でだけバグが残る。
+    #
+    # **原因を推測して書かない。** この判定はPDFに限らず全形式に当たるため、
+    # 「スキャンされたPDFの可能性」と書くと空のdocxにも同じ説明が付く。
+    # 警告の中身が不正確なのは、誤検知と同じく警告を無意味にする。
+    if not text.strip():
+        return (
+            f"<!-- converted: {now} -->\n"
+            f"{NO_TEXT_MARKER}\n\n"
+            f"> **この資料からはテキストを取り出せませんでした。**\n"
+            f"> 内容が必要なときは、同じフォルダにある元ファイル"
+            f"（`{file_path.name}`）を直接読んでください。\n"
+        )
+    return f"<!-- converted: {now} -->\n\n{text}"
 
 
 def generate_md(original_path: Path, md_path: Path) -> None:
@@ -114,7 +154,7 @@ def generate_md(original_path: Path, md_path: Path) -> None:
     if suffix not in MARKITDOWN_EXTENSIONS:
         print(f"警告: 未対応の形式のためスキップ（生のまま）: {original_path}", file=sys.stderr)
         return
-    if md_path.exists():
+    if md_path.exists() and not is_effectively_empty(md_path):
         print(f"スキップ（既に変換済み）: {md_path}", file=sys.stderr)
         return
     md_path.write_text(convert(original_path), encoding="utf-8")
@@ -191,7 +231,9 @@ def organize(path: Path) -> None:
             if is_inside_organized_dir(f):
                 # ① 既に整理済みフォルダ内 → その場で md 生成（未変換のもののみ）
                 md_path = f.parent / (f.stem + ".md")
-                if md_path.exists():
+                # **実質空なら作り直す。** 中身が空のまま残っている資料が実在し
+                # （艦隊で6件）、ここでスキップし続ける限り永久に直らなかった。
+                if md_path.exists() and not is_effectively_empty(md_path):
                     continue
                 generate_md(f, md_path)
                 processed += 1
@@ -205,6 +247,21 @@ def organize(path: Path) -> None:
             print(f"変換対象の未処理ファイルはありません: {path}", file=sys.stderr)
         else:
             print(f"\n完了: {processed} 件処理", file=sys.stderr)
+        # **テキストを取り出せなかった資料を最後に数え上げる。** 1件ごとの行はログに埋もれる。
+        # 今回処理しなかった既存分も含めて数えるので、放置されているものにも気づける。
+        #
+        # 走査し直す（`targets` から導かない）。整理で `{名}/{名}.ext` へ**移動**するため、
+        # `targets` が持っているのは移動前のパスで、そこに md は無い。
+        no_text = sorted(
+            m for m in path.rglob("*.md") if NO_TEXT_MARKER in m.read_text(encoding="utf-8", errors="ignore")
+        )
+        if no_text:
+            print(
+                f"警告: {len(no_text)} 件はテキストを取り出せませんでした（元ファイルを直接読む必要があります）:",
+                file=sys.stderr,
+            )
+            for m in no_text:
+                print(f"  - {m}", file=sys.stderr)
         return
 
     print(f"Error: パスが見つかりません: {path}", file=sys.stderr)
