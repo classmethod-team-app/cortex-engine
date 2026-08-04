@@ -377,7 +377,11 @@ function pipelineApplicable(id) {
   switch (id) {
     case "sync-designs":
     case "update-design-notes":
-      return tools["デザイン"] !== "none";
+      // **宣言だけで決めない。** figma.json に実キーが無ければ同期は毎回スキップして
+      // 正常終了するので、宣言だけで適用扱いにすると ✅ が並び「動いている」ように見える
+      // （applicable はまさにそれを防ぐための印）。雛形のプレースホルダのまま放置された案件と、
+      // 設定UIから最後の1件を外した案件が、どちらもこの状態になる。
+      return tools["デザイン"] !== "none" && usesFigmaInfer;
     case "sync-materials":
       return tools["共有資料"] !== "none";
     case "sync-backlog":
