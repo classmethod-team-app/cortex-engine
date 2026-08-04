@@ -43,7 +43,7 @@ jobs:
     concurrency:
       group: cortex-repo-write-${{ github.repository }}
       cancel-in-progress: false
-    # ジッター最大10分 + 同期 + リトライを考慮して引き上げ
+    # 同期 + リトライ（最大3回・1分/2分待ち）を考慮して引き上げ
     timeout-minutes: 30
 
     steps:
@@ -83,15 +83,6 @@ jobs:
         with:
           node-version: 22 # backlog-exporter@1 が node>=22 を要求
 
-      - name: ジッター待機（同時刻バースト回避）
-        if: github.event_name == 'schedule'
-        run: |
-          # BACKLOG_API_KEY を中央化（org secret）すると、同一Backlogスペースに同居する
-          # 複数案件が同じキーで毎時:00に同時発火し、スペースのレート上限に同時に当たりうる。
-          # 0〜600秒のrandom待機でバーストを分散する。手動実行(workflow_dispatch)では待たない。
-          wait=$((RANDOM % 601))
-          echo "同時刻バースト回避のため ${wait} 秒待機します"
-          sleep "$wait"
 
       # `secrets` は if: で直接参照できないので、一度 env に落としてから判定する。
       - name: AWSロールの有無を判定

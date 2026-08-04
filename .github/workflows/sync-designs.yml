@@ -130,17 +130,6 @@ jobs:
             echo "configured=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: ジッター待機（同時刻バースト回避）
-        if: steps.conf.outputs.configured == 'true' && github.event_name == 'schedule'
-        run: |
-          # 全案件リポが同一cron時刻(12:45 UTC)に発火し、共有FIGMA_TOKENの
-          # Tier1レート制限(Dev/FullシートでもOrgで20回/分程度)に同時に当たるのを避ける。
-          # 共有トークンは1バケツ(per-token)なので、案件数が増えるほど同時刻バーストが効く。
-          # 0〜1800秒(30分)のランダム待機で広めに分散する（数十案件規模まで20回/分内に収める狙い）。
-          # 手動実行(workflow_dispatch)では待たない。
-          wait=$((RANDOM % 1801))
-          echo "同時刻バースト回避のため ${wait} 秒待機します"
-          sleep "$wait"
 
       - name: 画面インベントリを同期
         if: steps.conf.outputs.configured == 'true'
