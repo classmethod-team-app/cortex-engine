@@ -123,6 +123,21 @@ test("[正常系] 置き場が案件で違っても documents のミラーを見
   assert.equal(findDocumentsDir(dir), path.join(dir, "課題管理", "documents"));
 });
 
+test("[異常系] エンジン自身のチェックアウトを案件のミラーと間違えない", () => {
+  // ワークフローは同じ場所に .cortex-engine/ としてエンジンを展開する。
+  // そこにテスト用のフィクスチャが入ると、浅い順に選ぶ規則でそちらが勝ちうる。
+  const settings = JSON.stringify({ folderType: "document" });
+  const dir = withMirror({
+    ".cortex-engine/test/fixtures/backlog-settings.json": settings,
+    "課題管理/documents/backlog-settings.json": settings,
+  });
+  assert.equal(findDocumentsDir(dir), path.join(dir, "課題管理", "documents"));
+
+  // エンジンしか無ければ「ミラー無し」とみなす（案件のものではないので触らない）
+  const engineOnly = withMirror({ ".cortex-engine/fixtures/backlog-settings.json": settings });
+  assert.equal(findDocumentsDir(engineOnly), null);
+});
+
 test("[異常系] 壊れた設定ファイルは候補にしない・無ければ null", () => {
   const broken = withMirror({ "課題管理/documents/backlog-settings.json": "{ 壊れ" });
   assert.equal(findDocumentsDir(broken), null);

@@ -206,8 +206,12 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # **`!cancelled()` を必ず入れる。** `if:` に状態関数（success/failure/always/cancelled）を
+      # 書かないと、暗黙に `success() && …` として評価される。上の取りこぼし検出は
+      # 意図的に失敗することがあるので、それだけで**このステップが丸ごと飛び**、
+      # 同期の部分失敗という別の診断が出なくなる。
       - name: 同期が途中失敗なら run を失敗にする（取得済み分は push 済み）
-        if: steps.sync.outputs.ok != 'true'
+        if: ${{ !cancelled() && steps.sync.outputs.ok != 'true' }}
         run: |
           echo "::error::Backlog同期が途中で失敗しました。取得済み分はコミット/push済みですが、一部リソース（403等）が未取得です。次回の同期で再取得を試みます。恒常的に続く場合は APIキーの権限（そのユーザーが該当ドキュメント/Wikiを閲覧できるか）と backlog-exporter の 403 ハンドリングを確認してください。"
           exit 1

@@ -156,3 +156,27 @@ test("[sync-backlog] 取りこぼしの検出をコミットより前に置き�
   assert.match(step, /BACKLOG_DOMAIN/);
   assert.match(step, /BACKLOG_PROJECT_KEY/);
 });
+
+test("[sync-backlog] 意図的に失敗するステップの後ろでも、診断ステップが飛ばない", () => {
+  // GitHub Actions は `if:` に状態関数（success/failure/always/cancelled）が無いと
+  // 暗黙に `success() && …` として評価する。取りこぼし検出は意図的に失敗することがあるので、
+  // それだけで後続の診断ステップが丸ごと飛び、**別の障害の原因が読めなくなる**。
+  const text = readFileSync(path.join(DIR, "sync-backlog.yml"), "utf8");
+  const audit = text.indexOf("- name: ドキュメントの取りこぼしを検出・回収");
+  assert.notEqual(audit, -1);
+
+  const STATE_FN = /\b(success|failure|always|cancelled)\s*\(/;
+  // 取りこぼし検出より後ろのステップは、すべて状態関数を明示していること
+  const after = text.slice(audit);
+  for (const m of after.matchAll(/^      - name: (.+)$/gm)) {
+    const start = m.index;
+    const body = after.slice(start, after.indexOf("\n      - name:", start + 1) + 1 || undefined);
+    const ifLine = /^\s+if:\s*(.+)$/m.exec(body);
+    if (!ifLine) continue; // if が無ければ常に走るので問題ない
+    assert.match(
+      ifLine[1],
+      STATE_FN,
+      `${m[1]}: if に状態関数が無いため暗黙の success() が付き、前のステップが失敗すると飛ぶ`,
+    );
+  }
+});

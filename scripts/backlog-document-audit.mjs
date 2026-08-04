@@ -175,7 +175,8 @@ export function findDocumentsDir(root = ".", { readdir = readdirSync, read = rea
       return;
     }
     for (const e of entries) {
-      if (e.name === ".git" || e.name === "node_modules") continue;
+      // .cortex-engine はワークフローが同じ場所に展開するエンジン本体。案件のミラーではない
+      if (e.name === ".git" || e.name === "node_modules" || e.name === ".cortex-engine") continue;
       const p = path.join(d, e.name);
       if (e.isDirectory()) walk(p, depth + 1);
       else if (e.name === "backlog-settings.json") {
@@ -197,9 +198,20 @@ async function backlogJson(domain, apiKey, endpoint, params = {}) {
   const url = new URL(`https://${domain}/api/v2${endpoint}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.append(k, String(v));
   url.searchParams.set("apiKey", apiKey);
-  const res = await fetch(url, { headers: { accept: "application/json" } });
-  if (!res.ok) throw new Error(`${endpoint} が ${res.status} を返しました`);
-  return res.json();
+  // 一時的な不調でその回の突き合わせを丸ごと落とさない（落ちると、その回は検知が無いのと同じ）。
+  // 同期本体も同じ理由で3回リトライしている。
+  let last;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch(url, { headers: { accept: "application/json" } });
+      if (!res.ok) throw new Error(`${endpoint} が ${res.status} を返しました`);
+      return await res.json();
+    } catch (err) {
+      last = err;
+      if (attempt < 3) await new Promise((r) => setTimeout(r, attempt * 2000));
+    }
+  }
+  throw last;
 }
 
 /** 一覧APIで全件を取る（100件ずつページング） */
