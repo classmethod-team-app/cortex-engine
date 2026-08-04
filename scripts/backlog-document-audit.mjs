@@ -93,6 +93,9 @@ export function expectsLocalFile(doc, { trashIds = new Set(), parentIds = new Se
   // **子の有無はツリーから見る。** 一覧APIの childDocumentIds は、子を持つドキュメントでも
   // 常に空で返ってくる（詳細APIとは違う。実データで確認）。ここを一覧API側で判定すると
   // 親ドキュメントが全部「欠けている」に化ける。
+  // 一覧APIの `plain` は**省略されない**（詳細APIの本文と完全一致することを実データで確認。
+  // 最長 72,313文字まで一致・9件でずれ0）。公式ドキュメントには明記が無いので、
+  // 疑ったときはここを読み返すより、同じ突き合わせをやり直すほうが早い。
   const blank = !String(doc.plain ?? "").trim();
   return !(parentIds.has(id) && blank);
 }
