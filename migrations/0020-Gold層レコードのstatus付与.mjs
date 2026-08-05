@@ -20,7 +20,7 @@
  *
  * 挿入位置は各型のテンプレートに合わせる（既存フィールドの並びを壊さない）。
  *
- * autoApply: true（欠けているフィールドの追記のみ・既存の値は書き換えない・冪等）。
+ * 冪等（欠けているフィールドの追記のみ・既存の値は書き換えない・冪等）。
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -30,7 +30,6 @@ export const meta = {
   to: 20,
   description:
     "Gold層の既存レコードに status を付与（Git履歴で判定: github-actions[bot]が追加=draft / 人間が追加=active。既にstatusがあるものとshallow cloneは不変）",
-  autoApply: true,
 };
 
 // 対象ディレクトリと、status の挿入位置（この順で最初に見つかった単一行フィールドの直後に入れる。

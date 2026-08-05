@@ -83,6 +83,6 @@ cortex の配布点は**本リポジトリ 1 つ**（マーケットプレイス
 ### その他
 
 - 精製系ワークフローの schema_version 要求チェック（古いスキーマならスキップ）は未配線
-- `autoApply: false` マイグレーションの PR 自動起票は将来拡張
+- マイグレーションは未適用分をすべて自動適用する（人手適用のゲートは廃止済み。`migrations/README.md` 参照）
 - Team プラン承認後: secrets を org secret へ一元化（ENGINE_REPO_TOKEN・BACKLOG_API_KEY・FIGMA_TOKEN）
 - ENGINE_REPO_TOKEN の有効期限 2027-07-07。期限前にローテーション（fleet-status の期限チェック項目化も検討）

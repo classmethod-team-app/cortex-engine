@@ -17,7 +17,7 @@
  * - 見出しが見つからない案件（独自に書き換えている等）は**何もしない**（勝手に末尾へ足さない）。
  * - 既に同じ節がある場合は何もしない（冪等）。
  *
- * autoApply: true（テキスト挿入のみ・非破壊・冪等）。
+ * 冪等（テキスト挿入のみ・非破壊・冪等）。
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -26,7 +26,6 @@ export const meta = {
   to: 29,
   description:
     "AIの成果物はtmp/へ出力しBronze/Silverのミラーに書かない規律をCLAUDE.mdへ配布",
-  autoApply: true,
 };
 
 const ANCHOR = "## 視覚成果物のデザイン";

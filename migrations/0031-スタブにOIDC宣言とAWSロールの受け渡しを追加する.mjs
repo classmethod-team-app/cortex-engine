@@ -16,7 +16,7 @@
  * 常にフォールバック（＝従来の repo secret）で動く。壊れはしないが、
  * **設定UIから投入した値が一切効かない**。
  *
- * **autoApply: false（手で適用する）**:
+ * **手で適用した回**:
  * 変更内容は追記のみ・冪等・非破壊だが、**GITHUB_TOKEN は `.github/workflows/` 配下を
  * push できない**（`workflows` 権限が要り、これはジョブの permissions では付与できない）。
  * 自動適用にすると夜間の engine-migrate が毎晩 push で失敗し、しかも schema_version が
@@ -36,7 +36,6 @@ export const meta = {
   to: 31,
   description:
     "スタブに id-token: write と AWS_ROLE_TO_ASSUME / ENGINE_REPO_TOKEN の受け渡しを追加（Secrets Manager からトークンを取るため）",
-  autoApply: false,
 };
 
 /**

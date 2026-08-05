@@ -23,7 +23,6 @@ import { fileURLToPath } from "node:url";
 export const meta = {
   to: 9,
   description: "DESIGN.mdニュートラルひな形とアーティファクト規約を配布",
-  autoApply: true,
 };
 
 const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

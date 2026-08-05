@@ -300,10 +300,11 @@ engine:
 **この設計の最重要部品。** エンジン（コード）は中央で上げられるが、各案件リポに散在するデータ（frontmatter・ディレクトリ構造・CLAUDE.md）は自動では変わらない。ここを機構化しないと「更新の税」がデータマイグレーションの形で復活する。
 
 - **schema_version**: 案件リポの現在のデータスキーマ版（Home.md 識別カード）。エンジンは自分が要求する `requiredSchemaVersion` を持つ
-- **マイグレーションファイル**: `cortex-engine/migrations/NNNN-説明.mjs`。各ファイルは `{ from, to, description, autoApply: boolean, run(repoRoot) }` を実装する。冪等に書く
+- **マイグレーションファイル**: `cortex-engine/migrations/NNNN-説明.mjs`。各ファイルは `{ to, description, run(repoRoot) }` を実装する。冪等に書く
 - **実行経路**: 専用の reusable workflow `engine-migrate.yml`（案件スタブ: 夜間 cron ＋ workflow_dispatch）が、リポの schema_version とエンジンの要求版を比較し、未適用マイグレーションを順に実行する
-  - `autoApply: true`（機械的・可逆・追記系）→ 実行して直コミット（validate-cortex を通してから push）
-  - `autoApply: false`（既存レコードの書き換え・非可逆）→ 実行結果を **PR として起票**し人間がレビュー（Gold 層運用原則「自動化は新規追加のみ・既存レコードは書き換えない」と整合させる）
+  - 未適用分を**すべて**実行して直コミットする。人手適用のゲート（旧 `autoApply: false`）は持たない——動かないゲートは安全装置にならず、実際に艦隊を止めたため撤去した
+  - push には `FLEET_WORKFLOW_TOKEN`（Contents + Workflows の書き込み）を使う。`GITHUB_TOKEN` はワークフローファイルを push できず、そこだけ自動配布から漏れるため
+  - 危険な変更を止めるのはエンジンの PR レビュー。マイグレーション側は Gold 層運用原則どおり「新規追加・機械変換のみ、既存レコードの意味は書き換えない」を守る
 - **順序保証**: 夜間の他ワークフロー（decision-log 等）は冒頭で schema_version を確認し、エンジン要求版より古ければ**その夜はスキップ**する（migrate 完了後の翌夜から再開）。半端なスキーマで精製ジョブを走らせない
 - **旧 `/update-from-template` は廃止**。その役割（構造変更の取り込み）はこの機構が置き換える
 

@@ -4,7 +4,7 @@
  *
  * 用途: 精製系の夜間ワークフロー（update-gold / ingest-minutes）およびハーネススキル実行
  * （run-harness-skill）が、AI 生成に入る前に本スクリプトで前提チェックする。案件リポのスキーマが
- * 古い（＝未適用マイグレーションが保留中。engine-migrate が autoApply:false で停止した、または
+ * 古い（＝未適用マイグレーションが保留中。engine-migrate が例外で停止した、または
  * 失敗した等）状態で AI 精製を走らせると、旧スキーマのデータに対して現行の生成規約で書き込み、
  * Gold 層を壊す恐れがある。そのため、追いついていなければその夜の精製をスキップする安全網。
  *
@@ -68,7 +68,7 @@ async function main() {
 
   console.log(
     `::notice::案件リポの schema_version が古いため精製をスキップします（案件: ${repo} / エンジン最新: ${latest}）。` +
-      `未適用のマイグレーションが保留中です。engine-migrate の適用（autoApply:false なら手動適用）を先に完了してください。`,
+      `未適用のマイグレーションが保留中です。engine-migrate の run を確認し、適用を先に完了してください。`,
   );
   process.exit(1);
 }

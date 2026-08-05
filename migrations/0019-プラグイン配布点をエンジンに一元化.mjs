@@ -20,7 +20,7 @@
  *   - 既に `cortex@cortex-engine` が宣言済みなら、値が何であれ案件側を優先する（警告のみ）
  *   - 上記以外のキー（permissions・hooks・他プラグインの宣言）には一切触らない
  *
- * autoApply: true（新規追加＋エンジン既定値の付け替えのみ・冪等）。
+ * 冪等（新規追加＋エンジン既定値の付け替えのみ・冪等）。
  *
  * 何もしないケース（0016 と同じ保守則）: `.claude/settings.json` が無い／JSON として読めない案件では
  * **一切変更しない**（`::warning` のみ）。
@@ -33,7 +33,6 @@ export const meta = {
   to: 19,
   description:
     "cortex プラグインの配布点をエンジンリポ直参照（ref: stable）へ移行（部カタログ経由の既定宣言のみ置換・カナリア構成と案件独自の値は不変）",
-  autoApply: true,
 };
 
 const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

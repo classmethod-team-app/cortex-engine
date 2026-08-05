@@ -6,9 +6,9 @@ name: エンジンマイグレーション（データスキーマ更新）
 # 仕組み:
 #   - 案件リポの Cortex/Home.md frontmatter `engine.schema_version` と、
 #     エンジンの migrations/ にある最大 to 番号を比較し、未適用分を順に実行する。
-#   - autoApply: true のマイグレーションのみ自動実行して直コミットする。
-#     autoApply: false（非可逆・既存レコード書き換え）が残っている場合は警告を出して止める
-#     （PR起票による適用は将来拡張。現状は手動適用を案内する）。
+#   - 未適用のマイグレーションを**すべて**自動実行して直コミットする（人手待ちのゲートは持たない）。
+#     `.github/workflows/` を触るものも含めて通すため、push には FLEET_WORKFLOW_TOKEN を使う
+#     （GITHUB_TOKEN はワークフローを push できない。ジョブの permissions でも付与できない仕様）。
 on:
   workflow_call:
     inputs:
@@ -21,6 +21,12 @@ on:
       # 別orgのスタブから呼ばれる場合 secrets: inherit は届かないため、受け口を明示的に宣言する。
       # 同一orgからの inherit も引き続き有効（後方互換）。未設定の案件では空文字で渡り、各ワークフローの前提チェックがskipに倒す。
       ENGINE_REPO_TOKEN:
+        required: false
+      # `.github/workflows/` を含む変更を push するためのトークン（Contents + Workflows の書き込み）。
+      # **未設定でも動く。** ワークフローを触るマイグレーションが来たときだけ push が失敗する。
+      # GITHUB_TOKEN は contents:write を持っているのに workflows だけ持てず、ジョブの
+      # permissions でも付与できないため、この1点のためだけに別トークンが要る。
+      FLEET_WORKFLOW_TOKEN:
         required: false
 
 jobs:
@@ -57,10 +63,7 @@ jobs:
         with:
           node-version: 20
 
-      # 人手待ち（autoApply:false）で止まっても exit 0 で返る。赤くするのは最後のステップの仕事。
-      # **ここで落とすと、後続の commit/push が暗黙の success() で skip され、適用済みのぶんが捨てられる。**
       - name: 未適用マイグレーションを実行
-        id: migrate
         run: node .cortex-engine/scripts/engine-migrate.mjs
 
       - name: 変更があればコミット＆push
@@ -77,12 +80,6 @@ jobs:
       - name: 堅牢push（未ステージ畳み込み・衝突自動解決・リトライ）
         uses: classmethod-team-app/cortex-engine/.github/actions/robust-push@v1
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      # 人手待ちのマイグレーションが残っていることを、赤で知らせる（毎晩の催促）。
-      # **push の後に置く。** 前に置くと適用済みのぶんが push されないまま終わる。
-      - name: 人手適用が要るマイグレーションが残っていれば赤にする
-        if: steps.migrate.outputs.paused == 'true'
-        run: |
-          echo "::error::${{ steps.migrate.outputs.paused_migration }} は autoApply: false です。手動で適用してください（適用済みのぶんは push 済み）"
-          exit 1
+          # ワークフローファイルを含む変更も push できるようにする（GITHUB_TOKEN では弾かれる）。
+          # 未設定の案件は従来どおり GITHUB_TOKEN で動く（ワークフローを触らない限り支障ない）。
+          token: ${{ secrets.FLEET_WORKFLOW_TOKEN || secrets.GITHUB_TOKEN }}

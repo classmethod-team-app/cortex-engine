@@ -18,7 +18,6 @@ import { fileURLToPath } from "node:url";
 export const meta = {
   to: 7,
   description: "tmp/ をGit管理外の作業領域として定義（READMEのみ追跡）",
-  autoApply: true,
 };
 
 const SCAFFOLD_README = path.join(

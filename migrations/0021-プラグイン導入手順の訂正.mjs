@@ -12,7 +12,7 @@
  *   - **旧文言が完全一致した場合のみ**置換する（案件側で書き換えている文言には触れない）。
  *   - 置換後は旧文言が消えるので冪等。
  *
- * autoApply: true（テキスト置換のみ・非破壊・冪等）。
+ * 冪等（テキスト置換のみ・非破壊・冪等）。
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -21,7 +21,6 @@ export const meta = {
   to: 21,
   description:
     "案件リポのREADME・USAGEに残る「トラスト時に自動でプラグイン案内」という誤った手順を、実際に必要な手動インストール手順に訂正",
-  autoApply: true,
 };
 
 const TARGET_FILES = ["README.md", "USAGE.md"];

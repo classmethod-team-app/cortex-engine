@@ -168,7 +168,7 @@ test("[異常系] DESIGN.mdのコメントが書き換えられていたら触�
 
 test("[異常系] .github/workflows/ には一切触らない（GITHUB_TOKENでpushできないため0034に分けた）", async () => {
   // ここを触ると夜間の engine-migrate が毎晩 push で失敗し、schema_version が前進しないので
-  // Gold昇格・議事録生成まで静かに止まる。**0033 は autoApply:true なので絶対に触ってはいけない**
+  // Gold昇格・議事録生成まで静かに止まった（当時の制約）。ここは触らないことを固定する
   const { repo } = makeRepo();
   await run(repo);
   const wf = path.join(repo, ".github", "workflows");

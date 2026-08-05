@@ -17,7 +17,7 @@
  *   案件が独自に足した他のキーには永久に触らない。エンジン管理キーであっても、**既に存在する場合は
  *   内容が何であれ上書きせず `::warning` を出すだけ**にする（案件側のカスタムを壊さない。0013 と同じ保守則）。
  *
- * autoApply: true（新規キーの追記のみ・既存値は不変・冪等）。
+ * 冪等（新規キーの追記のみ・既存値は不変・冪等）。
  *
  * 冪等: 追加すべきキーが1つも無ければファイルを書き換えない（既存の整形も保たれる）。
  * 壊れた JSON は**触らずに警告のみ**（手で直してから再実行してもらう）。
@@ -34,7 +34,6 @@ export const meta = {
   to: 14,
   description:
     "MCPサーバー定義（Backlog）を案件リポの .mcp.json に標準同梱（既存キーは上書きしない）",
-  autoApply: true,
 };
 
 const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

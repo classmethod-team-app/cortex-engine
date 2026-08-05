@@ -20,7 +20,7 @@
  *     （0022 と同じ保守則。setup-project が後から埋められる状態）
  *   - 内容が同一なら書き込まない（冪等）
  *
- * autoApply: true（エンジン所有の説明文の差し替えのみ・案件の値は不変・冪等）。
+ * 冪等（エンジン所有の説明文の差し替えのみ・案件の値は不変・冪等）。
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -30,7 +30,6 @@ export const meta = {
   to: 23,
   description:
     "Cortex/Home.md の本文をエンジン最新版に追随（撤去済みレポートの案内を削除しGold層4区画と「AIで編集」の導線に更新。frontmatterと使用ツール節は不変）",
-  autoApply: true,
 };
 
 const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

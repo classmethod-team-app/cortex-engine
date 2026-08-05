@@ -17,7 +17,6 @@ import { fileURLToPath } from "node:url";
 export const meta = {
   to: 8,
   description: "tmpのignore記法をtmp/*に修正しREADMEを配置",
-  autoApply: true,
 };
 
 const SCAFFOLD_README = path.join(

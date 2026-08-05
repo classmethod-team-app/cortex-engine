@@ -12,7 +12,7 @@
  *   何であれ触らず `::warning` のみ（案件が独自に足した hook を壊さない）。スクリプトも既にあれば触らない
  *   （案件が手を入れている可能性があるため）。
  *
- * autoApply: true（新規追加のみ・既存値は不変・冪等）。
+ * 冪等（新規追加のみ・既存値は不変・冪等）。
  *
  * 何もしないケース: `.claude/settings.json` が無い／JSON として読めない案件では**一切変更しない**（警告のみ）。
  * hook の置き場所が無い状態でスクリプトだけ置いても死蔵するため、2点セットで足並みを揃える。
@@ -25,7 +25,6 @@ export const meta = {
   to: 16,
   description:
     "セッション開始時の自動最新化（session-sync.sh と SessionStart hook）を案件リポに配布（既存の hook・スクリプトは触らない）",
-  autoApply: true,
 };
 
 const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

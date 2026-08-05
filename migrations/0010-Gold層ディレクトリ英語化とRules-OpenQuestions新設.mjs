@@ -26,7 +26,6 @@ export const meta = {
   to: 10,
   description:
     "Gold層ディレクトリを英語化（用語集→Glossary・メンバー→Members）しRulesを新設",
-  autoApply: true,
 };
 
 const ENGINE_ROOT = path.resolve(

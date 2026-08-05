@@ -16,3 +16,6 @@ jobs:
     # 別orgのエンジンを呼ぶ場合 inherit は届かないため明示的に渡す（同一orgでも同じ挙動）
     secrets:
       ENGINE_REPO_TOKEN: ${{ secrets.ENGINE_REPO_TOKEN }}
+      # `.github/workflows/` を含む変更を push するためのトークン。未設定でも動く
+      # （ワークフローを触るマイグレーションが来たときだけ push が失敗する）
+      FLEET_WORKFLOW_TOKEN: ${{ secrets.FLEET_WORKFLOW_TOKEN }}
