@@ -208,3 +208,76 @@ test("[異常系] デザインMD自動育成（update-design-notes）がどこ�
   // 表示名も直す（Cortex はもう DESIGN.md を同期しない）
   assert.ok(!src.includes("画面インベントリ・DESIGN.md"), "表示名に DESIGN.md が残っている");
 });
+
+// ---- フォルダの表示名（IDだけでは「どれを外してよいか」判断できない）----
+
+test("[正常系] 表示名は登録済みIDのぶんだけ出す", () => {
+  // 外したフォルダの名前が設定に残っていても、画面に出す理由が無い（消し忘れを漏らさない）
+  const r = run({
+    "共有資料/materials-config.json": JSON.stringify({
+      enabled: true,
+      driveFolderIds: ["1AAA", "2BBB"],
+      driveFolderNames: { "1AAA": "設計資料", "9ZZZ": "もう外したフォルダ", "2BBB": "  " },
+    }),
+  });
+  assert.deepEqual(r.materials.driveFolderNames, { "1AAA": "設計資料" });
+  assert.deepEqual(r.materials.driveFolderIds, ["1AAA", "2BBB"], "IDの一覧は名前と無関係に全部出す");
+});
+
+test("[正常系] 名前が無ければフィールドごと出さない（既存9案件はこの状態）", () => {
+  // **後方互換の要。** ここが壊れると、いま動いている案件の画面が変わる
+  const r = run({ "共有資料/materials-config.json": MATERIALS(true, ["1AAA"]) });
+  assert.equal(r.materials.driveFolderNames, undefined);
+  assert.deepEqual(r.materials.driveFolderIds, ["1AAA"]);
+});
+
+test("[異常系] driveFolderNames が壊れていても落ちない", () => {
+  // 人が手で書き換えることがある。判定できないことを理由に一覧ごと消さない
+  for (const bad of ['"文字列"', "[1,2]", "null", "123"]) {
+    const r = run({
+      "共有資料/materials-config.json": `{"enabled":true,"driveFolderIds":["1AAA"],"driveFolderNames":${bad}}`,
+    });
+    assert.deepEqual(r.materials.driveFolderIds, ["1AAA"], `driveFolderNames=${bad} で一覧が消えた`);
+    assert.equal(r.materials.driveFolderNames, undefined);
+  }
+});
+
+test("[正常系] 止めている案件でも表示名は出す", () => {
+  const r = run({
+    "共有資料/materials-config.json": JSON.stringify({
+      enabled: false, driveFolderIds: ["1AAA"], driveFolderNames: { "1AAA": "設計資料" },
+    }),
+  });
+  assert.equal(r.materials.driveState, "off");
+  assert.deepEqual(r.materials.driveFolderNames, { "1AAA": "設計資料" });
+});
+
+test("[異常系] 登録していない名前を、継承したプロパティから拾わない", () => {
+  // フォルダIDの検証は /^[A-Za-z0-9_-]{10,}$/ なので `constructor`（11文字）は**通る**。
+  // 素の `raw[id]` で読むと、名前を1つも登録していないのに Object.prototype.constructor
+  // （関数）を拾い、それが画面に出る。**own property だけを見る。**
+  const r = run({
+    "共有資料/materials-config.json": JSON.stringify({
+      enabled: true,
+      driveFolderIds: ["constructor", "toString", "1AAA"],
+      driveFolderNames: { "1AAA": "設計資料" }, // constructor / toString の名前は登録していない
+    }),
+  });
+  assert.deepEqual(r.materials.driveFolderNames, { "1AAA": "設計資料" },
+    "継承したプロパティを名前として拾っている");
+  assert.deepEqual(r.materials.driveFolderIds, ["constructor", "toString", "1AAA"],
+    "ID一覧は名前と無関係に全部出す");
+});
+
+test("[正常系] 特殊な名前のキーでも、登録されていれば出す", () => {
+  // 上の裏返し。own property として書かれていれば、キー名が何であれ正当な登録
+  const r = run({
+    "共有資料/materials-config.json": JSON.stringify({
+      enabled: true,
+      driveFolderIds: ["constructor"],
+      driveFolderNames: { constructor: "本当に登録した名前" },
+    }),
+  });
+  assert.deepEqual(r.materials.driveFolderNames, { constructor: "本当に登録した名前" });
+});
+;
