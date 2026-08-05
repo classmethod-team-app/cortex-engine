@@ -181,6 +181,28 @@ jobs:
 
           exit "$CLAUDE_EXIT"
 
+      # 議事録に、その元になった文字起こしの正本（Drive）URLを差し込む。
+      #
+      # 議事録の元は同じディレクトリの文字起こしで、その正本は Drive の Doc にある。
+      # 取り込むとリポジトリに残るのはコピーだけなので、「どこから来たか」を辿る鎖が
+      # 議事録のところで切れる。notetaker が文字起こしの先頭に書いた source= を機械的に転記する。
+      # **生成する LLM にやらせない**——URLは1文字違えば別の文書を指し、読み手はそれを疑わない。
+      #
+      # **ここで commit する。** robust-push は「呼び出し側が staging と commit まで済ませてから
+      # 呼ぶ」規約なので、書き込んだだけでは runner の破棄と同時に消え、ワークフローは緑のまま
+      # 何も起きない。always() は下の Push と同じ理由（生成が打ち切られた晩でも、
+      # そこまでの成果は繋ぐ）。
+      - name: 文字起こしの正本URLを議事録に差し込む
+        if: always() && steps.pre.outputs.run == 'true'
+        run: |
+          node .cortex-engine/plugin/scripts/link-transcript-source.mjs
+          if [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -m "議事録に文字起こしの正本URLを差し込み"
+          else
+            echo "::notice::差し込む正本URLはありませんでした（変更なし）。"
+          fi
+
       # always()（＝生成ステップがタイムアウト・失敗しても実行する）。
       # 生成ステップは1件終わるごとに commit する（上のプロンプトで指示）ので、打ち切られた
       # 時点までの成果はローカルに残っている。ここを条件付きにすると**その成果ごと捨てられる**
@@ -231,8 +253,10 @@ jobs:
             # GitHubリンク（パスをURLエンコード）
             enc=$(python3 -c 'import sys,urllib.parse; print("/".join(urllib.parse.quote(p) for p in sys.argv[1].split("/")))' "$f")
             link="https://github.com/${REPO}/blob/main/${enc}"
-            # 主催者メール: 同じディレクトリ内のファイルから最初の organizer を拾う
-            email=$(grep -rhoE 'cortex: organizer=[^ >-]+' "$dir" 2>/dev/null | head -n1 | sed 's/^cortex: organizer=//' || true)
+            # 主催者メール: 同じディレクトリ内のファイルから最初の organizer を拾う。
+            # 来歴行は  の併記なので空白の手前で止める。
+            # **ハイフンを除外しない**（ だと foo-bar@… が foo で切れ、メンションが無言で外れていた）
+            email=$(grep -rhoE 'cortex: organizer=[^ >]+' "$dir" 2>/dev/null | head -n1 | sed 's/^cortex: organizer=//' || true)
             # ingest-config.json の notifyMention が設定されていれば主催者より優先（固定の宛先に上書き）
             cfg=$(find . -maxdepth 3 -name ingest-config.json -not -path './.cortex-engine/*' -not -path './.git/*' 2>/dev/null | head -1)
             if [ -n "$cfg" ]; then
