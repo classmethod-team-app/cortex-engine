@@ -48,6 +48,22 @@ Gold層の `source` / `relations.target` からSilver/Bronzeを参照すると�
 | 会議（議事録・文字起こし） | `minute:{定例名}:{YYYYMMDD}`（文字起こしは同ディレクトリのファイル名） | `minute:合同定例:20251030` |
 | Figma | `design:{fileKey}:{nodeId}` | `design:abc123XYZ:1023:456` |
 
+#### 機械が書く出典（`references` / 用語の `source`）はURLで書く
+
+夜間のGold昇格（`update-gold`）が付ける出典は、**引ける限り正本ツールのURLをそのまま入れる**。
+ID表記（`PJ_CORTEX-13` 等）も規約上正しいが、URLはどの読み手（ビューア・巡回エージェント・人）でも
+**追加の解決なしにそのまま辿れる**。人が手で書くときは短いID表記でよい。
+
+| 出典 | 入るもの | 取り出し元 |
+| --- | --- | --- |
+| Backlog課題 | 課題のURL | 課題ミラーの本文 `[Backlog Issue Link](…)` |
+| Figma画面 | 画面のURL | 画面インベントリの本文 `[Figmaで開く](…)` |
+| Slackチャンネル | チャンネルのURL | `チャット/channels.json` の `url` |
+| GitHub Issue/Discussion | そのURL | API応答 |
+| **議事録・共有資料** | **リポジトリ内のパス**（正本URLの保存場所がまだ無い） | — |
+
+**引けなければパスのまま残す。** 誤った正本へ飛ばすのは、飛べないより悪い。
+
 ### リレーションシップ型
 
 | rel | 意味 | 主な使用例 |
