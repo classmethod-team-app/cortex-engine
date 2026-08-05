@@ -57,7 +57,10 @@ jobs:
         with:
           node-version: 20
 
+      # 人手待ち（autoApply:false）で止まっても exit 0 で返る。赤くするのは最後のステップの仕事。
+      # **ここで落とすと、後続の commit/push が暗黙の success() で skip され、適用済みのぶんが捨てられる。**
       - name: 未適用マイグレーションを実行
+        id: migrate
         run: node .cortex-engine/scripts/engine-migrate.mjs
 
       - name: 変更があればコミット＆push
@@ -75,3 +78,11 @@ jobs:
         uses: classmethod-team-app/cortex-engine/.github/actions/robust-push@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 人手待ちのマイグレーションが残っていることを、赤で知らせる（毎晩の催促）。
+      # **push の後に置く。** 前に置くと適用済みのぶんが push されないまま終わる。
+      - name: 人手適用が要るマイグレーションが残っていれば赤にする
+        if: steps.migrate.outputs.paused == 'true'
+        run: |
+          echo "::error::${{ steps.migrate.outputs.paused_migration }} は autoApply: false です。手動で適用してください（適用済みのぶんは push 済み）"
+          exit 1
