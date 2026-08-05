@@ -37,5 +37,4 @@ python3 "<SKILL_DIR>/scripts/sync_designs.py"
 
 - **`デザイン/inventory/` は同期ミラー**（正本はFigma）。手編集しない。毎回全消し再生成され、Figma側の削除・改名に追従する
 - 課題・議事録・Decisionsからは安定ID（`design:{fileKey}:{nodeId}`）で `relations` を張れる（オントロジー規約参照）。nodeIdはフレームの改名・移動に耐える
-- **`デザイン/resources/` には書き込まない。** あそこは人がスクリーンショット等を置く場所で、同期の対象外
 - 夜間ワークフロー（`.github/workflows/sync-designs.yml`）が毎晩自動実行する。手動で最新化したいときだけこのスキルを使う

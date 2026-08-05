@@ -1,22 +1,23 @@
 /**
- * migration 0033（デザインのサムネイル撤去）が、**同期が作ったものだけ**を消すこと。
+ * migration 0033（デザインのサムネイル撤去とDESIGN.mdの移管）。
  *
- * 守りたいもの:
- *   `デザイン/resources/` は、この変更を境に「人がスクリーンショットを置く場所」になる。
- *   実際、複数の案件で resources 直下に手置きのPNGが置かれている。
- *   条件を緩めると、次に同じディレクトリを掃除しにきたときに人の資産を巻き込む。
+ * `resources/` は**箱ごと消す**。当初は「人がスクリーンショットを置く場所」として残す設計だったが、
+ * 残しても同期する者がいないので、置かれたものは更新されないまま古くなり続ける。しかも
+ * 「置いてよい場所」として残すと、正本（Figma・Drive）ではなくミラーに絵が溜まっていく。
  *
- * 条件を「中身が .png だけのサブディレクトリ」にしなかった理由:
- *   人が `resources/画面キャプチャ/` を作ってPNGを置けば、それだけで該当して消える。
- *   守ろうとしている資産の型が、1階層深いだけですり抜ける。**figma.json の key と一致すること**を
- *   AND条件に足して、同期の生成物だけを名指しする。
+ * 中身が何であれ消すので、**何を消したかを返すこと**をテストで固定する（git履歴から掘り出す手がかり）。
+ * inventory の画像行を同時に外すことも必須——片方だけだとリンク切れが残る。
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { run, dropImageLines } from "../migrations/0033-デザインのサムネイル撤去とDESIGNmdの移管.mjs";
+import {
+  run,
+  dropImageLines,
+  removeResourcesDir,
+} from "../migrations/0033-デザインのサムネイル撤去とDESIGNmdの移管.mjs";
 
 const KEY = "abc123XYZ";
 
@@ -82,13 +83,7 @@ function makeRepo({ designDirName = "デザイン", withFigmaJson = true, extras
   return { repo, designDir: dd };
 }
 
-test("[正常系] figma.jsonのkeyと一致する画像だけのディレクトリを消す", async () => {
-  const { repo, designDir } = makeRepo();
-  await run(repo);
-  assert.equal(existsSync(path.join(designDir, "resources", KEY)), false, "同期の生成物が残っている");
-});
-
-test("[異常系] keyと一致しない画像だけのディレクトリは消さない（人が作ったフォルダ）", async () => {
+test("[正常系] resources/ をディレクトリごと消す（手置きファイルも含めて）", async () => {
   const { repo, designDir } = makeRepo({
     extras: ({ designDir: dd }) => {
       mkdirSync(path.join(dd, "resources", "画面キャプチャ"), { recursive: true });
@@ -96,29 +91,23 @@ test("[異常系] keyと一致しない画像だけのディレクトリは消�
     },
   });
   await run(repo);
-  assert.ok(
-    existsSync(path.join(designDir, "resources", "画面キャプチャ", "本番.png")),
-    "人が作ったフォルダを巻き込んで消している",
-  );
-  assert.equal(existsSync(path.join(designDir, "resources", KEY)), false, "同期の生成物は消えるべき");
+  assert.equal(existsSync(path.join(designDir, "resources")), false, "resources/ が残っている");
 });
 
-test("[異常系] resources直下の手置きファイル・.gitkeepは消さない", async () => {
+test("[正常系] 何を消したかを返す（.gitkeepは数えない）", async () => {
+  // 中身を問わず消すので、**記録が無いと git 履歴のどこを掘ればよいか分からなくなる**
+  const { designDir } = makeRepo();
+  const removed = await removeResourcesDir(designDir);
+  assert.deepEqual(
+    [...removed].sort(),
+    [path.join(KEY, "1-23.png"), path.join(KEY, "4-56.png"), "実機キャプチャ.png"].sort(),
+  );
+});
+
+test("[正常系] resources/ が無い案件でも落ちない（nullを返す）", async () => {
   const { repo, designDir } = makeRepo();
   await run(repo);
-  assert.ok(existsSync(path.join(designDir, "resources", "実機キャプチャ.png")), "手置きPNGが消えている");
-  assert.ok(existsSync(path.join(designDir, "resources", ".gitkeep")), ".gitkeepが消えている");
-});
-
-test("[異常系] 画像以外が混ざるディレクトリは消さない（keyが一致していても）", async () => {
-  const { repo, designDir } = makeRepo({
-    extras: ({ designDir: dd }) => {
-      writeFileSync(path.join(dd, "resources", KEY, "メモ.md"), "人が置いたメモ");
-    },
-  });
-  await run(repo);
-  assert.ok(existsSync(path.join(designDir, "resources", KEY, "メモ.md")), "画像以外を巻き込んで消している");
-  assert.ok(existsSync(path.join(designDir, "resources", KEY, "1-23.png")), "ディレクトリごと残すべき");
+  assert.equal(await removeResourcesDir(designDir), null);
 });
 
 test("[正常系] inventoryの画像リンク行を外し、他の行は変えない", async () => {
@@ -234,30 +223,9 @@ test("[異常系] alt textに ] を含む実データ（[LOCAL]プレフィク�
   assert.match(after, /## 画面内テキスト（機械抽出）\n- x/);
 });
 
-test("[異常系] figma.jsonが雛形のプレースホルダのままなら、何も消さない", async () => {
-  // gift-stvv・sushiro-googlemaps が実際にこの状態で cron が回っている
-  const { repo, designDir } = makeRepo({
-    extras: ({ designDir: dd }) =>
-      writeFileSync(path.join(dd, "figma.json"), JSON.stringify({ files: [{ key: "{FigmaのURLをここに}" }] })),
-  });
-  await run(repo);
-  assert.ok(existsSync(path.join(designDir, "resources", KEY, "1-23.png")), "未設定なのに消している");
-});
-
 test("[異常系] resources を指さない画像行は残す（人が貼った図など）", () => {
   const before = "# A\n\n![図](../../共有資料/図.png)\n\n## t\n";
   assert.equal(dropImageLines(before), before);
-});
-
-test("[正常系] 空の {fileKey}/ も消す（レンダリング全滅時に残る空ディレクトリ）", async () => {
-  const { repo, designDir } = makeRepo({
-    extras: ({ designDir: dd }) => {
-      mkdirSync(path.join(dd, "resources", "emptyKey"), { recursive: true });
-      writeFileSync(path.join(dd, "figma.json"), JSON.stringify({ files: [{ key: KEY }, { key: "emptyKey" }] }));
-    },
-  });
-  await run(repo);
-  assert.equal(existsSync(path.join(designDir, "resources", "emptyKey")), false, "空ディレクトリが永久に残る");
 });
 
 test("[正常系] 冪等（2回走らせても壊れない）", async () => {
@@ -268,5 +236,5 @@ test("[正常系] 冪等（2回走らせても壊れない）", async () => {
   await run(repo);
   assert.equal(readFileSync(path.join(designDir, "inventory", "アプリUI", "ログイン-1-23.md"), "utf8"), after1);
   assert.equal(readFileSync(path.join(designDir, "DESIGN.md"), "utf8"), design1);
-  assert.ok(existsSync(path.join(designDir, "resources", "実機キャプチャ.png")));
+  assert.equal(existsSync(path.join(designDir, "resources")), false);
 });
