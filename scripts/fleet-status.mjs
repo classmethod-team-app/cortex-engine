@@ -566,12 +566,19 @@ function materialsExtras() {
  */
 function pickFolderNames(raw, ids) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-  const out = {};
+  // **プロトタイプを持たないオブジェクトに集める。** 素の `{}` だと、IDが `__proto__` のとき
+  // 代入の挙動がキー名によって変わる。フォルダIDは登録時に `/^[A-Za-z0-9_-]{10,}$/` で
+  // 検証されるが（`constructor` は11文字なので通る）、設定ファイルは人が手で書き換えられる。
+  const out = Object.create(null);
   for (const id of ids) {
-    const v = raw[id];
+    // 継承したプロパティ（`constructor`・`toString` 等）を名前と取り違えない。
+    // **下の `typeof v === "string"` でも実質落ちる**（継承値は関数）が、値の由来を
+    // 型で推測するのではなく、own property かどうかで判断する
+    const v = Object.prototype.hasOwnProperty.call(raw, id) ? raw[id] : undefined;
     if (typeof v === "string" && v.trim()) out[id] = v.trim();
   }
-  return Object.keys(out).length ? { driveFolderNames: out } : {};
+  // JSON化のために素のオブジェクトへ戻す（読み手が `hasOwnProperty` 等を呼んで落ちるのを避ける）
+  return Object.keys(out).length ? { driveFolderNames: { ...out } } : {};
 }
 /**
  * 同期対象のFigmaファイル一覧。

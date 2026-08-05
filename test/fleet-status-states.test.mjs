@@ -251,3 +251,33 @@ test("[正常系] 止めている案件でも表示名は出す", () => {
   assert.equal(r.materials.driveState, "off");
   assert.deepEqual(r.materials.driveFolderNames, { "1AAA": "設計資料" });
 });
+
+test("[異常系] 登録していない名前を、継承したプロパティから拾わない", () => {
+  // フォルダIDの検証は /^[A-Za-z0-9_-]{10,}$/ なので `constructor`（11文字）は**通る**。
+  // 素の `raw[id]` で読むと、名前を1つも登録していないのに Object.prototype.constructor
+  // （関数）を拾い、それが画面に出る。**own property だけを見る。**
+  const r = run({
+    "共有資料/materials-config.json": JSON.stringify({
+      enabled: true,
+      driveFolderIds: ["constructor", "toString", "1AAA"],
+      driveFolderNames: { "1AAA": "設計資料" }, // constructor / toString の名前は登録していない
+    }),
+  });
+  assert.deepEqual(r.materials.driveFolderNames, { "1AAA": "設計資料" },
+    "継承したプロパティを名前として拾っている");
+  assert.deepEqual(r.materials.driveFolderIds, ["constructor", "toString", "1AAA"],
+    "ID一覧は名前と無関係に全部出す");
+});
+
+test("[正常系] 特殊な名前のキーでも、登録されていれば出す", () => {
+  // 上の裏返し。own property として書かれていれば、キー名が何であれ正当な登録
+  const r = run({
+    "共有資料/materials-config.json": JSON.stringify({
+      enabled: true,
+      driveFolderIds: ["constructor"],
+      driveFolderNames: { constructor: "本当に登録した名前" },
+    }),
+  });
+  assert.deepEqual(r.materials.driveFolderNames, { constructor: "本当に登録した名前" });
+});
+;
