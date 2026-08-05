@@ -1,6 +1,6 @@
 ---
-# このフロントマター（デザイントークン）は sync-designs が Figma から自動生成する（手編集しない）。
-# Figma未使用の案件では、この既定（Cortexニュートラル / Liquid Glass）がそのまま使われる。
+# このファイルは案件のデザイン規約。デザインハーネスの design-md スキルで育てる（Cortexは同期しない）。
+# 記入がなければ、この既定（Cortexニュートラル / Liquid Glass）がそのまま使われる。
 version: alpha
 name: "{{プロジェクト名}}"
 colors:

@@ -1,10 +1,12 @@
 ---
 name: sync-designs
-description: Figmaから画面インベントリ（全画面の一覧・安定ID・ディープリンク・サムネイル）を デザイン/inventory/ に同期し、DESIGN.mdのデザイントークン（YAMLフロントマター）を自動生成する
+description: Figmaから画面インベントリ（全画面の一覧・安定ID・ディープリンク）を デザイン/inventory/ に同期する
 ---
 Figmaファイルの**画面インベントリ（目録）**を `デザイン/inventory/` に同期します。デザインの絵そのものではなく「どんな画面が存在し、どこにあり、何と関係しうるか」をAIが辿れる形（1画面1md）にするのが目的です。
 
-あわせて、`デザイン/DESIGN.md` の**デザイントークン（YAMLフロントマター）**をFigmaの実データ（published styles・頻度集計）から自動生成します。フロントマター＝機械可読トークン（このスキルが上書き）／Markdown本文＝人間+AIの設計判断（バイト単位で保全・触らない）の分業です。
+**画像は取りません。** 目的は地図であって絵ではありません。画面の中身を見たいときは Figma MCP で当該フレームを直接開きます（閲覧権限の境界がFigma側にあるので、そのほうが正しい）。
+
+**`デザイン/DESIGN.md` にも触りません。** DESIGN.md はデザインハーネスの `design-md` が育てる成果物です。
 
 ## 実行手順
 
@@ -29,12 +31,11 @@ python3 "<SKILL_DIR>/scripts/sync_designs.py"
 
 ## 生成されるもの
 
-- `デザイン/inventory/{ファイル名}/{画面名}-{nodeId}.md` — 1画面1ファイル。本文に画面名・参照ID `design:{fileKey}:{nodeId}`・Figmaディープリンク・更新日・サムネイル（frontmatterは付けない。frontmatterを持つのはGold層のみ＝オントロジー規約）
-- `デザイン/resources/{fileKey}/{nodeId}.png` — サムネイル
-- `デザイン/DESIGN.md` のYAMLフロントマター — デザイントークン（colors / typography / rounded / spacing）。published stylesの名前と実値から生成し、無ければツリーの頻度集計にフォールバックする（意味名の推測はしない）。`figma.json` に複数ファイルがある場合は先頭ファイルのみが源。本文は変更しない。DESIGN.mdが無ければscaffoldテンプレをベースに新規作成する
+`デザイン/inventory/{ファイル名}/{画面名}-{nodeId}.md` の1画面1ファイルだけです。本文に画面名・参照ID `design:{fileKey}:{nodeId}`・Figmaディープリンク・更新日・機械抽出節（画面内テキスト・使用コンポーネント）を持ちます（frontmatterは付けない。frontmatterを持つのはGold層のみ＝オントロジー規約）。
 
 ## 注意事項
 
 - **`デザイン/inventory/` は同期ミラー**（正本はFigma）。手編集しない。毎回全消し再生成され、Figma側の削除・改名に追従する
 - 課題・議事録・Decisionsからは安定ID（`design:{fileKey}:{nodeId}`）で `relations` を張れる（オントロジー規約参照）。nodeIdはフレームの改名・移動に耐える
+- **`デザイン/resources/` には書き込まない。** あそこは人がスクリーンショット等を置く場所で、同期の対象外
 - 夜間ワークフロー（`.github/workflows/sync-designs.yml`）が毎晩自動実行する。手動で最新化したいときだけこのスキルを使う
