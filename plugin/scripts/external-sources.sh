@@ -51,8 +51,11 @@ trap 'rm -rf "$TMPDIR_EXT"' EXIT
 # 導出・dedupe・除外の一元化ロジックは mjs 側。node が無い/失敗時は空配列にフォールバックし無害に終了。
 RESOLVED=$(node "$SCRIPT_DIR/resolve-external-sources.mjs") || RESOLVED="[]"
 
-# 解決済みリストを "type<TAB>ref" 行に正規化（jq非依存でpython3を使う。CIランナー・macに標準搭載）。
+# 解決済みリストを "type<TAB>ref<TAB>url" 行に正規化（jq非依存でpython3を使う。CIランナー・macに標準搭載）。
 # decisions 等の任意オプションは取得側では使わない（Decision化の可否は skill 側の判定責務）。
+#
+# url は slack のみ（channels.json 由来）。素材の `URL:` 行になり、Gold層の出典が正本へ飛ぶために要る。
+# github系は API 応答に URL が入っているのでここでは渡さない。
 SOURCES=$(RESOLVED="$RESOLVED" python3 <<'PY'
 import json, os, sys
 try:
@@ -62,8 +65,9 @@ except Exception:
 for s in (data or []):
     t = s.get("type", "")
     ref = s.get("ref") or ""
+    url = s.get("url") or ""
     if t and ref:
-        print(f"{t}\t{ref}")
+        print(f"{t}\t{ref}\t{url}")
 PY
 )
 [ -n "$SOURCES" ] || exit 0
@@ -270,8 +274,24 @@ emit_slack_replies() {
   done
 }
 
+# チャンネルの正本URL（channels.json 由来）を検証する。壊れたURLからリンクを作らないための門。
+# channels.json は人が手で書くので、実データにテンプレのプレースホルダ
+# （`https://your-workspace.slack.com/archives/CHANNEL_ID`）・全フィールド空・空配列が残っている。
+#
+# 形の検査1本で足りる。チャンネルIDは大文字英数のみなので、プレースホルダの `CHANNEL_ID`
+# （アンダースコアを含む）はここで落ちる。**プレースホルダ専用の判定は足さない**——
+# 形の検査で既に落ちるものを二重に見ても、守っているように見えるだけで何も守らない
+# （実際、その判定を消してもテストが1本も落ちなかった）。
+#
+# 一致しなければ何も返さず、呼び出し側は `URL:` 行を出さない（＝出典は説明文のまま。今までと同じ）。
+slack_channel_url() {
+  local url="$1"
+  printf '%s' "$url" | grep -Eq '^https://[A-Za-z0-9.-]+/archives/[A-Z0-9]+$' || return 0
+  printf '%s' "$url"
+}
+
 emit_slack() {
-  local ch="$1"
+  local ch="$1" churl="${2:-}"
   # 認証チェック: トークン未設定なら notice（1回だけ）して活動なし扱い。ゲートを膨らませない。
   if [ -z "${SLACK_BOT_TOKEN:-}" ]; then
     if [ -z "${SLACK_TOKEN_NOTICED:-}" ]; then
@@ -324,6 +344,11 @@ emit_slack() {
 
   echo ""
   echo "## [slack] #$chname ($total messages since ${SINCE_ISO})"
+  # 正本URL。Gold層の出典（Decision の references・用語の source）がこの行を読んでSlackへ飛ぶ。
+  # github系の見出し直後の `URL:` と同じ形（読む側は1つの規約だけを知っていればよい）。
+  local validurl
+  validurl="$(slack_channel_url "$churl")"
+  [ -n "$validurl" ] && echo "URL: $validurl"
 
   # Slack 履歴は新しい順。読みやすさのため古い順に並べ替えて出力。
   local ordf="$TMPDIR_EXT/slack_ord"
@@ -353,7 +378,7 @@ emit_slack() {
   fi
 }
 
-while IFS=$'\t' read -r type ref; do
+while IFS=$'\t' read -r type ref url; do
   [ -n "$type" ] || continue
   case "$type" in
     github-issues)
@@ -361,7 +386,7 @@ while IFS=$'\t' read -r type ref; do
     github-discussions)
       [ -n "$ref" ] && emit_discussions "$ref" ;;
     slack)
-      [ -n "$ref" ] && emit_slack "$ref" ;;
+      [ -n "$ref" ] && emit_slack "$ref" "$url" ;;
     *)
       echo "::warning::external-sources: 未知のtype '$type' をスキップします。" >&2 ;;
   esac

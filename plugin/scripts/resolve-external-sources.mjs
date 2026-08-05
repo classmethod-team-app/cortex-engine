@@ -355,9 +355,16 @@ function main() {
       result.push(item);
       continue;
     }
-    // 既定: 最終フィルタ（対象外は常に落とす＝読まない側に倒す）。gold/notify/url は内部判定・表示用なので出力に残さない。
+    // 既定: 最終フィルタ（対象外は常に落とす＝読まない側に倒す）。gold/notify は内部判定・表示用なので出力に残さない。
+    //
+    // **url だけは残す。** Slackチャンネルの正本URLは channels.json にしか無く、
+    // external-sources.sh が素材に `URL:` 行として書き、Gold層の出典（Decision の references・
+    // 用語の source）がそれを読む。落とすと出典が `[slack] #channel (8 messages since …)` という
+    // **説明文**になり、そこからSlackへ飛べない。ID→URLの導出はここの責務なので、
+    // 消費側（シェル）に正規表現とファイル位置を二重に持たせない。
     if (isGoldFalse || isGoldUndeclared || isExcluded) continue;
     const item = { type: s.type, ref: s.ref, name: s.name || s.ref };
+    if (s.type === "slack" && s.url) item.url = s.url;
     if (s.decisions !== undefined) item.decisions = s.decisions;
     result.push(item);
   }

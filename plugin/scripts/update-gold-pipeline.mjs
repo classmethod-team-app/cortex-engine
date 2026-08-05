@@ -191,6 +191,39 @@ function findDirByMarker(marker, fallback) {
   return fallback;
 }
 
+// ---------- 決定的: 正本URLの解決 ----------
+
+// 同期ミラーのパスから、正本（ツール）のURLを取り出す。
+//
+// 出典は一次情報へ辿るためのもので、リポジトリ内のコピーのパスでは
+// 「Backlogの課題そのもの」「Figmaの画面そのもの」へ飛べない。同期ミラーは正本へのリンクを
+// 本文に持っているので、そこから取る。
+//
+// **必ずディレクトリで限定してから本文を見る。** 本文全体を正規表現で舐めると、議事録に引用された
+// Backlogリンクを拾って「別の課題を根拠にした」レコードを作ってしまう。誤った正本へ飛ばすのは、
+// 飛べないより悪い。
+//
+// 取り出せなければ null（＝パスのまま）。議事録・共有資料・開発配下がこれにあたる。
+// 共有資料は正本URLの保存場所自体がまだ無いので、ここでは解決できない。
+const CANONICAL_LINK_PATTERNS = [
+  // Backlog課題ミラー: `- [Backlog Issue Link](https://…/view/KEY-1)`
+  { under: (d) => `${d.issuesDir}/issues/`, re: /^-?\s*\[Backlog Issue Link\]\((https?:\/\/\S+?)\)\s*$/m },
+  // Figma画面インベントリ: `- [Figmaで開く](https://www.figma.com/design/…)`
+  { under: (d) => `${d.designDir}/inventory/`, re: /^-?\s*\[Figmaで開く\]\((https?:\/\/\S+?)\)\s*$/m },
+];
+
+export function repoSourceUrl(filePath, dirs, read = readText) {
+  for (const p of CANONICAL_LINK_PATTERNS) {
+    const prefix = p.under(dirs);
+    if (!filePath.startsWith(prefix)) continue;
+    const body = read(filePath);
+    if (body === null) return null;
+    const m = body.match(p.re);
+    return m ? m[1] : null;
+  }
+  return null;
+}
+
 // ---------- 決定的: ソース列挙 ----------
 
 // リポ内差分ソース: changed-sources.sh "$SINCE" "Cortex/" "tmp/"（ワークフローの差分ゲートと同一スクリプト・同一除外）。
@@ -1215,10 +1248,18 @@ function main() {
   const meetingDir = findDirByMarker("ingest-config.json", "会議");
 
   // [決定的] ソース列挙
+  // ディレクトリ名は案件でカスタマイズされ得る（課題管理/→Backlog/、デザイン/→Figma/ 等）ので
+  // マーカーファイルから導出する。直書きすると改名した案件で正本URLが引けなくなる。
+  const dirs = {
+    issuesDir: findDirByMarker("backlog-settings.json", "課題管理"),
+    designDir: findDirByMarker("figma.json", "デザイン"),
+  };
+
   const repoFiles = enumerateRepoSources(meetingDir);
   const externalChunks = enumerateExternalSources();
   const sources = [
-    ...repoFiles.map((f) => ({ kind: "repo", label: f, path: f })),
+    // url は正本（Backlog課題・Figma画面）のURL。引けなければ undefined＝パスのまま出典に載る。
+    ...repoFiles.map((f) => ({ kind: "repo", label: f, path: f, url: repoSourceUrl(f, dirs) || undefined })),
     ...externalChunks,
   ];
 
@@ -1373,8 +1414,15 @@ function main() {
   }
 }
 
-// Decision の references / relations 用の出典参照（リポ内: パス（人間向け）・外部: ref#番号/URL）
-function decisionSourceRef(src) {
+// Decision の references / 用語の source 用の出典参照。
+//
+// **正本（ツール）のURLを最優先する。** 出典はそこから一次情報へ辿るためのもので、
+// リポジトリ内のミラーのパスでは「Backlogの課題そのもの」「Figmaの画面そのもの」に飛べない。
+// リポ内ソースの正本URLは列挙時に src.url へ解決してある（repoSourceUrl）。
+// 解決できないもの（議事録・共有資料・開発配下）はパスのまま残す——
+// **無理にURLを組み立てて誤った先へ飛ばすより、飛べないほうがよい。**
+export function decisionSourceRef(src) {
+  if (src.url) return src.url;
   if (src.kind === "repo") return src.path;
   const urlMatch = src.content && src.content.match(/^URL: (\S+)$/m);
   if (urlMatch) return urlMatch[1];
