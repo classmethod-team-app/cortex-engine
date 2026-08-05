@@ -35,7 +35,9 @@ const SOURCE_RE = /<!--\s*cortex:[^>]*\bsource=(https?:\/\/\S+?)\s*(?:\s[^>]*)?-
 
 // 議事録に差し込む行。**この見出し語がこの行の所有者の印**で、再実行時の置き換えの目印にもなる。
 const LABEL = "**文字起こし（正本）**";
-const LINE_RE = new RegExp(`^-\\s*\\*\\*文字起こし（正本）\\*\\*:.*$`, "m");
+// **LABEL から導出する。** 別々に書くと、片方だけ変えたときに「自分が前回書いた行を
+// 見つけられず、2行目を足す」という壊れ方をする（差し替えのつもりが二重に並ぶ）。
+const LINE_RE = new RegExp(`^-\\s*${LABEL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:.*$`, "m");
 
 function readText(p) {
   try {
@@ -129,11 +131,16 @@ export function insertSourceLine(text, url) {
     while (end > infoIdx + 1 && lines[end - 1].trim() === "") end--;
     at = end;
   } else {
-    // フォールバック: H1 の直後。H1 も無ければ先頭
+    // フォールバック: H1 の直後。
+    //
+    // **H1 も無ければ何もしない（null）。** 先頭に差し込むと、YAML frontmatter で始まる
+    // 別形式の議事録（実データに1件ある。別パイプライン由来）で `---` より前に行が入り、
+    // frontmatter がファイル先頭から始まらなくなって壊れる。
+    // 形が読めないものに書き込まないのは、このスクリプト全体の方針と同じ。
     const h1 = lines.findIndex((l) => /^#\s/.test(l));
-    at = h1 >= 0 ? h1 + 1 : 0;
-    lines.splice(at, 0, "");
-    at += 1;
+    if (h1 < 0) return null;
+    lines.splice(h1 + 1, 0, "");
+    at = h1 + 2;
   }
 
   lines.splice(at, 0, line);

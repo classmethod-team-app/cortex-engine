@@ -254,8 +254,8 @@ jobs:
             enc=$(python3 -c 'import sys,urllib.parse; print("/".join(urllib.parse.quote(p) for p in sys.argv[1].split("/")))' "$f")
             link="https://github.com/${REPO}/blob/main/${enc}"
             # 主催者メール: 同じディレクトリ内のファイルから最初の organizer を拾う。
-            # 来歴行は  の併記なので空白の手前で止める。
-            # **ハイフンを除外しない**（ だと foo-bar@… が foo で切れ、メンションが無言で外れていた）
+            # 来歴行は organizer=… source=… の併記なので空白の手前で止める。
+            # **ハイフンを除外しない**（[^ >-] だと foo-bar@… が foo で切れ、メンションが無言で外れていた）
             email=$(grep -rhoE 'cortex: organizer=[^ >]+' "$dir" 2>/dev/null | head -n1 | sed 's/^cortex: organizer=//' || true)
             # ingest-config.json の notifyMention が設定されていれば主催者より優先（固定の宛先に上書き）
             cfg=$(find . -maxdepth 3 -name ingest-config.json -not -path './.cortex-engine/*' -not -path './.git/*' 2>/dev/null | head -1)

@@ -13,7 +13,11 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync, mkdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { insertSourceLine, findSiblingSource } from "../plugin/scripts/link-transcript-source.mjs";
 
 const DOC_URL = "https://docs.google.com/document/d/1AbCdEf/edit?usp=drivesdk";
@@ -213,4 +217,73 @@ test("[正常系] organizerの抽出がハイフン入りメールで切れな�
     "foo-bar@classmethod.jp",
     "メールが途中で切れている／source まで飲み込んでいる",
   );
+});
+
+// ---- スクリプト全体（純粋関数を繋いだ実際の動き）----
+
+const SCRIPT = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "plugin",
+  "scripts",
+  "link-transcript-source.mjs",
+);
+
+/** 案件リポを模した一時ディレクトリを作り、スクリプトを実走させる */
+function runOn(files) {
+  const dir = mkdtempSync(path.join(tmpdir(), "linksrc-"));
+  mkdirSync(path.join(dir, "会議"), { recursive: true });
+  writeFileSync(path.join(dir, "会議", "ingest-config.json"), JSON.stringify({ transcriptDir: "会議" }));
+  for (const [rel, body] of Object.entries(files)) {
+    const p = path.join(dir, rel);
+    mkdirSync(path.dirname(p), { recursive: true });
+    writeFileSync(p, body);
+  }
+  const out = execFileSync("node", [SCRIPT], { cwd: dir, encoding: "utf-8" });
+  return { dir, changed: out.split("\n").filter(Boolean), read: (rel) => readFileSync(path.join(dir, rel), "utf-8") };
+}
+
+test("[正常系] スクリプトを実走させると議事録に書き込まれる", () => {
+  const d = "会議/Ph.1/全体定例/20260804";
+  const r = runOn({
+    [`${d}/cortex_全体定例.md`]: `<!-- cortex: organizer=a@b.jp source=${DOC_URL} -->\n00:00:26\n本文`,
+    [`${d}/20260804_minutes.md`]: bulletMinutes,
+  });
+  assert.deepEqual(r.changed, [`${d}/20260804_minutes.md`]);
+  assert.match(r.read(`${d}/20260804_minutes.md`), new RegExp(`文字起こし（正本）\\*\\*: ${DOC_URL.replace(/[.?*+^$[\]\\(){}|-]/g, "\\$&")}`));
+});
+
+test("[異常系] 来歴が無ければ1ファイルも書き換えない", () => {
+  // **ここが抜けると `- **文字起こし（正本）**: null` を全議事録に書き込む。**
+  // 純粋関数のテストだけでは捕まらない（実際、この統合テストを足すまで捕まらなかった）
+  const d = "会議/Ph.1/全体定例/20260804";
+  const before = "<!-- cortex: organizer=a@b.jp -->\n00:00:26\n本文";
+  const r = runOn({ [`${d}/旧_全体定例.md`]: before, [`${d}/20260804_minutes.md`]: bulletMinutes });
+  assert.deepEqual(r.changed, [], "来歴が無いのに書き換えている");
+  assert.equal(r.read(`${d}/20260804_minutes.md`), bulletMinutes, "議事録が変わっている");
+  assert.equal(r.read(`${d}/旧_全体定例.md`), before, "文字起こし原本（Bronze）を書き換えている");
+});
+
+test("[異常系] frontmatterで始まる別形式の議事録を壊さない", () => {
+  // 実データに1件ある（別パイプライン由来）。先頭に差し込むと `---` より前に行が入り、
+  // frontmatter がファイル先頭から始まらなくなって壊れる
+  const d = "会議/Ph.1/営業ハーネス定例/20260715";
+  const fm = "---\ndate: 2026-07-15\nsource: gemini-notes\n---\n\n## サマリー\n\n本文。";
+  const r = runOn({
+    [`${d}/cortex_営業.md`]: `<!-- cortex: source=${DOC_URL} -->\n00:00:26`,
+    [`${d}/20260715_minutes.md`]: fm,
+  });
+  assert.deepEqual(r.changed, [], "形の読めない議事録に書き込んでいる");
+  assert.equal(r.read(`${d}/20260715_minutes.md`), fm);
+});
+
+test("[異常系] 別の日のディレクトリの文字起こしを持ち込まない", () => {
+  // 隣の回の会議のDocを「この議事録の根拠」として書き込むのが最悪の失敗
+  const r = runOn({
+    "会議/Ph.1/全体定例/20260804/cortex_全体定例.md": `<!-- cortex: source=${DOC_URL} -->\n00:00:26`,
+    "会議/Ph.1/全体定例/20260804/20260804_minutes.md": bulletMinutes,
+    "会議/Ph.1/全体定例/20260728/20260728_minutes.md": bulletMinutes, // 兄弟に文字起こしが無い回
+  });
+  assert.deepEqual(r.changed, ["会議/Ph.1/全体定例/20260804/20260804_minutes.md"]);
+  assert.equal(r.read("会議/Ph.1/全体定例/20260728/20260728_minutes.md"), bulletMinutes);
 });
