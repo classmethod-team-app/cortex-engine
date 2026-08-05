@@ -199,3 +199,27 @@ test("[同期] 排他グループを占有したまま待たせない（リア�
     assert.doesNotMatch(text, /^\s+- name: .*待機/m, `${f}: 待つだけのステップがあります（排他グループを占有します）`);
   }
 });
+
+test("[リアルタイム同期] 削除は名指ししたものだけを消す（pruneに倒さない）", () => {
+  // `update` は取ってくるだけで、消えたものを消さない。消す役は定期同期の prune だけで、
+  // 削除は最大1時間（夜間・土日は翌営業日まで）ミラーに残っていた。
+  //
+  // **prune は使わない。** prune は Backlog のツリーAPIを正とするが、ツリーAPIは新規ドキュメントを
+  // 最大1時間半返さないことがある（実測）。取りこぼし検出で回収したばかりのファイルを
+  // prune が巻き添えで消す（実測で再現した）。名指しなら構造的に起きない。
+  const text = readFileSync(path.join(DIR, "backlog-webhook-sync.yml"), "utf8");
+  assert.doesNotMatch(text, /backlog-exporter@\d+ prune/, "pruneは巻き添えを起こすので実行しない");
+  assert.match(text, /delete_by_marker/, "削除が反映されない");
+
+  // 3種別すべてを受ける（以前はドキュメントだけ対応していて課題・Wikiが取り残されていた）
+  for (const v of ["DELETED_ISSUE_KEYS", "DELETED_WIKI_IDS", "DELETED_DOCUMENT_IDS"]) {
+    assert.match(text, new RegExp(v), `${v} を受けていない`);
+  }
+
+  // **厳密に当てる。** 実データで2つの誤爆を確認している（前方一致・本文中の引用リンク）
+  const fn = text.slice(text.indexOf("delete_by_marker() {"), text.indexOf("root=$("));
+  assert.match(fn, /grep -qxF/, "課題キーは行全体の完全一致でないと前方一致で誤爆する");
+  assert.match(fn, /head -10/, "先頭だけを見ないと本文中の引用リンクに誤爆する");
+  assert.match(fn, /grep -qxF -- /, "-- が無いとオプション扱いでステップごと落ちる");
+  assert.match(fn, /::warning::/, "見つからないことを黙って成功にしている");
+});

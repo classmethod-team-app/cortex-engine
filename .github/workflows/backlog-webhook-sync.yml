@@ -127,6 +127,10 @@ jobs:
           ISSUES_FULL: ${{ github.event.client_payload.issuesFull }}
           WIKIS_FULL: ${{ github.event.client_payload.wikisFull }}
           DOCUMENTS_FULL: ${{ github.event.client_payload.documentsFull }}
+          # 削除は「消すもの」を名指しで受ける。全体差分＋prune には倒さない（下記参照）。
+          DELETED_ISSUE_KEYS: ${{ join(github.event.client_payload.deletedIssueKeys, ',') }}
+          DELETED_WIKI_IDS: ${{ join(github.event.client_payload.deletedWikiIds, ',') }}
+          DELETED_DOCUMENT_IDS: ${{ join(github.event.client_payload.deletedDocumentIds, ',') }}
           # 旧形式（単一イベント）後方互換: kind と単一キー・全体差分フラグ。
           KIND: ${{ github.event.client_payload.kind }}
           ISSUE_KEY: ${{ github.event.client_payload.issueKey }}
@@ -210,6 +214,58 @@ jobs:
               npx --yes backlog-exporter@1 update $doc_arg --force $FN_FLAG
             fi
           fi
+
+          # **Backlogで削除されたものを、ミラーからも消す。**
+          #
+          # `update` は取ってくるだけで、消えたものを消さない。消す役は定期同期の `prune` だけで、
+          # 削除は最大1時間（夜間・土日は翌営業日まで）ミラーに残っていた。
+          #
+          # ここで `prune` を使わない理由: **prune は Backlog のツリーAPIを正とする**。ツリーAPIは
+          # 新規ドキュメントを最大1時間半返さないことがあり（実測）、取りこぼし検出で回収した
+          # ばかりのファイルを prune が巻き添えで消す（実測で再現）。
+          # **消してよいのは、削除イベントが名指ししたものだけ**にすれば構造的に起きない。
+          #
+          # 対応づけは本文に埋まっている識別子で行う（ファイル名はタイトル由来で当てにならない）。
+          #   課題       `- 課題キー: PJ-12`
+          #   Wiki       `[Backlog Wiki Link](…/wiki/<id>)`
+          #   ドキュメント `[Backlog Document Link](…/document/<PJ>/<id>)`
+          #
+          # **厳密に当てる。** 実データで2つの誤爆を確認した:
+          #   - 前方一致: `PJ_CORTEX-5` が `PJ_CORTEX-53` `PJ_CORTEX-57` にも当たる（11件ヒット）
+          #   - 本文中の引用リンク: あるドキュメントのIDが他のドキュメントからも参照される（3件ヒット）
+          # 対策は (1) 行全体の完全一致、(2) **各ファイルの先頭10行だけ**を見る（exporter は識別子を
+          # 冒頭に書く。本文の引用リンクは対象外になる）。
+          delete_by_marker() {
+            local ids="$1" kind="$2" label="$3" dir="$4"
+            [ -z "$ids" ] && return 0
+            local IFS=','
+            for id in $ids; do
+              [ -z "$id" ] && continue
+              local hits=""
+              while IFS= read -r f; do
+                case "$kind" in
+                  # パターンが - で始まるので `--` が要る（無いとオプション扱いでステップごと落ちる）
+                  issue) head -10 "$f" | grep -qxF -- "- 課題キー: $id" && hits="$hits$f\n" ;;
+                  wiki) head -10 "$f" | grep -qF -- "/wiki/$id)" && hits="$hits$f\n" ;;
+                  document) head -10 "$f" | grep -qF -- "/$id)" && hits="$hits$f\n" ;;
+                esac
+              done < <(find "$dir" -name '*.md' -type f)
+              if [ -z "$hits" ]; then
+                # 黙って成功にしない。「消えていないのに消えたことになる」のが一番まずい
+                echo "::warning::${label} $id のミラーが見つかりません（既に削除済みか、取り込まれていない）"
+                continue
+              fi
+              printf "%b" "$hits" | while read -r f; do
+                [ -n "$f" ] && rm -f "$f" && echo "削除: $f"
+              done
+            done
+          }
+          root=$(find . -name backlog-settings.json -not -path './.git/*' -not -path './.cortex-engine/*' \
+                 | head -1 | xargs -r dirname | xargs -r dirname)
+          root=${root:-課題管理}
+          delete_by_marker "$DELETED_ISSUE_KEYS" issue "課題" "$root"
+          delete_by_marker "$DELETED_WIKI_IDS" wiki "Wiki" "$root"
+          delete_by_marker "$DELETED_DOCUMENT_IDS" document "ドキュメント" "$root"
 
           # コミットメッセージ用のラベルを次ステップへ引き渡す（同期したスコープのみを " / " で連結）。
           labels=""
