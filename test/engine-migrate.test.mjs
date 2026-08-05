@@ -1,7 +1,7 @@
 /**
  * マイグレーションのランナーが「途中で止まって適用結果を捨てる」経路を持たないこと。
  *
- * 実際に起きたこと（艦隊9案件・約3週間）:
+ * 実際に起きたこと（艦隊9案件）:
  *   `autoApply: false`（人手適用）のマイグレーションの後ろに、自動適用のものが積まれた。
  *   夜間の engine-migrate は毎晩それらを適用したうえで人手待ちに当たって exit 1 になり、
  *   **後続の commit/push ステップが暗黙の success() で skip された**。適用結果はランナーの
@@ -63,7 +63,7 @@ function migrate(schemaVersion) {
 }
 
 test("[再現] 途中で止まらず、最新版まで一気に適用する", () => {
-  // **ここが LATEST に届かないなら、どこかにゲートが残っている**（それが3週間の停止を生んだ）
+  // **ここが LATEST に届かないなら、どこかにゲートが残っている**（それが艦隊の停止を生んだ）
   const r = migrate(0);
   assert.equal(r.status, 0, `exit ${r.status} で終わっている: ${r.stderr}`);
   assert.equal(r.schema, LATEST, `schema_version が ${r.schema} で止まっている（最新は ${LATEST}）`);
@@ -107,7 +107,7 @@ test("[異常系] autoApply というゲートが復活していない", () => {
 
 test("[配線] push にワークフロー書き込み可のトークンを使う", () => {
   // GITHUB_TOKEN のままだと `.github/workflows/` を触るマイグレーションが push できず、
-  // **そこだけ自動配布から漏れる**（漏れた結果が今回の3週間停止）
+  // **そこだけ自動配布から漏れる**（漏れた結果が今回の停止）
   const t = readFileSync(WORKFLOW, "utf8");
   assert.match(t, /token: \$\{\{ secrets\.FLEET_WORKFLOW_TOKEN \|\| secrets\.GITHUB_TOKEN \}\}/);
   assert.match(t, /FLEET_WORKFLOW_TOKEN:\n\s+required: false/, "secrets の受け口が宣言されていない");

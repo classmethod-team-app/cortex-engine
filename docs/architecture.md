@@ -302,7 +302,7 @@ engine:
 - **schema_version**: 案件リポの現在のデータスキーマ版（Home.md 識別カード）。エンジンは自分が要求する `requiredSchemaVersion` を持つ
 - **マイグレーションファイル**: `cortex-engine/migrations/NNNN-説明.mjs`。各ファイルは `{ to, description, run(repoRoot) }` を実装する。冪等に書く
 - **実行経路**: 専用の reusable workflow `engine-migrate.yml`（案件スタブ: 夜間 cron ＋ workflow_dispatch）が、リポの schema_version とエンジンの要求版を比較し、未適用マイグレーションを順に実行する
-  - 未適用分を**すべて**実行して直コミットする。人手適用のゲート（旧 `autoApply: false`）は持たない——動かないゲートは安全装置にならず、実際に艦隊を3週間止めたため撤去した
+  - 未適用分を**すべて**実行して直コミットする。人手適用のゲート（旧 `autoApply: false`）は持たない——動かないゲートは安全装置にならず、実際に艦隊を止めたため撤去した
   - push には `FLEET_WORKFLOW_TOKEN`（Contents + Workflows の書き込み）を使う。`GITHUB_TOKEN` はワークフローファイルを push できず、そこだけ自動配布から漏れるため
   - 危険な変更を止めるのはエンジンの PR レビュー。マイグレーション側は Gold 層運用原則どおり「新規追加・機械変換のみ、既存レコードの意味は書き換えない」を守る
 - **順序保証**: 夜間の他ワークフロー（decision-log 等）は冒頭で schema_version を確認し、エンジン要求版より古ければ**その夜はスキップ**する（migrate 完了後の翌夜から再開）。半端なスキーマで精製ジョブを走らせない
