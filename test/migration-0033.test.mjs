@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { run } from "../migrations/0033-デザインのサムネイル撤去とDESIGNmdの移管.mjs";
+import { run, dropImageLines } from "../migrations/0033-デザインのサムネイル撤去とDESIGNmdの移管.mjs";
 
 const KEY = "abc123XYZ";
 
@@ -126,8 +126,8 @@ test("[正常系] inventoryの画像リンク行を外し、他の行は変え�
   await run(repo);
   const md = readFileSync(path.join(designDir, "inventory", "アプリUI", "ログイン-1-23.md"), "utf8");
   assert.ok(!md.includes("!["), "画像行が残っている（消したresourcesへのリンク切れになる）");
-  // 画像行以外は1文字も変わらないこと
-  assert.equal(md, INVENTORY_MD.replace(`\n![ログイン](../../resources/${KEY}/1-23.png)\n`, "\n"));
+  // 画像行以外は1文字も変わらないこと（前後の空行が二重にならず1つに畳まれる）
+  assert.equal(md, INVENTORY_MD.replace(`\n![ログイン](../../resources/${KEY}/1-23.png)\n\n`, "\n"));
   assert.match(md, /- 参照ID: `design:abc123XYZ:1:23`/);
   assert.match(md, /## 画面内テキスト（機械抽出）\n- メールアドレス/);
 });
@@ -177,12 +177,14 @@ test("[異常系] DESIGN.mdのコメントが書き換えられていたら触�
   assert.equal(readFileSync(path.join(designDir, "DESIGN.md"), "utf8"), CUSTOM);
 });
 
-test("[正常系] update-design-notesスタブを消し、他のワークフローは残す", async () => {
+test("[異常系] .github/workflows/ には一切触らない（GITHUB_TOKENでpushできないため0034に分けた）", async () => {
+  // ここを触ると夜間の engine-migrate が毎晩 push で失敗し、schema_version が前進しないので
+  // Gold昇格・議事録生成まで静かに止まる。**0033 は autoApply:true なので絶対に触ってはいけない**
   const { repo } = makeRepo();
   await run(repo);
   const wf = path.join(repo, ".github", "workflows");
-  assert.equal(existsSync(path.join(wf, "update-design-notes.yml")), false, "スタブが残っている");
-  assert.ok(existsSync(path.join(wf, "sync-designs.yml")), "他のワークフローを巻き込んで消している");
+  assert.ok(existsSync(path.join(wf, "update-design-notes.yml")), "0033がワークフローを消している");
+  assert.ok(existsSync(path.join(wf, "sync-designs.yml")));
 });
 
 test("[正常系] デザインディレクトリ名がカスタマイズされていても動く（Figma/ の案件が実在する）", async () => {
@@ -193,15 +195,69 @@ test("[正常系] デザインディレクトリ名がカスタマイズされ�
   assert.ok(!md.includes("!["));
 });
 
-test("[正常系] figma.jsonが無い案件では、スタブ削除以外なにもしない", async () => {
+test("[正常系] figma.jsonが無い案件では何もしない（例外も出さない）", async () => {
   // 艦隊15案件中10案件がこれ。デザイン設定が無いのに走って壊さないこと
-  const { repo } = makeRepo({ withFigmaJson: false });
+  const { repo, designDir } = makeRepo({ withFigmaJson: false });
   await run(repo);
+  assert.equal(existsSync(path.join(designDir, "resources")), false);
+});
+
+// ---- 画像行の除去そのもの（フレーム名は自由入力なので、素朴な正規表現では取りこぼす）----
+
+test("[異常系] 画面名に ] を含んでも画像行を落とす", () => {
+  // Figmaのフレーム名はエスケープなしでalt textに埋め込まれていた。`![^\]]*` 前提の式だと
+  // ここでパースが破綻して取りこぼし、resourcesを消した後にリンク切れが残る
+  const before = "# A\n\n![A[異常]](../../resources/key/1.png)\n\n## text\n";
+  assert.equal(dropImageLines(before), "# A\n\n## text\n");
+});
+
+test("[正常系] 画像行の前後の空行が二重にならない", () => {
+  const before = "- [Figmaで開く](url)\n\n![A](../../resources/key/1.png)\n\n## text\n";
+  assert.equal(dropImageLines(before), "- [Figmaで開く](url)\n\n## text\n");
+});
+
+test("[正常系] 画像行が連続していても・末尾にあっても落とす", () => {
   assert.equal(
-    existsSync(path.join(repo, ".github", "workflows", "update-design-notes.yml")),
-    false,
-    "スタブ削除はデザイン設定と無関係に効くべき",
+    dropImageLines("# A\n\n![x](../../resources/k/1.png)\n![y](../../resources/k/2.png)\n\n## t\n"),
+    "# A\n\n## t\n",
   );
+  assert.equal(dropImageLines("# A\n\n![x](../../resources/k/1.png)"), "# A\n");
+});
+
+test("[異常系] alt textに ] を含む実データ（[LOCAL]プレフィクス）でも落とす", () => {
+  // 霞ヶ関キャピタル様の inventory に実在する形。`![^\]]*` 前提の式だと9件取りこぼしていた
+  const before =
+    "# [LOCAL]アンケート\n\n- 参照ID: `design:k:1:2`\n\n![[LOCAL]アンケート](../../resources/scI2d0VWFixt3de1pzIOUo/823-8139.png)\n\n## 画面内テキスト（機械抽出）\n- x\n";
+  const after = dropImageLines(before);
+  assert.ok(!after.includes("!["), "取りこぼしている");
+  assert.match(after, /- 参照ID: `design:k:1:2`/);
+  assert.match(after, /## 画面内テキスト（機械抽出）\n- x/);
+});
+
+test("[異常系] figma.jsonが雛形のプレースホルダのままなら、何も消さない", async () => {
+  // gift-stvv・sushiro-googlemaps が実際にこの状態で cron が回っている
+  const { repo, designDir } = makeRepo({
+    extras: ({ designDir: dd }) =>
+      writeFileSync(path.join(dd, "figma.json"), JSON.stringify({ files: [{ key: "{FigmaのURLをここに}" }] })),
+  });
+  await run(repo);
+  assert.ok(existsSync(path.join(designDir, "resources", KEY, "1-23.png")), "未設定なのに消している");
+});
+
+test("[異常系] resources を指さない画像行は残す（人が貼った図など）", () => {
+  const before = "# A\n\n![図](../../共有資料/図.png)\n\n## t\n";
+  assert.equal(dropImageLines(before), before);
+});
+
+test("[正常系] 空の {fileKey}/ も消す（レンダリング全滅時に残る空ディレクトリ）", async () => {
+  const { repo, designDir } = makeRepo({
+    extras: ({ designDir: dd }) => {
+      mkdirSync(path.join(dd, "resources", "emptyKey"), { recursive: true });
+      writeFileSync(path.join(dd, "figma.json"), JSON.stringify({ files: [{ key: KEY }, { key: "emptyKey" }] }));
+    },
+  });
+  await run(repo);
+  assert.equal(existsSync(path.join(designDir, "resources", "emptyKey")), false, "空ディレクトリが永久に残る");
 });
 
 test("[正常系] 冪等（2回走らせても壊れない）", async () => {

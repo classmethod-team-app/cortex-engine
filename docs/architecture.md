@@ -90,7 +90,7 @@ cortex-engine/
 │   │   ├── create-minute/  sync-materials/  sync-designs/                     # ①自動部品（cron/WFが呼ぶ）
 │   │   ├── catch-up-recent-status/  cortex-grep/  read-chat/                  # ④読みプリミティブ
 │   │   ├── git-sync/  submit-feedback/            # 非エンジニアgit操作 / フィードバック回収路
-│   │   └── （auto系: update-gold-auto / update-design-md-auto。夜間cron専用）
+│   │   └── （auto系: update-gold-auto。夜間cron専用）
 │   ├── agents/                   # 旧 .rulesync/subagents（planner 等）
 │   ├── hooks/                    # 旧 .rulesync/hooks（worktree-setup 等）
 │   ├── mcp.json                  # 旧 .rulesync/mcp.json
