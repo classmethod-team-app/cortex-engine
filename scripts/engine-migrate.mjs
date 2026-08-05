@@ -10,6 +10,14 @@
  *     警告を出す（人間のレビューを要する変更。手動適用が必要）
  *   - 各マイグレーション成功後、Home.md の schema_version を to に書き進める
  *
+ * **人手待ちで止まったときも exit 0 で返す。** 赤くするのは呼び出し側（ワークフロー）の最後の
+ * ステップに任せ、`paused` を GITHUB_OUTPUT で渡す。ここで exit 1 にすると、後続の
+ * commit/push ステップが暗黙の success() で skip され、**それまでに適用したぶんが丸ごと捨てられる**。
+ * 実際それで艦隊9案件が3週間止まった（0031 が人手待ちの後ろに 0032・0033 が積まれ、毎晩
+ * 適用しては捨てるのを繰り返していた。schema_version も進まないので Gold昇格まで沈黙した）。
+ *
+ * 一方、**想定外の例外は従来どおり exit 1 で落とす**（中途半端に適用された状態を push させない）。
+ *
  * マイグレーションファイルの規約（migrations/README.md 参照）:
  *   export const meta = { to: <番号>, description: "...", autoApply: true|false };
  *   export async function run(repoRoot) { ... }   // 冪等に書くこと
@@ -65,7 +73,7 @@ async function main() {
     }
     if (meta.to <= version) continue; // 適用済み
     if (!meta.autoApply) {
-      paused = { file, description: meta.description };
+      paused = { file, description: meta.description, to: meta.to };
       break;
     }
     console.log(`適用中: ${file} — ${meta.description}`);
@@ -79,16 +87,25 @@ async function main() {
     ? `${applied} 件のマイグレーションを適用しました（schema_version: ${current} → ${version}）`
     : `未適用のマイグレーションはありません（schema_version: ${version}）`);
 
-  // autoApply:false で停止したら、人間が気づけるよう実行を意図的に失敗（赤）にする。
-  // （バグではなく「人間レビュー待ち」の合図。手動適用するまで毎晩赤くなって催促する）
+  // autoApply:false で停止したことは呼び出し側に伝える。**ここでは exit 1 にしない。**
+  // 赤くするのはワークフロー側の最後のステップの仕事（commit/push を skip させないため）。
   if (paused) {
     console.error(
       `::error::${paused.file}（${paused.description}）は autoApply: false（人間レビュー必須）です。` +
-        `自動適用せず停止しました。内容を確認して手動で適用し、schema_version を進めてください。` +
+        `自動適用せず停止しました。内容を確認して手動で適用し、schema_version を進めてください` +
+        `（node scripts/apply-migration-manually.mjs ${paused.to} --push <owner/repo>...）。` +
         `この実行は、停止に気づけるよう意図的に失敗（赤）にしています（コードのバグではありません）。`,
     );
-    process.exit(1);
+    await setOutput("paused", "true");
+    await setOutput("paused_migration", paused.file);
   }
+}
+
+/** GitHub Actions のステップ出力に書く（ローカル実行では GITHUB_OUTPUT が無いので何もしない）。 */
+async function setOutput(name, value) {
+  const f = process.env.GITHUB_OUTPUT;
+  if (!f) return;
+  await fs.appendFile(f, `${name}=${value}\n`);
 }
 
 main().catch((err) => {
