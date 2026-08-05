@@ -1,9 +1,15 @@
-name: デザインMD自動育成
+name: デザインMD自動育成（廃止済み）
 
-# 案件リポのスタブから workflow_call で呼ばれる（トリガー・concurrency・permissions はスタブ側が持つ）。
-# update-gold とは独立の夜間ワークフロー。画像モダリティ（サムネイルPNGの視覚AI）でコンテキストを食い、
-# 読むソース（デザイン/inventory + resources）も update-gold と重複しないため統合しない。
-# ※ファイル名は update-design-notes.yml のまま変えない（SINCE算出が gh run list --workflow=このファイル名 に依存・スタブ配布済み）。
+# **このワークフローは廃止された。中身は空で、何もせずに正常終了する。**
+#
+# DESIGN.md はデザインハーネスの design-md が育てる成果物になり、Cortex は同期も育成もしなくなった
+# （sync-designs のトークン生成も撤去済み）。育成の根拠にしていたサムネイル（デザイン/resources/）も
+# 取らなくなったので、走らせても根拠が無いまま本文を書き換えに行くだけで、Bedrock 課金だけがかかる。
+#
+# **ファイルを今すぐ消せない理由**: 案件スタブが `uses: ...@v1` で参照している。先に消すと、
+# スタブが残っている案件で run が startup_failure になる。スタブの削除は migration 0034
+# （autoApply:false・手配布）で行い、全案件から参照が消えたことを確認してからこのファイルを削除する。
+# それまでの間、中身を空にして無害化しておく。
 on:
   workflow_call:
     inputs:
@@ -32,189 +38,10 @@ on:
         required: false
 
 jobs:
-  update:
+  retired:
     runs-on: ubuntu-latest
-    # 同一リポ内でmainへ書き込む同期系ワークフロー（sync-designs・update-gold 等）と直列化し、push競合を減らす。
-    concurrency:
-      group: cortex-repo-write-${{ github.repository }}
-      cancel-in-progress: false
-    timeout-minutes: 30 # 視覚AI（サムネイル読み取り・最大10枚）を回すため余裕を持たせる
-    env:
-      AWS_REGION: ap-northeast-1 # Claude を有効化したリージョン（東京）
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # 増分判定（git log --since）に履歴が必要
-
-      - name: エンジンをチェックアウト（このワークフローと同一バージョン）
-        uses: actions/checkout@v4
-        with:
-          repository: classmethod-team-app/cortex-engine
-          ref: ${{ job.workflow_sha || inputs.engine_ref }}
-          path: .cortex-engine
-          token: ${{ secrets.ENGINE_REPO_TOKEN || github.token }}
-
-      - name: エンジンをGit管理対象外にする
-        run: echo ".cortex-engine/" >> .git/info/exclude
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      # 案件のデータ版(schema_version)がエンジン最新より古い（未適用マイグレーション保留中）なら精製をスキップ。
-      - name: スキーマ版チェック
-        id: schema
+      - name: 廃止済みであることを知らせる
         run: |
-          if node .cortex-engine/scripts/schema-current.mjs; then
-            echo "current=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "current=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      # 前提チェック:
-      # - デザインを使わない案件（figma.json未設定 / inventory不在）→ notice でスキップ（毎晩failさせない）
-      # - AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）→ スキップ（update-gold と同じ）
-      - name: 前提チェック（デザイン設定・シークレットの有無）
-        id: pre
-        env:
-          ROLE: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
-        run: |
-          # figma.json の場所は案件でカスタマイズされ得る（例: デザイン/ ではなく Figma/）ため探索する
-          FJ=$(find . -maxdepth 2 -name figma.json -not -path './node_modules/*' -not -path './.git/*' -not -path './.cortex-engine/*' | head -1)
-          DESIGN_DIR=$(dirname "${FJ:-デザイン/figma.json}")
-          echo "design_dir=$DESIGN_DIR" >> "$GITHUB_OUTPUT"
-          if [ ! -d "$DESIGN_DIR/inventory" ]; then
-            echo "::notice::$DESIGN_DIR/inventory が無い（figmaを使わない案件 or 未同期）。デザインMD育成をスキップします。"
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          elif [ -z "$ROLE" ]; then
-            echo "::notice::AWS_ROLE_TO_ASSUME 未設定（Bedrock未設定）。デザインMD育成をスキップします。"
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      # 増分の起点(SINCE)を「このワークフローの直近成功run」に置く（update-gold と同じ実装）。
-      # 失敗runは成功扱いされないので、連続失敗しても次の成功実行で失敗分まで窓が自動で遡る（取りこぼしの巻き取り）。
-      # 注意: --workflow は案件リポ側スタブのファイル名。スタブは update-design-notes.yml の名前を変えないこと。
-      - name: 増分窓の起点(SINCE)を算出（前回成功以降・14日キャップ）
-        id: win
-        if: steps.pre.outputs.run == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OVERRIDE_SINCE: ${{ inputs.since }}
-        run: |
-          CAP=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ)
-          if [ -n "$OVERRIDE_SINCE" ]; then
-            SINCE="$OVERRIDE_SINCE"
-            echo "::notice::SINCE を手動上書き（バックフィル）: $SINCE"
-          else
-            LAST=$(gh run list --workflow=update-design-notes.yml --status success --limit 1 --json createdAt --jq '.[0].createdAt // empty' 2>/dev/null || true)
-            if [ -z "$LAST" ]; then SINCE="$CAP"; else SINCE="$LAST"; fi
-          fi
-          if [[ "$SINCE" < "$CAP" ]]; then
-            echo "::warning::増分起点 $SINCE が14日上限より古いため $CAP に丸めます（未処理分はsince入力で個別バックフィルを）"
-            SINCE="$CAP"
-          fi
-          echo "since=$SINCE" >> "$GITHUB_OUTPUT"
-          echo "増分起点 SINCE=$SINCE"
-
-      # デザインの目録(inventory)・サムネイル(resources)に SINCE 以降の変更が無い夜はAI実行（Bedrock課金）を丸ごとスキップ。
-      # DESIGN.md 自身はゲートに含めない（AIの自コミットで翌晩再発火しない。デザインの実変更だけが引き金）。
-      - name: 差分ゲート（デザイン変更が無ければAI実行をスキップ）
-        id: gate
-        if: steps.pre.outputs.run == 'true'
-        env:
-          SINCE: ${{ steps.win.outputs.since }}
-          DESIGN_DIR: ${{ steps.pre.outputs.design_dir }}
-        run: |
-          CHANGED=$(git -c core.quotepath=false log --since="$SINCE" --name-only --pretty=format: \
-            -- "$DESIGN_DIR/inventory/" "$DESIGN_DIR/resources/" | grep -v '^$' | sort -u || true)
-          if [ -n "$CHANGED" ]; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "変更されたデザインソース:"; echo "$CHANGED"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::前回成功以降のデザイン変更なし。AI実行をスキップします。"
-          fi
-
-      - name: Git設定
-        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: AWS認証（OIDC）
-        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ inputs.aws_role_arn != '' && inputs.aws_role_arn || secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Claude Code をインストール
-        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
-        run: npm i -g @anthropic-ai/claude-code
-
-      - name: デザインMD自動育成（Claude / Bedrock）
-        if: steps.pre.outputs.run == 'true' && steps.schema.outputs.current == 'true' && steps.gate.outputs.changed == 'true'
-        env:
-          CLAUDE_CODE_USE_BEDROCK: "1" # APIキーの代わりに Bedrock を使用
-          ANTHROPIC_MODEL: jp.anthropic.claude-sonnet-4-6 # 視覚AI（画像読み取り）対応・日本国内推論プロファイル
-          SINCE: ${{ steps.win.outputs.since }} # 増分起点（前回成功以降）。スキルの git log --since に渡す
-          DESIGN_DIR: ${{ steps.pre.outputs.design_dir }} # デザインディレクトリ（案件でカスタマイズされ得る）
-        run: |
-          PROMPT=$(cat <<'EOF'
-          .cortex-engine/plugin/skills/update-design-md-auto/SKILL.md の指示に従い、
-          前回実行以降（環境変数 SINCE）にデザインが変更されているため、
-          $DESIGN_DIR/DESIGN.md の本文（公式8節のprose）を最新のデザイン事実に基づいて記入・更新してください。
-
-          注意:
-          - フロントマター（先頭の --- で囲まれたYAML）は sync-designs の機械領域です。1文字も変更しないでください。
-          - 根拠にできるのはフロントマターのトークン値・inventory mdの機械抽出節・resources のサムネイルPNG（Readで最大10枚）だけです。それ以外から断定しないでください。
-          - {{例: …}} プレースホルダは根拠のある実文にだけ置き換え、根拠が足りない箇所はプレースホルダのまま残してください。
-          - 既に書かれている実文は尊重し、現在のトークン・画面と矛盾する場合だけ最小限更新してください。
-          - git add は "$DESIGN_DIR/DESIGN.md" のみ。Cortex/ 配下・inventory/・resources/・.cortex-engine/ 配下は編集しないでください。
-          - 変更が無ければ何もコミットせず終了してください。
-          EOF
-          )
-          # 無人実行（ephemeralなCIランナー）のため権限確認はスキップする
-          claude -p "$PROMPT" --max-turns 40 --dangerously-skip-permissions
-
-      # AIが構造を壊した状態を配布しない: 公式lintで errors > 0 なら push せず失敗（warningは許容）。
-      # 失敗するとSINCE（=直近の成功run）が進まないため、翌晩も同じ増分窓で再試行される。
-      - name: DESIGN.md lintゲート（errorsがあればpushしない）
-        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
-        env:
-          DESIGN_DIR: ${{ steps.pre.outputs.design_dir }}
-        run: |
-          DESIGN_DIR="${DESIGN_DIR#./}" # git diff の出力（./なし）と表記を揃える
-          # push対象の確認: AIのコミットが DESIGN.md 以外に触れていないか（触れていたらpushしない）
-          EXTRA=$(git -c core.quotepath=false diff --name-only "${{ github.sha }}"..HEAD -- . | grep -vF "$DESIGN_DIR/DESIGN.md" || true)
-          if [ -n "$EXTRA" ]; then
-            echo "::error::DESIGN.md 以外への変更がコミットされています。pushせず失敗します。"
-            echo "$EXTRA"
-            exit 1
-          fi
-          if [ ! -f "$DESIGN_DIR/DESIGN.md" ]; then
-            echo "::notice::$DESIGN_DIR/DESIGN.md が無いためlintをスキップします"
-            exit 0
-          fi
-          OUT=$(npx -y @google/design.md@0.3.0 lint --format json "$DESIGN_DIR/DESIGN.md" || true)
-          echo "$OUT"
-          ERRORS=$(echo "$OUT" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).summary.errors)}catch{console.log("parse-failed")}})')
-          if [ "$ERRORS" = "0" ]; then
-            echo "lint合格（errors 0）"
-          else
-            echo "::error::DESIGN.md が公式仕様のlintに失敗（errors=$ERRORS）。pushせず失敗します（翌晩のSINCE巻き取りで再試行）。"
-            exit 1
-          fi
-
-      - name: Push（競合時はrebaseで再試行）
-        if: steps.pre.outputs.run == 'true' && steps.gate.outputs.changed == 'true'
-        uses: classmethod-team-app/cortex-engine/.github/actions/robust-push@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      # 通知は実装しない。将来 notify-slack.sh に乗せてレビュー導線をSlackへ流せる（update-gold のGold昇格サマリと同型）。
+          echo "::notice::デザインMD自動育成は廃止されました。DESIGN.md はデザインハーネスの design-md で育てます"
+          echo "このワークフローのスタブ（.github/workflows/update-design-notes.yml）は migration 0034 で削除されます"

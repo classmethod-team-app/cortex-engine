@@ -36,7 +36,7 @@ Cortex のメダリオン構造は **transport 非依存**。Bronze の取り込
 
 **課題管理（既定: Backlog）**: 同期スキル（`backlog-pull`/`backlog-push`）・`課題管理/` を読む参照スキル（`catch-up-recent-status`・`update-gold` 等）・ワークフロー（`sync-backlog.yml`・`backlog-webhook-sync.yml`）・Secrets（`BACKLOG_API_KEY`/`BACKLOG_DOMAIN`/`BACKLOG_PROJECT_KEY`）・MCP（Backlog MCP）・オントロジーID（`issue`＝課題キー / `document`＝ドキュメントID）・ディレクトリ（`課題管理/issues`・`documents`・`wiki`）・ドキュメント参照
 
-**デザイン（既定: Figma）**: スキル（`sync-designs`）・ワークフロー（`sync-designs.yml`）・設定/Secret（`デザイン/figma.json` の `key`・`FIGMA_TOKEN`）・オントロジーID（`design`＝`design:{fileKey}:{nodeId}`）・ディレクトリ（`デザイン/inventory`・`resources`）
+**デザイン（既定: Figma）**: スキル（`sync-designs`）・ワークフロー（`sync-designs.yml`）・設定/Secret（`デザイン/figma.json` の `key`・`FIGMA_TOKEN`）・オントロジーID（`design`＝`design:{fileKey}:{nodeId}`）・ディレクトリ（`デザイン/inventory`）
 
 **開発（既定: GitHub）**: submodule（`.gitmodules` の `src`/`wiki`）・`開発/issues`（GitHub Issues のライブ参照）・CLI（`gh` の `--repo` 指定）・ドキュメント参照
 

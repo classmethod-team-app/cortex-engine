@@ -31,7 +31,7 @@ Gold層の `source` / `relations.target` からSilver/Bronzeを参照すると�
 | --- | --- | --- | --- |
 | 議事録（`minute`） | `minute:{定例名}:{YYYYMMDD}` | `minute:営業ハーネス定例:20260604` | 会議ディレクトリのパス規約 `…/{定例名}/{YYYYMMDD}/YYYYMMDD_minutes.md` |
 | 変換済み共有資料（`material`） | `material:{slug}` | `material:提案書-v2` | 共有資料ディレクトリの変換md（`{slug}.md`。元ファイルが同じstemで隣にある） |
-| デザイン画面（`design`） | `design:{fileKey}:{nodeId}` | `design:abc123XYZ:1023:456` | 目録は `デザイン/inventory/`（Silverミラー・frontmatterなし）。1画面ノートは持たない。デザイン全体の指針は `デザイン/DESIGN.md`（sync-designsがフロントマターを、夜間AIが本文を育てる） |
+| デザイン画面（`design`） | `design:{fileKey}:{nodeId}` | `design:abc123XYZ:1023:456` | 目録は `デザイン/inventory/`（Silverミラー・frontmatterなし）。1画面ノートは持たない。デザイン全体の指針は `デザイン/DESIGN.md`（デザインハーネスの `design-md` が育てる。Cortexは同期しない） |
 | 課題（`issue`） | 課題管理ツールのネイティブ課題キー | `PJ_CORTEX-13` | 課題ミラー（`課題管理/issues/`）またはツールのURL |
 | ドキュメント（`document`) | ツール側のドキュメントID | `019e686c77907a28...` | 課題管理ツールのドキュメントURL・ミラー |
 

@@ -90,6 +90,6 @@ frontmatterの規約（エンティティ型・ID規則・リレーション）�
 
 ## 視覚成果物のデザイン
 
-HTML・アーティファクト等の視覚的な成果物を生成するときは、配色・フォント・余白・質感を `デザイン/DESIGN.md` に従って統一する（DESIGN.md がその案件の単一のデザイン規約）。DESIGN.md はFigma同期がある案件では案件ブランドに、無い案件では Cortex 既定（ニュートラル / Liquid Glass）になる。
+HTML・アーティファクト等の視覚的な成果物を生成するときは、配色・フォント・余白・質感を `デザイン/DESIGN.md` に従って統一する（DESIGN.md がその案件の単一のデザイン規約）。DESIGN.md を育てるのはデザインハーネスの `design-md` で、Cortex は読んで従うだけ。記入がなければ Cortex 既定（ニュートラル / Liquid Glass）がそのまま使われる。
 
 <!-- cortex-engine:end -->
