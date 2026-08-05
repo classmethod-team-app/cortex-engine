@@ -208,3 +208,46 @@ test("[異常系] デザインMD自動育成（update-design-notes）がどこ�
   // 表示名も直す（Cortex はもう DESIGN.md を同期しない）
   assert.ok(!src.includes("画面インベントリ・DESIGN.md"), "表示名に DESIGN.md が残っている");
 });
+
+// ---- フォルダの表示名（IDだけでは「どれを外してよいか」判断できない）----
+
+test("[正常系] 表示名は登録済みIDのぶんだけ出す", () => {
+  // 外したフォルダの名前が設定に残っていても、画面に出す理由が無い（消し忘れを漏らさない）
+  const r = run({
+    "共有資料/materials-config.json": JSON.stringify({
+      enabled: true,
+      driveFolderIds: ["1AAA", "2BBB"],
+      driveFolderNames: { "1AAA": "設計資料", "9ZZZ": "もう外したフォルダ", "2BBB": "  " },
+    }),
+  });
+  assert.deepEqual(r.materials.driveFolderNames, { "1AAA": "設計資料" });
+  assert.deepEqual(r.materials.driveFolderIds, ["1AAA", "2BBB"], "IDの一覧は名前と無関係に全部出す");
+});
+
+test("[正常系] 名前が無ければフィールドごと出さない（既存9案件はこの状態）", () => {
+  // **後方互換の要。** ここが壊れると、いま動いている案件の画面が変わる
+  const r = run({ "共有資料/materials-config.json": MATERIALS(true, ["1AAA"]) });
+  assert.equal(r.materials.driveFolderNames, undefined);
+  assert.deepEqual(r.materials.driveFolderIds, ["1AAA"]);
+});
+
+test("[異常系] driveFolderNames が壊れていても落ちない", () => {
+  // 人が手で書き換えることがある。判定できないことを理由に一覧ごと消さない
+  for (const bad of ['"文字列"', "[1,2]", "null", "123"]) {
+    const r = run({
+      "共有資料/materials-config.json": `{"enabled":true,"driveFolderIds":["1AAA"],"driveFolderNames":${bad}}`,
+    });
+    assert.deepEqual(r.materials.driveFolderIds, ["1AAA"], `driveFolderNames=${bad} で一覧が消えた`);
+    assert.equal(r.materials.driveFolderNames, undefined);
+  }
+});
+
+test("[正常系] 止めている案件でも表示名は出す", () => {
+  const r = run({
+    "共有資料/materials-config.json": JSON.stringify({
+      enabled: false, driveFolderIds: ["1AAA"], driveFolderNames: { "1AAA": "設計資料" },
+    }),
+  });
+  assert.equal(r.materials.driveState, "off");
+  assert.deepEqual(r.materials.driveFolderNames, { "1AAA": "設計資料" });
+});

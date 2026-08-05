@@ -543,15 +543,35 @@ function materialsExtras() {
     return { driveSync: false, driveState: "broken", driveFolderCount: 0 };
   }
   const ids = (cfg.driveFolderIds || []).filter(Boolean);
+  // フォルダの表示名（任意・ID→名前）。**IDだけ並んでいても「どれを外してよいか」判断できない。**
+  // `driveFolderIds` とは別のマップに持つ（要素をオブジェクトにすると、これを読む7箇所すべてを
+  // 直すことになり、1つでも漏らすと本番の資料取り込みが止まる）。無くても動く。
+  const names = pickFolderNames(cfg.driveFolderNames, ids);
   if (!cfg.enabled) {
-    return { driveSync: false, driveState: "off", driveFolderCount: ids.length, driveFolderIds: ids };
+    return { driveSync: false, driveState: "off", driveFolderCount: ids.length, driveFolderIds: ids, ...names };
   }
   if (!ids.length) return { driveSync: false, driveState: "empty", driveFolderCount: 0 };
   // **urls は件数にも enabled にも関わらず出す。** 設定UIが「どのフォルダを外すか」を
   // 選ばせるのに要る。以前は「2件以上かつ有効」のときしか出しておらず、
   // 艦隊で唯一Driveを使っている案件がちょうど1件なので、一度も使えなかった。
   const urls = ids.map((id) => `https://drive.google.com/drive/folders/${id}`);
-  return { url: urls[0], urls, driveFolderIds: ids, driveState: "on", driveFolderCount: ids.length };
+  return { url: urls[0], urls, driveFolderIds: ids, driveState: "on", driveFolderCount: ids.length, ...names };
+}
+
+/**
+ * `driveFolderNames` を、登録済みIDのぶんだけに絞って返す（空なら何も返さない）。
+ *
+ * **登録されていないIDの名前は落とす。** 外したフォルダの名前が設定に残っていても、
+ * 画面に出す理由が無い（消し忘れが画面に漏れない）。
+ */
+function pickFolderNames(raw, ids) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out = {};
+  for (const id of ids) {
+    const v = raw[id];
+    if (typeof v === "string" && v.trim()) out[id] = v.trim();
+  }
+  return Object.keys(out).length ? { driveFolderNames: out } : {};
 }
 /**
  * 同期対象のFigmaファイル一覧。
