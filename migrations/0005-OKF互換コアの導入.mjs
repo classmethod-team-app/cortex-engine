@@ -19,7 +19,6 @@ import path from "node:path";
 export const meta = {
   to: 5,
   description: "OKF互換コア（description共通化・decisionのsummaryをdescriptionへ）",
-  autoApply: true,
 };
 
 async function listMd(dir) {

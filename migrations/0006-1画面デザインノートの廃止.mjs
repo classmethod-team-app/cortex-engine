@@ -14,7 +14,6 @@ import path from "node:path";
 export const meta = {
   to: 6,
   description: "1画面デザインノートを廃止しDESIGN.md本文育成に一本化",
-  autoApply: true,
 };
 
 export async function run(repoRoot) {

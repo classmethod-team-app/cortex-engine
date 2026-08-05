@@ -21,7 +21,7 @@
  * プレースホルダに戻る。現時点では全案件が未記入（節そのものが無い）ため実害は無いが、
  * 今後 Home 本文を差し替える migration を書くときは、記入済みの節を保持する処理が要る。
  *
- * autoApply: true（エンジン所有の説明文の差し替えのみ・案件の値は不変・冪等）。
+ * 冪等（エンジン所有の説明文の差し替えのみ・案件の値は不変・冪等）。
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -31,7 +31,6 @@ export const meta = {
   to: 25,
   description:
     "Cortex/Home.md の本文に「この案件が目指すもの」の節を追加（frontmatterと使用ツール節は保持）",
-  autoApply: true,
 };
 
 const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

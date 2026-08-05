@@ -15,7 +15,7 @@
  * - **旧文言が完全一致した場合のみ**置換する（案件側で書き換えている文言はそのまま残す）。
  * - 置換後は旧文言が消えるので冪等。
  *
- * autoApply: true（テキスト置換のみ・非破壊・冪等）。
+ * 冪等（テキスト置換のみ・非破壊・冪等）。
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -24,7 +24,6 @@ export const meta = {
   to: 24,
   description:
     "案件ドキュメントに残る実在しないスキル名・廃止記法・撤去済みGold区画への参照を訂正（参照lintの検出分）",
-  autoApply: true,
 };
 
 const TARGET_FILES = ["README.md", "USAGE.md", "CLAUDE.md", path.join("Cortex", "README.md")];

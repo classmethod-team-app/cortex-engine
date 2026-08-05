@@ -14,7 +14,7 @@
  * 所有権モデル（0014・0016 と同じ保守則）: エンジンが配るのは**未定義のときだけ**。既にファイルがあれば
  * 内容が何であれ触らない（案件が有効化・フォルダIDを記入済みの設定を絶対に壊さない）。
  *
- * autoApply: true（新規追加のみ・既存値は不変・冪等）。
+ * 冪等（新規追加のみ・既存値は不変・冪等）。
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -24,7 +24,6 @@ export const meta = {
   to: 17,
   description:
     "共有資料の Drive 同期設定（materials-config.json・既定無効）を案件リポに配布（既存の設定は触らない）",
-  autoApply: true,
 };
 
 const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

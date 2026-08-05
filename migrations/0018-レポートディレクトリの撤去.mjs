@@ -14,7 +14,7 @@
  *   - README.md / template.md / .gitkeep は生成物なので、records が全て report のときだけ一緒に撤去する。
  *   - `Cortex/レポート/` が無ければ何もしない（適用済み・未導入）。
  *
- * autoApply: true（対象が機械生成物だけであることを確認したうえでの削除・冪等）。
+ * 冪等（対象が機械生成物だけであることを確認したうえでの削除・冪等）。
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -23,7 +23,6 @@ export const meta = {
   to: 18,
   description:
     "凍結済みのレポートディレクトリ（Cortex/レポート/）を撤去（機械生成のreportレコードのみ。人の起票があれば残す）",
-  autoApply: true,
 };
 
 // 生成物として一緒に撤去してよいファイル（これ以外が直下にあれば人が置いたものとみなす）

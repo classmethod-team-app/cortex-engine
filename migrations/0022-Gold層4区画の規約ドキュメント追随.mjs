@@ -20,7 +20,7 @@
  *     （scaffold 直後と同じ状態＝setup-project が後から埋められる）
  *   - 内容が同一なら書き込まない（冪等）
  *
- * autoApply: true（エンジン所有の生成物の差し替えのみ・案件データは不変・冪等）。
+ * 冪等（エンジン所有の生成物の差し替えのみ・案件データは不変・冪等）。
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -30,7 +30,6 @@ export const meta = {
   to: 22,
   description:
     "Gold層4区画（Decisions/Glossary/Members/Rules）の README.md・template.md をエンジン最新版に差し替え（規約ドキュメントのため上書き。records には触らない）",
-  autoApply: true,
 };
 
 const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

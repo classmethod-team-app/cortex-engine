@@ -19,7 +19,6 @@ import path from "node:path";
 export const meta = {
   to: 11,
   description: "OpenQuestions（未決事項）をGold層から撤収（空なら畳む・実レコードがあれば残す）",
-  autoApply: true,
 };
 
 // 撤収してよい「足場ファイル」（これら以外がrecords配下にあれば人が起票したレコードとみなす）

@@ -28,9 +28,9 @@
  * 人間が「これは顧客共有だから true」「これは社内だから false」と判断できる。
  * 判断されるまでの間は対象外（安全側）で、実害は「昇格が止まっていること」だけ。
  *
- * autoApply: true（機械的・冪等・非破壊）:
+ * 冪等（機械的・冪等・非破壊）:
  * **止めて人間に書かせる方式は採れない。** 理由は2つ、いずれも実物で確認済み——
- *   (1) `engine-migrate.mjs` は `autoApply: false` のとき `run()` を呼ばずに break するため、
+ *   (1) 当時の `engine-migrate.mjs` は人手適用のマイグレーションに当たると `run()` を呼ばず break したため、
  *       ここに書いたメッセージは一切表示されない（出るのは meta.description の1行だけ）。
  *   (2) `schema_version` のゲートは update-gold / ingest-minutes / update-design-notes /
  *       run-harness-skill の4つに配線済みで、停止中は**議事録の自動生成やPMハーネスの日報まで止まる**。
@@ -43,7 +43,6 @@ export const meta = {
   to: 30,
   description:
     "Slackチャンネルのgold昇格をopt-in化し、明示登録済みのチャンネルに gold: true を書き込む",
-  autoApply: true,
 };
 
 const CHANNELS = "チャット/channels.json";

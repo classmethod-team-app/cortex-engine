@@ -11,7 +11,7 @@
  *   触れないので、0025 の注意書きにある「本文差し替えで記入内容が消える」問題は起きない。
  * - 見出しが既に新しい文言なら何もしない（冪等）。案件側で見出しを書き換えている場合もそのまま残す。
  *
- * autoApply: true（見出し1行のテキスト置換のみ・非破壊・冪等）。
+ * 冪等（見出し1行のテキスト置換のみ・非破壊・冪等）。
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -20,7 +20,6 @@ export const meta = {
   to: 26,
   description:
     "Cortex/Home.md の「この案件が目指すもの」見出しを「このプロジェクトが目指すもの」に統一（社内プロジェクトでも語がずれないように）",
-  autoApply: true,
 };
 
 const OLD_HEADING = "## この案件が目指すもの";

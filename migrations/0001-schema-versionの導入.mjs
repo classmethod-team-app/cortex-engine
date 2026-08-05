@@ -6,7 +6,6 @@
 export const meta = {
   to: 1,
   description: "engine.schema_version を Home.md 識別カードに導入",
-  autoApply: true,
 };
 
 export async function run() {

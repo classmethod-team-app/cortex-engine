@@ -9,7 +9,6 @@
 export const meta = {
   to: 3,
   description: "Cortex/デザイン/ を導入（0006で廃止・no-op化済み）",
-  autoApply: true,
 };
 
 export async function run() {

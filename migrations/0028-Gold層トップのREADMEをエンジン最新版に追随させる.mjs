@@ -16,7 +16,7 @@
  * したがって内容を問わず scaffold の版で**上書きする**。scaffold 側にプレースホルダは無いため
  * 0022 のような値の差し込みは行わない。
  *
- * autoApply: true（エンジン所有ファイルの上書きのみ・冪等）。
+ * 冪等（エンジン所有ファイルの上書きのみ・冪等）。
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -26,7 +26,6 @@ export const meta = {
   to: 28,
   description:
     "Cortex/README.md をエンジン最新版に追随（撤去済みレポート・改名前の用語集・廃止スキルへの参照を解消）",
-  autoApply: true,
 };
 
 const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

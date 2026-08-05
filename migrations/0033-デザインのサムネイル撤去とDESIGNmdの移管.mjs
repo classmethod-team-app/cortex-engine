@@ -19,10 +19,9 @@
  *   3. DESIGN.md 冒頭の「sync-designs が自動生成する（手編集しない）」コメントを書き換える
  *
  * 案件スタブ `update-design-notes.yml` の削除は**ここではやらない**（0034 に分けた）。
- * `.github/workflows/` 配下は GITHUB_TOKEN では push できず（`workflows` 権限が要る）、
- * autoApply:true のまま触ると夜間の engine-migrate が毎晩 push で失敗し、schema_version が
- * 前進しないので、それをゲートにしている Gold昇格・議事録生成まで静かに止まる。0027・0031 が
- * 同じ理由で人手適用になっている。**ここを一緒にすると、162MBの回収まで人手待ちで止まる。**
+ * 当時 `.github/workflows/` 配下は GITHUB_TOKEN で push できず、人手適用のゲートが要った。
+ * ここを一緒にすると、162MBの回収まで人手待ちで止まってしまうため分けた。
+ * （0035 以降はワークフロー用トークンを使うので、この分割は不要になっている）
  *
  * **`resources/` は箱ごと消す**（当初は「人がスクリーンショットを置く場所として残す」設計だった）。
  * 残しても同期する者がいないので、置かれたものは更新されないまま古くなり続ける。しかも
@@ -30,7 +29,7 @@
  * CLAUDE.md の「内容を正本に残したいときは、ファイルを置くのではなく正本側へ書く」に反する。
  * 削除しても git 履歴からは消えないので、必要になれば掘り出せる。
  *
- * autoApply: true（冪等）。
+ * 冪等（冪等）。
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -39,7 +38,6 @@ export const meta = {
   to: 33,
   description:
     "デザインのサムネイル（resources/{fileKey}/）を撤去し、inventoryの画像リンクを外す。DESIGN.mdの自動生成コメントも書き換える",
-  autoApply: true,
 };
 
 const SKIP_DIRS = new Set([".git", "node_modules", ".cortex-engine", "tmp"]);

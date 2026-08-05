@@ -19,7 +19,6 @@ import { fileURLToPath } from "node:url";
 export const meta = {
   to: 4,
   description: "DESIGN.mdを公式仕様準拠テンプレへ刷新",
-  autoApply: true,
 };
 
 const ENGINE_ROOT = path.resolve(

@@ -15,7 +15,7 @@
  * - **冪等**: 置換後は旧文言が消えるので、2回実行しても追加変更は起きない。バッククォート付きの
  *   トークンで一致させ、部分マッチによる二次破壊を避ける。
  *
- * autoApply: true（テキスト置換のみ・非破壊・冪等）。
+ * 冪等（テキスト置換のみ・非破壊・冪等）。
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -24,7 +24,6 @@ export const meta = {
   to: 13,
   description:
     "スキルの改名・削除・統合に伴い案件ドキュメントの旧スキル名・旧導線を新名称・新導線に差し替え",
-  autoApply: true,
 };
 
 // 対象ファイル（scaffold 由来のドキュメントのみ。存在しないものはスキップ）。

@@ -19,7 +19,7 @@
  * - 置換は `secrets: inherit` の**行が完全一致**した場合のみ。既に明示渡しに直してある案件は素通りする。
  * - 置換後は `inherit` が消えるので冪等。
  *
- * autoApply: true（テキスト置換のみ・非破壊・冪等）。
+ * 冪等（テキスト置換のみ・非破壊・冪等）。
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -28,7 +28,6 @@ export const meta = {
   to: 27,
   description:
     "ワークフロースタブのsecretsを inherit から明示渡しへ切り替え（組織をまたぐとinheritが届かず全ジョブが無音でskipするため）",
-  autoApply: true,
 };
 
 // 呼び先のエンジンワークフローごとに、そのワークフローが宣言している secrets。

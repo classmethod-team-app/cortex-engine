@@ -16,7 +16,7 @@
  * 所有権モデル（0014・0016・0017 と同じ保守則）: エンジンが配るのは**未定義のときだけ**。
  * 既にファイルがあれば内容が何であれ触らない（案件が登録済みの設定を絶対に壊さない）。
  *
- * autoApply: true（新規追加のみ・既存値は不変・冪等。`.github/workflows/` を触らないので
+ * 冪等（新規追加のみ・既存値は不変・冪等。`.github/workflows/` を触らないので
  * GITHUB_TOKEN で push できる）。
  */
 import { promises as fs } from "node:fs";
@@ -27,7 +27,6 @@ export const meta = {
   to: 32,
   description:
     "外部ソースの登録ファイル（Cortex/external-sources.json・空の雛形）を案件リポに配布（既存の設定は触らない）",
-  autoApply: true,
 };
 
 const ENGINE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

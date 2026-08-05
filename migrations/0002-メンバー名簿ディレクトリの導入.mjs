@@ -19,7 +19,6 @@ import { fileURLToPath } from "node:url";
 export const meta = {
   to: 2,
   description: "Cortex/メンバー/ を導入（名簿のGold層化）",
-  autoApply: true,
 };
 
 const ENGINE_ROOT = path.resolve(
