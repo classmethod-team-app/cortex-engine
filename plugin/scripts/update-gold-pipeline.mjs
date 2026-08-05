@@ -255,7 +255,7 @@ function enumerateRepoSources(meetingDir) {
 // 外部ソース: external-sources.sh "$SINCE" の出力（見出し付きテキスト）を、
 // 「## [type] ref ...」見出し単位のチャンクに分割する。コメント節（### [type] ref #N のコメント）は
 // 同じ番号の本体チャンクへ再結合する（emit順の都合で本体群の後にまとまるため）。
-function enumerateExternalSources() {
+export function enumerateExternalSources() {
   const r = spawnSync("bash", [path.join(SCRIPT_DIR, "external-sources.sh"), SINCE], {
     encoding: "utf-8",
     maxBuffer: 64 * 1024 * 1024,

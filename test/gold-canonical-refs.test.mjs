@@ -22,7 +22,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { repoSourceUrl, decisionSourceRef } from "../plugin/scripts/update-gold-pipeline.mjs";
+import { repoSourceUrl, decisionSourceRef, enumerateExternalSources } from "../plugin/scripts/update-gold-pipeline.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -211,4 +211,83 @@ test("[正常系] リポ内ソースは url があればURL・無ければパス
     "会議/Ph.1/全体定例/20260730/20260730_minutes.md",
     "解決できないものまでURL化しようとしている",
   );
+});
+
+test("[正常系] 複数のBacklogリンクがあっても先頭の1件を使う", () => {
+  // 課題ミラーはコメントを含むので、将来コメント本文に別課題のリンクが引用され得る。
+  // 先頭＝そのファイル自身の課題であることを固定する（実データでは複数マッチは現状0件）
+  const p = "課題管理/issues/2026/引用あり.md";
+  const body = [
+    `- [Backlog Issue Link](${BACKLOG_URL})`,
+    "",
+    "## コメント",
+    "- 関連: [Backlog Issue Link](https://cm1.backlog.jp/view/PJ_CORTEX-99)",
+  ].join("\n");
+  assert.equal(resolve(p, { [p]: body }), BACKLOG_URL, "コメントに引用された別課題を掴んでいる");
+});
+
+// ---- 本番経路の通し（external-sources.sh → チャンク分割 → decisionSourceRef）----
+
+test("[正常系] Slackの素材が出典のURLになるまで通しで動く", async (t) => {
+  // 部品ごとのテストは通っても、**結線が外れていれば出典は説明文のまま**になる。
+  // 実際の経路（シェル実行→見出し単位のチャンク分割→出典の決定）をそのまま通す。
+  // Slack API は curl を差し替えて模す（トークンは Secrets にしか無く手元では叩けない）。
+  if (!process.env.PATH) return t.skip("PATHなし");
+  for (const cmd of ["jq", "curl"]) {
+    try {
+      execFileSync("command", ["-v", cmd], { shell: "/bin/bash" });
+    } catch {
+      return t.skip(`${cmd} が無い環境`);
+    }
+  }
+
+  const dir = mkdtempSync(path.join(tmpdir(), "goldrefs-e2e-"));
+  mkdirSync(path.join(dir, "Cortex"), { recursive: true });
+  mkdirSync(path.join(dir, "チャット"), { recursive: true });
+  mkdirSync(path.join(dir, "bin"), { recursive: true });
+  writeFileSync(
+    path.join(dir, "Cortex", "Home.md"),
+    ["---", "type: overview", "tools:", "  チャット: slack", "  開発: none", "---", "", "# Home"].join("\n"),
+  );
+  writeFileSync(
+    path.join(dir, "チャット", "channels.json"),
+    JSON.stringify({ channels: [{ name: "#tf-project-cortex", url: CH_URL, gold: true }] }),
+  );
+
+  // Slack Web API の代役。呼ばれたメソッドを引数から見分けて定型の応答を返す
+  writeFileSync(
+    path.join(dir, "bin", "curl"),
+    [
+      "#!/bin/bash",
+      'for a in "$@"; do case "$a" in *conversations.info*) m=info;; *conversations.history*) m=hist;; *users.info*) m=user;; esac; done',
+      // -D で渡されたヘッダファイルに 200 を書く（呼び出し側が http コードを読む）
+      'prev=""; for a in "$@"; do [ "$prev" = "-D" ] && printf "HTTP/2 200\\r\\n" > "$a"; prev="$a"; done',
+      'case "$m" in',
+      '  info) echo \'{"ok":true,"channel":{"name":"tf-project-cortex"}}\' ;;',
+      '  hist) echo \'{"ok":true,"messages":[{"ts":"1754300000.000100","user":"U1","text":"参照の正本URL化を進める"}]}\' ;;',
+      '  user) echo \'{"ok":true,"user":{"profile":{"display_name":"たかがき"}}}\' ;;',
+      '  *) echo \'{"ok":false,"error":"unexpected"}\' ;;',
+      "esac",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+
+  const prev = { cwd: process.cwd(), PATH: process.env.PATH, tok: process.env.SLACK_BOT_TOKEN };
+  try {
+    process.chdir(dir);
+    process.env.PATH = `${path.join(dir, "bin")}:${prev.PATH}`;
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const sources = enumerateExternalSources();
+    const slack = sources.filter((s) => s.type === "slack");
+    assert.equal(slack.length, 1, `slackチャンクが取れていない: ${JSON.stringify(sources)}`);
+    assert.match(slack[0].content, /^URL: /m, "素材に URL 行が出ていない");
+    assert.equal(decisionSourceRef(slack[0]), CH_URL, "出典がチャンネルURLになっていない");
+    // 本文も落ちていないこと（URL行を足したせいで中身が消える等が無いか）
+    assert.match(slack[0].content, /正本URL化を進める/);
+  } finally {
+    process.chdir(prev.cwd);
+    process.env.PATH = prev.PATH;
+    if (prev.tok === undefined) delete process.env.SLACK_BOT_TOKEN;
+    else process.env.SLACK_BOT_TOKEN = prev.tok;
+  }
 });
