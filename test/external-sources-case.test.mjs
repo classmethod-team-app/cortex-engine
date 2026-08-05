@@ -3,7 +3,7 @@
  *
  * なぜ必要か:
  *   GitHubのリポジトリ名は大小文字を区別しない。一方 `.gitmodules` の URL は人が書くので
- *   実際に `https://github.com/Kasumigaseki-Capital/kc-line-miniapp.git` のような表記がある。
+ *   実際に `https://github.com/Example-Org/example-line-miniapp.git` のように大小文字が混じった表記がある。
  *   設定UIが `owner/repo`（小文字）で `exclude` を書くと、**除外したつもりが効かない**。
  *   除外は「読まない側に倒す」ための最終フィルタなので、揃わないことによる取りこぼしは許容できない。
  *
@@ -42,13 +42,13 @@ function resolve({ gitmodulesUrl, external }) {
   return JSON.parse(out);
 }
 
-const URL_MIXED = "https://github.com/Kasumigaseki-Capital/kc-line-miniapp.git";
+const URL_MIXED = "https://github.com/Example-Org/example-line-miniapp.git";
 
 test("大小文字が違っても除外は効く（効かないと「止めたつもり」が一番まずい）", () => {
   for (const excluded of [
-    "kasumigaseki-capital/kc-line-miniapp", // 設定UIが書く形（小文字）
-    "Kasumigaseki-Capital/kc-line-miniapp", // .gitmodules と同じ表記
-    "KASUMIGASEKI-CAPITAL/KC-LINE-MINIAPP",
+    "example-org/example-line-miniapp", // 設定UIが書く形（小文字）
+    "Example-Org/example-line-miniapp", // .gitmodules と同じ表記
+    "EXAMPLE-ORG/EXAMPLE-LINE-MINIAPP",
   ]) {
     const r = resolve({ gitmodulesUrl: URL_MIXED, external: { exclude: [excluded] } });
     assert.equal(r.length, 0, `exclude: ${excluded} で落ちていない`);
@@ -59,7 +59,7 @@ test("大小文字が違う同じリポを2件に増やさない", () => {
   // 導出（Owner/Repo）と明示登録（owner/repo）が別物になると、同じリポを2回読みに行く
   const r = resolve({
     gitmodulesUrl: URL_MIXED,
-    external: { sources: [{ type: "github-issues", repo: "kasumigaseki-capital/kc-line-miniapp" }] },
+    external: { sources: [{ type: "github-issues", repo: "example-org/example-line-miniapp" }] },
   });
   assert.equal(r.length, 1);
 });
@@ -70,7 +70,7 @@ test("別のリポは巻き添えで落ちない", () => {
     external: { exclude: ["other-org/other-repo"] },
   });
   assert.equal(r.length, 1);
-  assert.match(r[0].ref, /kc-line-miniapp/);
+  assert.match(r[0].ref, /example-line-miniapp/);
 });
 
 test("除外が無ければ導出される（前提の確認）", () => {

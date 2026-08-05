@@ -557,7 +557,7 @@ function materialsExtras() {
 /**
  * 同期対象のFigmaファイル一覧。
  * **設定UIが「どのファイルを外すか」を選ばせるのに要る**（以前は先頭1件のURLしか出していなかった）。
- * 三菱電機様のように6ファイル持つ案件では、先頭だけでは選べない。
+ * 6ファイルを登録している案件があり、先頭だけでは選べない。
  */
 function figmaFileList() {
   const p = findConfigPath("figma.json");
