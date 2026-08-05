@@ -106,7 +106,7 @@ export async function findDesignDir(root) {
  *
  * 雛形のプレースホルダ（`{FigmaのURL ... をここに}`）は除く。未記入のまま cron が回っている案件が
  * 実在し（2案件）、そのままキーとして扱う理由が無い。判定は sync_designs.py と同じ「`{` を含む」。
- * **複数キーの案件がある**（三菱電機様は6キー）ので、先頭だけ見ない。
+ * **1案件が複数キーを持つことがある**ので、先頭だけ見ない。
  */
 export async function readFigmaKeys(designDir) {
   const text = await fs.readFile(path.join(designDir, "figma.json"), "utf8").catch(() => null);

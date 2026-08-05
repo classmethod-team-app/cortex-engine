@@ -3,7 +3,7 @@
  *
  * 守りたいもの:
  *   `デザイン/resources/` は、この変更を境に「人がスクリーンショットを置く場所」になる。
- *   実際、艦隊には既に手置きPNGがある（japanetholings-context に5件・gdo に1件）。
+ *   実際、複数の案件で resources 直下に手置きのPNGが置かれている。
  *   条件を緩めると、次に同じディレクトリを掃除しにきたときに人の資産を巻き込む。
  *
  * 条件を「中身が .png だけのサブディレクトリ」にしなかった理由:
@@ -145,7 +145,7 @@ test("[正常系] DESIGN.mdの自動生成コメントを書き換え、本文�
 
 test("[正常系] scaffold由来のDESIGN.md（末尾「。」＋2行目あり）も両行とも書き換える", async () => {
   // 生成版と scaffold 版で文言が違う。**両方に効かないと、案件によって古い文言が残る**
-  // （tokyu で実際に2行目が取り残された）
+  // （実案件での空打ちで2行目が取り残されるのを見つけた）
   const SCAFFOLD_DESIGN = `---
 ${OLD_AUTOGEN_SCAFFOLD}
 version: alpha
@@ -225,7 +225,7 @@ test("[正常系] 画像行が連続していても・末尾にあっても落�
 });
 
 test("[異常系] alt textに ] を含む実データ（[LOCAL]プレフィクス）でも落とす", () => {
-  // 霞ヶ関キャピタル様の inventory に実在する形。`![^\]]*` 前提の式だと9件取りこぼしていた
+  // 実案件の inventory にある形（画面名が `[...]` で始まる）。`![^\]]*` 前提の式だと取りこぼす
   const before =
     "# [LOCAL]アンケート\n\n- 参照ID: `design:k:1:2`\n\n![[LOCAL]アンケート](../../resources/scI2d0VWFixt3de1pzIOUo/823-8139.png)\n\n## 画面内テキスト（機械抽出）\n- x\n";
   const after = dropImageLines(before);
