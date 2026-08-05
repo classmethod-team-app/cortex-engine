@@ -12,7 +12,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -182,4 +182,29 @@ test("[デザイン] 実キーが無ければ「稼働中」に見せない", ()
   const declineDesign = ["---", "type: overview", 'id: "overview:home"', "tools:", "  デザイン: none", "---", "", "# Home"].join("\n");
   const r = run({ ...stub, "Cortex/Home.md": declineDesign, "デザイン/figma.json": real });
   assert.equal(r.designPipe.applicable, false, "デザインを使わないと宣言した案件は適用外");
+});
+
+// ---- デザインMD自動育成の撤去（エンジンから消えたものが名前だけ残らないように）----
+
+test("[異常系] デザインMD自動育成（update-design-notes）がどこにも残っていない", () => {
+  // エンジンの reusable・案件スタブ・育成スキルはすべて撤去済み。DESIGN.md はデザインハーネスの
+  // 所有物になった。**判定コードや表示名に名前だけ残ると、消えた配管を探す人が出る**
+  const engine = path.join(HERE, "..");
+  assert.equal(
+    existsSync(path.join(engine, ".github", "workflows", "update-design-notes.yml")),
+    false,
+    "reusable が残っている",
+  );
+  assert.equal(existsSync(path.join(engine, "plugin", "skills", "update-design-md-auto")), false, "スキルが残っている");
+  assert.equal(
+    existsSync(path.join(engine, "plugin", "scaffold", "repo", ".github", "workflows", "update-design-notes.yml")),
+    false,
+    "スタブ雛形が残っている",
+  );
+
+  // 判定コードの死にコード（case が残ると、無いパイプラインの分岐を読むことになる）
+  const src = readFileSync(path.join(engine, "scripts", "fleet-status.mjs"), "utf8");
+  assert.ok(!src.includes("update-design-notes"), "fleet-status に判定が残っている");
+  // 表示名も直す（Cortex はもう DESIGN.md を同期しない）
+  assert.ok(!src.includes("画面インベントリ・DESIGN.md"), "表示名に DESIGN.md が残っている");
 });

@@ -376,7 +376,6 @@ function pipelineApplicable(id) {
   if (tools === null) return true;
   switch (id) {
     case "sync-designs":
-    case "update-design-notes":
       // **宣言だけで決めない。** figma.json に実キーが無ければ同期は毎回スキップして
       // 正常終了するので、宣言だけで適用扱いにすると ✅ が並び「動いている」ように見える
       // （applicable はまさにそれを防ぐための印）。雛形のプレースホルダのまま放置された案件と、
@@ -585,7 +584,8 @@ function listInternalSources() {
       extra: () => materialsExtras(),
       pipeline: "sync-materials" },
     { kind: "デザイン", def: "figma",
-      label: (t) => (t === "figma" ? "デザイン（画面インベントリ・DESIGN.md）" : `デザイン（${toolDisp(t)}）`),
+      // DESIGN.md はもう同期しない（デザインハーネスの所有物になった）ので名前から外す
+      label: (t) => (t === "figma" ? "デザイン（画面インベントリ）" : `デザイン（${toolDisp(t)}）`),
       url: (t) => (t === "figma" ? figmaFileUrl() : undefined),
       // 設定UIが「どのファイルを外すか」を選ばせるのに要る（先頭1件のURLだけでは選べない）
       extra: () => { const files = figmaFileList(); return files ? { figmaFiles: files } : {}; },
