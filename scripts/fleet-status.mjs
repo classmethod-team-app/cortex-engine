@@ -609,6 +609,9 @@ function listInternalSources() {
       label: (t) => (t === "google-drive" ? "共有資料（Drive同期・Markdown変換）" : `共有資料（Markdown変換）（${toolDisp(t)}）`),
       // Drive自動同期の設定状態（未設定は driveSync:false でUIに正直に示す）
       extra: () => materialsExtras(),
+      // 未使用（tools が none）のときも、設定UIが「追加フォームを出せるか」を判断するために要る。
+      // 実績値は載せず、設定ファイルの有無を表す driveState だけを渡す。
+      setupExtra: () => ({ driveState: materialsExtras().driveState }),
       pipeline: "sync-materials" },
     { kind: "デザイン", def: "figma",
       // DESIGN.md はもう同期しない（デザインハーネスの所有物になった）ので名前から外す
@@ -630,8 +633,17 @@ function listInternalSources() {
       if (!tool) continue;
     } else if (!tool || tool === "none") {
       // 「アダプターとして何があるか」を常に全部見せる方針: none・未記載でも行は出し、
-      // enabled:false で未使用（非活性）を表現する（url/lastSync/matchKeys 等の詳細は付けない）。
-      out.push({ kind: d.kind, tool: "none", label: d.kind, enabled: false });
+      // enabled:false で未使用（非活性）を表現する（url/lastSync 等の実績値は付けない）。
+      //
+      // **ただし「後から設定できるかどうか」を判断する材料は付ける。** 設定UIは
+      // `driveState`（materials-config.json の有無）を見て追加フォームを出すかどうかを決めている。
+      // ここで落とすと、**未使用の案件は共有資料を後から設定できない**（フォームが出ない）。
+      // 実際にそうなった——「後からセットしようとしたのにセットできない」。
+      //
+      // 実績値（lastSync・matchKeys）とは性質が違う。あちらは「動いた結果」なので未使用なら無いのが正しいが、
+      // こちらは「設定ファイルが置かれているか」という静的な事実で、使っているかどうかとは独立している。
+      const setupState = d.setupExtra ? d.setupExtra() : {};
+      out.push({ kind: d.kind, tool: "none", label: d.kind, enabled: false, ...setupState });
       continue;
     }
     // 有効エントリは enabled を付けない（省略＝true扱い）
