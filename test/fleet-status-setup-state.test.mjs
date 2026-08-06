@@ -9,7 +9,7 @@
  *   `{ kind, tool:"none", enabled:false }` だけを出して **extra を丸ごと飛ばしていた**ので、
  *   `driveState` が無く、フォームが出ない＝**未使用の案件は永久に設定できない**状態だった。
  *
- * **実績値と設定状態は性質が違う。** `lastSync`・`matchKeys` は「動いた結果」なので未使用なら
+ * **実績値と設定状態は性質が違う。** `lastSync`・`meetingKey` は「動いた結果」なので未使用なら
  * 無いのが正しい。`driveState` は「設定ファイルが置かれているか」という静的な事実で、
  * 使っているかどうかとは独立している。
  */
@@ -70,7 +70,7 @@ test("[異常系] 未使用の能力に実績値まで載せない", () => {
     assert.equal(s.enabled, false);
     assert.equal(s.lastSync, undefined, `${kind} に lastSync が載っている`);
     assert.equal(s.url, undefined, `${kind} に url が載っている`);
-    assert.equal(s.matchKeys, undefined, `${kind} に matchKeys が載っている`);
+    assert.equal(s.meetingKey, undefined, `${kind} に meetingKey が載っている`);
   }
 });
 

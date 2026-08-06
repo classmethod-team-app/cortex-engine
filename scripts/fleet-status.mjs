@@ -491,11 +491,6 @@ function findConfigPath(marker) {
   } catch {}
   return null;
 }
-/** Home.md frontmatter の client 名（会議照合の既定キー）。未記入・空は "" */
-const clientName = (() => {
-  const m = home && home.match(/^client:\s*["']?([^"'\n#]*?)["']?\s*(?:#.*)?$/m);
-  return m ? m[1].trim() : "";
-})();
 /**
  * 会議の取り込み状態。
  *
@@ -512,20 +507,58 @@ function meetingIngestState() {
   } catch { return "broken"; }
 }
 /**
- * 会議の照合キー: client名 ＋ ingest-config.json の meetingNamePatterns（未設置・壊れは undefined）。
+ * 会議名に入れる合図（`ingest-config.json` の `meetingKey`）。未宣言・未設置・壊れは undefined。
  *
- * **`enabled` で出し分けない。** 照合キーは設定そのものの性質で、ON/OFFとは別の情報。
- * 画面は「どんな会議名なら取り込まれるか」を常に示す必要がある——招待しても名前が合わなければ
- * 届かないので、これは招待の判断に要る材料。ON/OFFは `ingestState` が別に伝える。
+ * **`enabled` で出し分けない。** 合図は設定そのものの性質で、ON/OFFとは別の情報。
+ * ここは事実を出す層で、見せるかどうかは読み手が決める（ビューアは自動取り込みが
+ * 動いている案件でだけ目印を出す——Teams等で手動運用している案件に会議名の条件を
+ * 見せると、自動で拾われると誤解させるため）。ON/OFFは `ingestState` が別に伝える。
+ *
+ * **未宣言のときは何も返さない。** 既定の合図は艦隊レジストリのキーで、案件リポはそれを知らない
+ * （ここで推測して間違った合図を出すと、そのとおり改名した会議が丸ごと未仕分けへ落ちる）。
+ * 画面側は投入設定から艦隊キーを補う。
  */
-function meetingMatchKeys() {
+function meetingSignal() {
   const p = findConfigPath("ingest-config.json");
   if (!p) return undefined;
   try {
     const cfg = JSON.parse(readText(p) || "");
-    const keys = [clientName, ...(cfg.meetingNamePatterns || [])]
-      .map((s) => String(s).trim()).filter((s) => s && !/\{\{/.test(s));
-    return keys.length ? [...new Set(keys)] : undefined;
+    if (typeof cfg.meetingKey !== "string") return undefined;
+    const v = cfg.meetingKey.trim();
+    // **囲みの括弧を、剥がせなくなるまで剥がす。** 手順書も画面も合図を 【kc】 [kc] と
+    // 括弧付きで見せているので設定ファイルにもそのまま書かれる。1回だけだと 【［kc］】 は
+    // 剥がれるのに ［［kc］］ は残る、という説明できない差が出る（日本語IMEで [ を打つと
+    // 全角の ［ になるので取り合わせは実際に起きる）。振り分け側（Projects.gs の
+    // normalizeMeetingKey_）と同じ規則。
+    let k = v;
+    for (let i = 0; i < 5; i++) {
+      const once = k
+        .replace(/^\[([\s\S]+)\]$/, "$1")
+        .replace(/^\u3010([\s\S]+)\u3011$/, "$1")
+        .replace(/^\uFF3B([\s\S]+)\uFF3D$/, "$1")
+        .replace(/^\u3014([\s\S]+)\u3015$/, "$1")
+        .replace(/^\uFF08([\s\S]+)\uFF09$/, "$1")
+        .replace(/^\(([\s\S]+)\)$/, "$1")
+        .trim();
+      if (once === k) break;
+      k = once;
+    }
+    // **開きと閉じが対応していない値を知らせる。** `［kc]`（全角開き＋半角閉じ）は
+    // 日本語IMEの取りこぼしで実際に起きる。剥がされないので `［kc]` がそのまま目印になり、
+    // **`kc` のつもりで `【kc】` と改名した会議は当たらない**。値は通す（画面に出るものを
+    // コピーすれば届く）が、書き間違いであることは知らせる。**ここは案件自身の Actions で
+    // 動く**ので、中央 Apps Script の実行ログより本人に近い。
+    if (k === v && /^[[\u3010\uFF3B\u3014\uFF08(]/.test(v) && /[\]\u3011\uFF3D\u3015\uFF09)]$/.test(v)) {
+      console.log(`::warning::会議/ingest-config.json の meetingKey の括弧が対応していません（${v}）。合図は中身だけを書いてください`);
+    }
+    // **見えない文字は剥がした後に見る。** ゼロ幅スペース等が混じった合図は画面で kc と
+    // 同じに見え、画面を見て打ち直した人（コピペしなかった人）の会議だけが当たらない
+    if (/[\u0000-\u001F\u007F\u00AD\u200B-\u200F\u2028\u2029\u2060\uFEFF]/.test(k)) return undefined;
+    // 途中にある括弧は弾かない（Router は 【値】 を探すので `kc(2026)` は当たる）。
+    // 弾くのは剥がしきれず括弧だけになったものと、会議名に打てないもの。
+    // 長さの上限（64）は振り分け側（Projects.gs の MAX_MEETING_KEY_LENGTH）と揃える
+    if (!k || k.length > 64 || /^[[\]\u3010\u3011\uFF3B\uFF3D\u3014\u3015\uFF08\uFF09()]+$/.test(k) || /\s/.test(k) || k.includes("{{")) return undefined;
+    return k;
   } catch { return undefined; }
 }
 /**
@@ -602,8 +635,8 @@ function listInternalSources() {
       url: (t) => (t === "backlog" ? backlogProjectUrl() : undefined), pipeline: "sync-backlog" },
     { kind: "会議", def: "google-meet",
       label: (t) => (t === "google-meet" ? "会議の文字起こし・議事録" : `会議の文字起こし・議事録（${toolDisp(t)}）`),
-      // 取り込み対象の会議名の照合キー（ビューアが「この語が会議名に入れば取り込まれる」を表示）
-      extra: () => { const keys = meetingMatchKeys(); return { ingestState: meetingIngestState(), ...(keys ? { matchKeys: keys } : {}) }; },
+      // 会議名に入れる合図（ビューアが「【合図】 を会議名に入れると取り込まれる」を表示）
+      extra: () => { const k = meetingSignal(); return { ingestState: meetingIngestState(), ...(k ? { meetingKey: k } : {}) }; },
       pipeline: "ingest-minutes" },
     { kind: "共有資料", def: "google-drive",
       label: (t) => (t === "google-drive" ? "共有資料（Drive同期・Markdown変換）" : `共有資料（Markdown変換）（${toolDisp(t)}）`),
@@ -640,7 +673,7 @@ function listInternalSources() {
       // ここで落とすと、**未使用の案件は共有資料を後から設定できない**（フォームが出ない）。
       // 実際にそうなった——「後からセットしようとしたのにセットできない」。
       //
-      // 実績値（lastSync・matchKeys）とは性質が違う。あちらは「動いた結果」なので未使用なら無いのが正しいが、
+      // 実績値（lastSync・meetingKey）とは性質が違う。あちらは「動いた結果」なので未使用なら無いのが正しいが、
       // こちらは「設定ファイルが置かれているか」という静的な事実で、使っているかどうかとは独立している。
       const setupState = d.setupExtra ? d.setupExtra() : {};
       out.push({ kind: d.kind, tool: "none", label: d.kind, enabled: false, ...setupState });

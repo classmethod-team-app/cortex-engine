@@ -4,7 +4,7 @@
  * なぜ必要か:
  *   設定UIから ON/OFF を押せるようにする以上、画面が現在値を出せないと
  *   「押したのに変わらない」と読まれる。そして以前の実装は
- *     - 会議: 「OFF」「設定ファイルなし」「照合キーが空」がすべて同じ undefined
+ *     - 会議: 「OFF」「設定ファイルなし」「合図が空」がすべて同じ undefined
  *     - 資料: 「OFF」「設定ファイルなし」「フォルダ未登録」がすべて `driveSync: false`
  *   に潰れていた。`goldState` を三値にしたときと同じ問題（区別できないと
  *   正常なOFFにも警告が出て、警告そのものが無視されるようになる）。
@@ -52,7 +52,7 @@ function run(files) {
   };
 }
 
-const INGEST = (enabled) => JSON.stringify({ enabled, meetingNamePatterns: ["KC"] });
+const INGEST = (enabled, meetingKey) => JSON.stringify({ enabled, ...(meetingKey ? { meetingKey } : {}) });
 const MATERIALS = (enabled, ids) => JSON.stringify({ enabled, driveFolderIds: ids });
 
 test("[会議] ON / OFF / 未設置 / 壊れている を区別する", () => {
@@ -91,16 +91,89 @@ test("[資料] 設定ファイルの置き場が案件で違っても読める",
   assert.equal(r.materials.driveState, "on");
 });
 
-test("[会議] 照合キーは ON/OFF に関わらず出す", () => {
+test("[会議] 合図は ON/OFF に関わらず出す", () => {
   // **画面は「どんな会議名なら取り込まれるか」を常に示す必要がある。**
   // 取り込みの可否は「Botを会議に招待したか」で決まる（Router.gs の設計）。
-  // 招待しても名前が合わなければ届かないので、照合キーは招待の判断に要る材料。
-  // ON/OFF は ingestState が別に伝えるので、キーをそれで出し分けると情報が消えるだけ。
-  assert.ok(run({ "会議/ingest-config.json": INGEST(true) }).meeting.matchKeys?.includes("KC"));
-  assert.ok(run({ "会議/ingest-config.json": INGEST(false) }).meeting.matchKeys?.includes("KC"));
+  // 招待しても名前が合わなければ届かないので、合図は招待の判断に要る材料。
+  // ON/OFF は ingestState が別に伝えるので、合図をそれで出し分けると情報が消えるだけ。
+  assert.equal(run({ "会議/ingest-config.json": INGEST(true, "kc") }).meeting.meetingKey, "kc");
+  assert.equal(run({ "会議/ingest-config.json": INGEST(false, "kc") }).meeting.meetingKey, "kc");
   // 設置されていなければ出しようがない
-  assert.equal(run({}).meeting.matchKeys, undefined);
-  assert.equal(run({ "会議/ingest-config.json": "{ 壊れ" }).meeting.matchKeys, undefined);
+  assert.equal(run({}).meeting.meetingKey, undefined);
+  assert.equal(run({ "会議/ingest-config.json": "{ 壊れ" }).meeting.meetingKey, undefined);
+});
+
+test("[会議] 宣言が無ければ合図を出さない（推測しない）", () => {
+  // **既定の合図は艦隊レジストリのキーで、案件リポはそれを知らない。**
+  // ここで案件名やclientから推測して出すと、そのとおり改名した会議が丸ごと未仕分けへ落ちる。
+  // 艦隊キーは投入設定を持つ画面側が補う。
+  assert.equal(run({ "会議/ingest-config.json": INGEST(true) }).meeting.meetingKey, undefined);
+  assert.equal(run({ "会議/ingest-config.json": INGEST(true, "   ") }).meeting.meetingKey, undefined);
+  // scaffold の未置換プレースホルダをそのまま合図として出さない
+  assert.equal(run({ "会議/ingest-config.json": INGEST(true, "{{案件キー}}") }).meeting.meetingKey, undefined);
+});
+
+test("[会議] 廃止した meetingNamePatterns を合図として出さない", () => {
+  // 照合から外れて久しいが、古い案件リポのファイルには残っている。
+  // 出すと「この語を会議名に入れれば拾われる」と読めてしまう（実際には拾われない）
+  const r = run({ "会議/ingest-config.json": JSON.stringify({ enabled: true, meetingNamePatterns: ["ハーネス定例"] }) });
+  assert.equal(r.meeting.meetingKey, undefined);
+  assert.equal(r.meeting.matchKeys, undefined, "廃止したフィールドを載せている");
+});
+
+test("[会議] 宣言された合図の扱いを、振り分け側と同じ表で固定する", () => {
+  // **この規則は cortex-tools/apps-script/src/Projects.gs の normalizeMeetingKey_ と
+  // 同じでなければならない。** 画面が出す目印と、実際に照合される値が食い違うと、
+  // 画面のとおり会議を改名した人の文字起こしが丸ごと未仕分けへ落ちる。
+  // 言語もリポも違うので共有できない——同じ表を両側に置いて突き合わせる。
+  const table = [
+    ["kc", "kc", "そのまま"],
+    ["  kc  ", "kc", "前後の空白は落とす"],
+    ["[kc]", "kc", "括弧付きで書かれたら剥がす（手順書が括弧付きで例示しているので起きる）"],
+    ["【kc】", "kc", "全角も同じ"],
+    ["", undefined, "空は宣言なし扱い"],
+    ["   ", undefined, "空白のみも同じ"],
+    ["[[kc]]", "kc", "剥がせなくなるまで剥がす"],
+    ["a b", undefined, "空白が混じると会議名に打ちにくく、当たらない事故になる"],
+    ["{{案件キー}}", undefined, "scaffold の未置換プレースホルダ"],
+    ["  [kc]  ", "kc", "空白と括弧の組み合わせ（手で書けば普通に起きる。trim を落とすと剥がれなくなる）"],
+    ["\uFF3Bkc\uFF3D", "kc", "全角ブラケット（日本語IMEで [ を打つとこれになる）"],
+    ["\u3014kc\u3015", "kc", "亀甲括弧"],
+    ["\uFF08kc\uFF09", "kc", "全角丸括弧"],
+    ["(kc)", "kc", "半角丸括弧。ここが片側から消えると、画面は 【(kc)】 を出すのに Router は 【kc】 を探す"],
+    ["kc\u200B", undefined, "ゼロ幅スペース。画面では kc と同じに見え、打ち直した人だけ当たらない"],
+    ["kc\u00AD", undefined, "ソフトハイフン"],
+    ["kc\u0000", undefined, "制御文字"],
+    ["kc\u007F", undefined, "DEL。表示されないので画面では kc と見分けが付かない"],
+    ["kc\u2060", undefined, "word joiner。同上"],
+    ["\uFF3B\uFF3D", undefined, "全角ブラケットだけ（剥がす分岐はあるのに拒否が無防備だった）"],
+    ["\u3014\u3015", undefined, "亀甲だけ"],
+    ["\uFF08\uFF09", undefined, "全角丸だけ"],
+    ["()", undefined, "半角丸だけ"],
+    ["[ kc ]", "kc", "括弧の内側の空白（手で書けば普通に起きる。剥がした後の trim を落とすと拒否になる）"],
+    ["\u3010 kc \u3011", "kc", "全角でも同じ"],
+    ["\uFF3B\uFF3Bkc\uFF3D\uFF3D", "kc", "同種の入れ子も剥がせるだけ剥がす"],
+    ["kc(2026)", "kc(2026)", "**途中**にある括弧は弾かない。Router は 【kc(2026)】 を探すので当たる（実測）"],
+    ["[]", undefined, "括弧だけになるものは合図にならない"],
+    ["[[[[[[kc]]]]]]", "[kc]", "剥がしは5回まで。**両リポで同じ回数にすること**（片側だけ変えると振り分けと画面が食い違う）"],
+    ["[\tkc\t]", "kc", "括弧の内側の制御文字は剥がしの trim で落ちる（＝見えない文字の検査は剥がした後）"],
+    ["[kc\u3011", "[kc\u3011", "開きと閉じが対応していないものは剥がさず、途中の括弧として通す（警告は出す）"],
+    ["()", undefined, "丸括弧だけになるものも合図にならない"],
+    ["x".repeat(64), "x".repeat(64), "上限ちょうどは通す"],
+    ["x".repeat(65), undefined, "長すぎる値は cache.put の100KB上限を超えうるので落とす"],
+  ];
+  for (const [raw, want, why] of table) {
+    const got = run({ "会議/ingest-config.json": JSON.stringify({ enabled: true, meetingKey: raw }) }).meeting.meetingKey;
+    assert.equal(got, want, `${JSON.stringify(raw)} → ${JSON.stringify(got)}（期待 ${JSON.stringify(want)}）: ${why}`);
+  }
+});
+
+test("[会議] 文字列でない合図で落ちない", () => {
+  for (const bad of [123, true, ["kc"], { a: 1 }, null]) {
+    const r = run({ "会議/ingest-config.json": JSON.stringify({ enabled: true, meetingKey: bad }) });
+    assert.equal(r.meeting.meetingKey, undefined, `${JSON.stringify(bad)} を通している`);
+    assert.equal(r.meeting.ingestState, "on", "他の情報まで巻き添えで落ちている");
+  }
 });
 
 test("[異常系] 同名の設定ファイルが複数あることを検知する", () => {
