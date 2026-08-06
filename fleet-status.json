@@ -1,0 +1,208 @@
+{
+  "generatedAt": "2026-08-06T00:48:33.175Z",
+  "repository": "classmethod-team-app/cortex-engine",
+  "project": "classmethod-team-app/cortex-engine",
+  "engine": {
+    "migrated": true,
+    "version": null,
+    "channel": null,
+    "schemaVersion": null,
+    "scaffoldDrift": []
+  },
+  "score": 33,
+  "checks": [
+    {
+      "id": "placeholders",
+      "label": "プレースホルダ展開",
+      "category": "基盤",
+      "status": "unknown",
+      "weight": 1
+    },
+    {
+      "id": "home_card",
+      "label": "Home識別カード",
+      "category": "基盤",
+      "status": "missing",
+      "weight": 1,
+      "action": "Cortex/Home.md の kind/lifecycle/client/tools を記入"
+    },
+    {
+      "id": "overview_filled",
+      "label": "overview記入",
+      "category": "基盤",
+      "status": "missing",
+      "weight": 1
+    },
+    {
+      "id": "readme_project",
+      "label": "README案件化",
+      "category": "基盤",
+      "status": "ok",
+      "weight": 1
+    },
+    {
+      "id": "engine_migrated",
+      "label": "エンジン分離 移行",
+      "category": "基盤",
+      "status": "ok",
+      "weight": 1
+    },
+    {
+      "id": "scaffold_drift",
+      "label": "エンジン所有ファイルの追随",
+      "category": "基盤",
+      "status": "ok",
+      "weight": 1,
+      "detail": "乖離なし"
+    },
+    {
+      "id": "engine_token",
+      "label": "ENGINE_REPO_TOKEN",
+      "category": "シークレット",
+      "status": "unknown",
+      "weight": 1
+    },
+    {
+      "id": "role_secret",
+      "label": "AWS_ROLE_TO_ASSUME",
+      "category": "シークレット",
+      "status": "unknown",
+      "weight": 1
+    },
+    {
+      "id": "config_duplicates",
+      "label": "設定ファイルの重複",
+      "category": "Cortex",
+      "status": "ok",
+      "weight": 1
+    },
+    {
+      "id": "decisions_content",
+      "label": "Cortex/Decisions 実データ",
+      "category": "Cortex",
+      "status": "missing",
+      "weight": 1,
+      "detail": "0件"
+    },
+    {
+      "id": "nightly_decisionlog",
+      "label": "夜間 Gold昇格 run",
+      "category": "自動化",
+      "status": "missing",
+      "weight": 1,
+      "detail": "none"
+    },
+    {
+      "id": "backlog_secrets",
+      "label": "BACKLOG_* シークレット",
+      "category": "課題管理",
+      "status": "unknown",
+      "weight": 1
+    },
+    {
+      "id": "backlog_synced",
+      "label": "課題管理 同期データ",
+      "category": "課題管理",
+      "status": "missing",
+      "weight": 1,
+      "detail": "0件",
+      "action": "sync-backlog を workflow_dispatch で実行（初回全量同期）"
+    },
+    {
+      "id": "nightly_backlog",
+      "label": "夜間 Backlog同期 run",
+      "category": "自動化",
+      "status": "missing",
+      "weight": 1,
+      "detail": "none"
+    },
+    {
+      "id": "channels_json",
+      "label": "channels.json 充足",
+      "category": "チャット",
+      "status": "missing",
+      "weight": 1,
+      "action": "チャット/channels.json に実チャンネルを登録"
+    },
+    {
+      "id": "submodules",
+      "label": "開発 submodule 構成",
+      "category": "開発",
+      "status": "na",
+      "weight": 1
+    },
+    {
+      "id": "dev_issues_derived",
+      "label": "開発 Issues の導出",
+      "category": "開発",
+      "status": "na",
+      "weight": 1,
+      "detail": "0件"
+    },
+    {
+      "id": "meeting_minutes",
+      "label": "議事録(Meet自動取得) ※暫定",
+      "category": "会議",
+      "status": "missing",
+      "weight": 1,
+      "action": "Google Meet/Drive 連携を設定し文字起こしの自動取り込みを有効化する"
+    },
+    {
+      "id": "figma_token",
+      "label": "FIGMA_TOKEN",
+      "category": "デザイン",
+      "status": "na",
+      "weight": 1
+    },
+    {
+      "id": "figma_inventory",
+      "label": "デザインinventory 同期",
+      "category": "デザイン",
+      "status": "na",
+      "weight": 1,
+      "detail": "0件"
+    },
+    {
+      "id": "figma_sync",
+      "label": "夜間 デザイン同期 run",
+      "category": "デザイン",
+      "status": "na",
+      "weight": 1,
+      "detail": "none"
+    }
+  ],
+  "nextActions": [
+    "Cortex/Home.md の kind/lifecycle/client/tools を記入",
+    "sync-backlog を workflow_dispatch で実行（初回全量同期）",
+    "チャット/channels.json に実チャンネルを登録",
+    "Google Meet/Drive 連携を設定し文字起こしの自動取り込みを有効化する"
+  ],
+  "externalSources": [],
+  "internalSources": [
+    {
+      "kind": "課題管理",
+      "tool": "backlog",
+      "label": "Backlog 課題・ドキュメント（同期ミラー）"
+    },
+    {
+      "kind": "会議",
+      "tool": "google-meet",
+      "label": "会議の文字起こし・議事録",
+      "ingestState": "unset"
+    },
+    {
+      "kind": "共有資料",
+      "tool": "google-drive",
+      "label": "共有資料（Drive同期・Markdown変換）",
+      "driveSync": false,
+      "driveState": "unset",
+      "driveFolderCount": 0
+    }
+  ],
+  "pipelines": [],
+  "secretSources": {
+    "figma": "",
+    "backlog": "",
+    "external-sources": ""
+  }
+}
