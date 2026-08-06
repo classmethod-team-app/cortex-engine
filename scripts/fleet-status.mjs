@@ -510,8 +510,9 @@ function meetingIngestState() {
  * 会議名に入れる合図（`ingest-config.json` の `meetingKey`）。未宣言・未設置・壊れは undefined。
  *
  * **`enabled` で出し分けない。** 合図は設定そのものの性質で、ON/OFFとは別の情報。
- * 画面は「どんな会議名なら取り込まれるか」を常に示す必要がある——招待しても名前が合わなければ
- * 届かないので、これは招待の判断に要る材料。ON/OFFは `ingestState` が別に伝える。
+ * ここは事実を出す層で、見せるかどうかは読み手が決める（ビューアは自動取り込みが
+ * 動いている案件でだけ目印を出す——Teams等で手動運用している案件に会議名の条件を
+ * 見せると、自動で拾われると誤解させるため）。ON/OFFは `ingestState` が別に伝える。
  *
  * **未宣言のときは何も返さない。** 既定の合図は艦隊レジストリのキーで、案件リポはそれを知らない
  * （ここで推測して間違った合図を出すと、そのとおり改名した会議が丸ごと未仕分けへ落ちる）。
@@ -528,10 +529,24 @@ function meetingSignal() {
     // 設定ファイルにも `"meetingKey": "[kc]"` と書かれる。振り分け側（Projects.gs の
     // normalizeMeetingKey_）は剥がして `kc` として扱うので、**画面もそちらに合わせる**。
     // 剥がさないと「【[kc]】 を会議名に入れてください」と出て、そのとおり書くと当たらない。
-    const k = v.replace(/^\[([\s\S]+)\]$/, "$1").replace(/^【([\s\S]+)】$/, "$1").trim();
+    // **見えない文字を弾く。** ゼロ幅スペース等が混じった合図は画面で `kc` と同じに見え、
+    // 画面を見て打ち直した人（コピペしなかった人）の会議だけが当たらない。
+    // 振り分け側（Projects.gs の normalizeMeetingKey_）も同じ規則で艦隊キーへ落とす
+    if (/[\u0000-\u001F\u007F\u00AD\u200B-\u200F\u2028\u2029\u2060\uFEFF]/.test(v)) return undefined;
+    // 括弧は半角・全角の両方を剥がす（日本語IMEで `[` を打つと全角の `\uFF3B` になる）
+    const k = v
+      .replace(/^\[([\s\S]+)\]$/, "$1")
+      .replace(/^\u3010([\s\S]+)\u3011$/, "$1")
+      .replace(/^\uFF3B([\s\S]+)\uFF3D$/, "$1")
+      .replace(/^\u3014([\s\S]+)\u3015$/, "$1")
+      .replace(/^\uFF08([\s\S]+)\uFF09$/, "$1")
+      .replace(/^\(([\s\S]+)\)$/, "$1")
+      .trim();
     // 剥がしても使えないもの（括弧が残る・空白が混じる・未置換のプレースホルダ）は出さない。
     // 出すと「そのとおり改名しても当たらない目印」を画面に出すことになる
-    if (!k || /[[\]【】\s]/.test(k) || k.includes("{{")) return undefined;
+    // 長さの上限は振り分け側（Projects.gs の MAX_MEETING_KEY_LENGTH）と揃える。
+    // あちらは超過分を艦隊キーへ落とすので、こちらも目印として出さない
+    if (!k || k.length > 64 || /[[\]\u3010\u3011\uFF3B\uFF3D\u3014\u3015\uFF08\uFF09()\s]/.test(k) || k.includes("{{")) return undefined;
     return k;
   } catch { return undefined; }
 }

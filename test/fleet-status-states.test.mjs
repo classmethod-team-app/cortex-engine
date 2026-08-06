@@ -137,6 +137,17 @@ test("[会議] 宣言された合図の扱いを、振り分け側と同じ表�
     ["[[kc]]", undefined, "剥がしても括弧が残る"],
     ["a b", undefined, "空白が混じると会議名に打ちにくく、当たらない事故になる"],
     ["{{案件キー}}", undefined, "scaffold の未置換プレースホルダ"],
+    ["  [kc]  ", "kc", "空白と括弧の組み合わせ（手で書けば普通に起きる。trim を落とすと剥がれなくなる）"],
+    ["\uFF3Bkc\uFF3D", "kc", "全角ブラケット（日本語IMEで [ を打つとこれになる）"],
+    ["\u3014kc\u3015", "kc", "亀甲括弧"],
+    ["\uFF08kc\uFF09", "kc", "全角丸括弧"],
+    ["kc\u200B", undefined, "ゼロ幅スペース。画面では kc と同じに見え、打ち直した人だけ当たらない"],
+    ["kc\u00AD", undefined, "ソフトハイフン"],
+    ["kc\u0000", undefined, "制御文字"],
+    ["\uFF3B\uFF3Bkc\uFF3D\uFF3D", undefined, "剥がしても全角括弧が残るものは使えない（半角と同じ扱い）"],
+    ["\u3010\uFF3Bkc\uFF3D\u3011", "kc", "種類の違う入れ子は2層とも剥がれる（意図は明らかに kc）"],
+    ["x".repeat(64), "x".repeat(64), "上限ちょうどは通す"],
+    ["x".repeat(65), undefined, "長すぎる値は振り分け側が艦隊キーへ落とすので、目印としても出さない"],
   ];
   for (const [raw, want, why] of table) {
     const got = run({ "会議/ingest-config.json": JSON.stringify({ enabled: true, meetingKey: raw }) }).meeting.meetingKey;
