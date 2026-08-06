@@ -44,7 +44,17 @@ async function exists(p) {
 }
 
 export async function run(repoRoot) {
-  const dest = path.join(repoRoot, "Cortex", "メンバー");
+  const cortex = path.join(repoRoot, "Cortex");
+  const dest = path.join(cortex, "メンバー");
   if (await exists(dest)) return; // 既にあれば何もしない
+
+  // **英語名（0010 適用後の形）が既にあるなら作らない。**
+  // scaffold は現在 `Cortex/Members/` を同梱している。新規リポは schema 0 から全マイグレーションを
+  // 順に適用するので、ここで `メンバー/` を作ると 0010 のリネームが「両方ある」で警告スキップし、
+  // **空の `メンバー/` が残ってビューアにメンバータブが2つ出る**（実際に発生）。
+  // このマイグレーションの目的は「名簿の区画をGold層に用意すること」なので、
+  // 別名で既に用意されているなら何もしないのが正しい。
+  if (await exists(path.join(cortex, "Members"))) return;
+
   await fs.cp(SCAFFOLD_SRC, dest, { recursive: true });
 }
