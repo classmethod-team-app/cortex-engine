@@ -12,7 +12,9 @@
 2. **招待に `cortex-notetaker` の bot を追加する**（定例はシリーズに1回。招待されていれば bot の参加は不要）
 
 - 取り込むか否かは「bot を招待したか」で決まります。**社内だけの会議には bot を招待しない**でください（このリポジトリは顧客に見える前提）
-- どの案件リポへ入るかの判定は ①案件キー → ②`Cortex/Home.md` の client 名 → ③`ingest-config.json` の `meetingNamePatterns` の優先順。①②が会議名に入らない場合のみ③に**固有の会議名**を足します（「定例」のような汎用語は他案件を引き込むため入れない）
+- どの案件リポへ入るかは、**会議名に `[合図]` または `【合図】` が入っているか**だけで決まります（半角・全角どちらでも可・大小文字は問わない）。合図は既定で艦隊レジストリのキー。長くて打ちにくい案件だけ `ingest-config.json` の `meetingKey` に短い合図を書きます
+  - **括弧の中身は合図そのもの。** `【KC定例】` のように他の文字が混ざると当たりません
+  - **記号まで一致させます。** `_` と `-` は別物です
 - この案件で自動取り込みを使うかは `ingest-config.json` の `enabled` で宣言します（`/setup-project` ステップ12）
 
 ## 議事録の手動生成
@@ -36,7 +38,7 @@
 │       └── {元ファイル}.txt     # 文字起こし原本
 ├── templates/                   # 議事録テンプレート
 │   └── minute-template.md
-├── ingest-config.json           # 自動取り込みのルーティング設定（enabled / meetingNamePatterns）
+├── ingest-config.json           # 自動取り込みの設定（enabled / transcriptDir / 任意の meetingKey）
 └── README.md                    # このファイル
 ```
 

@@ -52,7 +52,7 @@ function run(files) {
   };
 }
 
-const INGEST = (enabled) => JSON.stringify({ enabled, meetingNamePatterns: ["KC"] });
+const INGEST = (enabled, meetingKey) => JSON.stringify({ enabled, ...(meetingKey ? { meetingKey } : {}) });
 const MATERIALS = (enabled, ids) => JSON.stringify({ enabled, driveFolderIds: ids });
 
 test("[会議] ON / OFF / 未設置 / 壊れている を区別する", () => {
@@ -91,16 +91,34 @@ test("[資料] 設定ファイルの置き場が案件で違っても読める",
   assert.equal(r.materials.driveState, "on");
 });
 
-test("[会議] 照合キーは ON/OFF に関わらず出す", () => {
+test("[会議] 合図は ON/OFF に関わらず出す", () => {
   // **画面は「どんな会議名なら取り込まれるか」を常に示す必要がある。**
   // 取り込みの可否は「Botを会議に招待したか」で決まる（Router.gs の設計）。
-  // 招待しても名前が合わなければ届かないので、照合キーは招待の判断に要る材料。
-  // ON/OFF は ingestState が別に伝えるので、キーをそれで出し分けると情報が消えるだけ。
-  assert.ok(run({ "会議/ingest-config.json": INGEST(true) }).meeting.matchKeys?.includes("KC"));
-  assert.ok(run({ "会議/ingest-config.json": INGEST(false) }).meeting.matchKeys?.includes("KC"));
+  // 招待しても名前が合わなければ届かないので、合図は招待の判断に要る材料。
+  // ON/OFF は ingestState が別に伝えるので、合図をそれで出し分けると情報が消えるだけ。
+  assert.equal(run({ "会議/ingest-config.json": INGEST(true, "kc") }).meeting.meetingKey, "kc");
+  assert.equal(run({ "会議/ingest-config.json": INGEST(false, "kc") }).meeting.meetingKey, "kc");
   // 設置されていなければ出しようがない
-  assert.equal(run({}).meeting.matchKeys, undefined);
-  assert.equal(run({ "会議/ingest-config.json": "{ 壊れ" }).meeting.matchKeys, undefined);
+  assert.equal(run({}).meeting.meetingKey, undefined);
+  assert.equal(run({ "会議/ingest-config.json": "{ 壊れ" }).meeting.meetingKey, undefined);
+});
+
+test("[会議] 宣言が無ければ合図を出さない（推測しない）", () => {
+  // **既定の合図は艦隊レジストリのキーで、案件リポはそれを知らない。**
+  // ここで案件名やclientから推測して出すと、そのとおり改名した会議が丸ごと未仕分けへ落ちる。
+  // 艦隊キーは投入設定を持つ画面側が補う。
+  assert.equal(run({ "会議/ingest-config.json": INGEST(true) }).meeting.meetingKey, undefined);
+  assert.equal(run({ "会議/ingest-config.json": INGEST(true, "   ") }).meeting.meetingKey, undefined);
+  // scaffold の未置換プレースホルダをそのまま合図として出さない
+  assert.equal(run({ "会議/ingest-config.json": INGEST(true, "{{案件キー}}") }).meeting.meetingKey, undefined);
+});
+
+test("[会議] 廃止した meetingNamePatterns を合図として出さない", () => {
+  // 照合から外れて久しいが、古い案件リポのファイルには残っている。
+  // 出すと「この語を会議名に入れれば拾われる」と読めてしまう（実際には拾われない）
+  const r = run({ "会議/ingest-config.json": JSON.stringify({ enabled: true, meetingNamePatterns: ["ハーネス定例"] }) });
+  assert.equal(r.meeting.meetingKey, undefined);
+  assert.equal(r.meeting.matchKeys, undefined, "廃止したフィールドを載せている");
 });
 
 test("[異常系] 同名の設定ファイルが複数あることを検知する", () => {

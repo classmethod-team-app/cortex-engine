@@ -512,20 +512,23 @@ function meetingIngestState() {
   } catch { return "broken"; }
 }
 /**
- * 会議の照合キー: client名 ＋ ingest-config.json の meetingNamePatterns（未設置・壊れは undefined）。
+ * 会議名に入れる合図（`ingest-config.json` の `meetingKey`）。未宣言・未設置・壊れは undefined。
  *
- * **`enabled` で出し分けない。** 照合キーは設定そのものの性質で、ON/OFFとは別の情報。
+ * **`enabled` で出し分けない。** 合図は設定そのものの性質で、ON/OFFとは別の情報。
  * 画面は「どんな会議名なら取り込まれるか」を常に示す必要がある——招待しても名前が合わなければ
  * 届かないので、これは招待の判断に要る材料。ON/OFFは `ingestState` が別に伝える。
+ *
+ * **未宣言のときは何も返さない。** 既定の合図は艦隊レジストリのキーで、案件リポはそれを知らない
+ * （ここで推測して間違った合図を出すと、そのとおり改名した会議が丸ごと未仕分けへ落ちる）。
+ * 画面側は投入設定から艦隊キーを補う。
  */
-function meetingMatchKeys() {
+function meetingSignal() {
   const p = findConfigPath("ingest-config.json");
   if (!p) return undefined;
   try {
     const cfg = JSON.parse(readText(p) || "");
-    const keys = [clientName, ...(cfg.meetingNamePatterns || [])]
-      .map((s) => String(s).trim()).filter((s) => s && !/\{\{/.test(s));
-    return keys.length ? [...new Set(keys)] : undefined;
+    const k = typeof cfg.meetingKey === "string" ? cfg.meetingKey.trim() : "";
+    return k && !/\{\{/.test(k) ? k : undefined;
   } catch { return undefined; }
 }
 /**
@@ -603,7 +606,7 @@ function listInternalSources() {
     { kind: "会議", def: "google-meet",
       label: (t) => (t === "google-meet" ? "会議の文字起こし・議事録" : `会議の文字起こし・議事録（${toolDisp(t)}）`),
       // 取り込み対象の会議名の照合キー（ビューアが「この語が会議名に入れば取り込まれる」を表示）
-      extra: () => { const keys = meetingMatchKeys(); return { ingestState: meetingIngestState(), ...(keys ? { matchKeys: keys } : {}) }; },
+      extra: () => { const k = meetingSignal(); return { ingestState: meetingIngestState(), ...(k ? { meetingKey: k } : {}) }; },
       pipeline: "ingest-minutes" },
     { kind: "共有資料", def: "google-drive",
       label: (t) => (t === "google-drive" ? "共有資料（Drive同期・Markdown変換）" : `共有資料（Markdown変換）（${toolDisp(t)}）`),
@@ -640,7 +643,7 @@ function listInternalSources() {
       // ここで落とすと、**未使用の案件は共有資料を後から設定できない**（フォームが出ない）。
       // 実際にそうなった——「後からセットしようとしたのにセットできない」。
       //
-      // 実績値（lastSync・matchKeys）とは性質が違う。あちらは「動いた結果」なので未使用なら無いのが正しいが、
+      // 実績値（lastSync・meetingKey）とは性質が違う。あちらは「動いた結果」なので未使用なら無いのが正しいが、
       // こちらは「設定ファイルが置かれているか」という静的な事実で、使っているかどうかとは独立している。
       const setupState = d.setupExtra ? d.setupExtra() : {};
       out.push({ kind: d.kind, tool: "none", label: d.kind, enabled: false, ...setupState });
