@@ -30,7 +30,8 @@
 //     ならないようにする。「読みに行く」と「顧客が見るGoldに上げる」は重さの違う判断として分ける。
 //
 // 設計メモ:
-//   - tools ゲート: チャット:slack でなければ slack を導出しない・開発:github でなければ github を導出しない。
+//   - tools ゲート: 開発:github でなければ github を導出しない。**Slack には掛けない**
+//     （チャンネル単位の `gold: true` が本来のゲート。tools は1能力1値なので「会議Teams＋連絡Slack」を表せない）。
 //   - 導出できない項目（URL解釈不能・非github submodule等）は stderr に ::warning:: を出してその項目だけスキップし、
 //     全体は落とさない（external-sources.sh の「1ソース失敗は他を止めない」思想と同じ）。
 //   - dedupe は type+ref 単位。明示登録を優先し、そのオプション（decisions 等）を保持する。
@@ -235,11 +236,18 @@ function main() {
   const engine = readFrontmatterMap(home, "engine");
   const derived = [];
 
-  // ゲート: チャット:slack のときだけ slack を導出
-  if ((tools["チャット"] || "").toLowerCase() === "slack") {
-    for (const ch of deriveSlackChannels()) {
-      derived.push({ type: "slack", ref: ch.ref, name: ch.name, gold: ch.gold, notify: ch.notify, url: ch.url });
-    }
+  // **Slack は tools 宣言でゲートしない。** channels.json に書いてあること自体が
+  // 「このチャンネルを読みに行く」という意思表示で、Gold昇格は各チャンネルの `gold: true`
+  // という**別の明示宣言**が既にゲートになっている。tools を重ねると二重のゲートになる。
+  //
+  // しかも `tools.チャット` は能力ごとに1値しか持てないので、**「会議はTeams・連絡はSlack」
+  // という普通の構成を表せない**。実際にそういう案件があり、Slackを渡されているのに
+  // 設定UIから追加できず、追加しても読まれない状態になっていた（ゲートを排他だと誤解した実装）。
+  //
+  // 外しても今日読まれ始めるチャンネルは無い（艦隊実測: `gold: true` を持つのは
+  // cortex-context の9件だけで、そこは元から `チャット: slack`）。
+  for (const ch of deriveSlackChannels()) {
+    derived.push({ type: "slack", ref: ch.ref, name: ch.name, gold: ch.gold, notify: ch.notify, url: ch.url });
   }
   // ゲート: 開発:github のときだけ github-issues を導出（対象は dev_dir 配下のsubmodule）
   if ((tools["開発"] || "").toLowerCase() === "github") {
