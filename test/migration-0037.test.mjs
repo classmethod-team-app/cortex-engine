@@ -67,6 +67,13 @@ test("[正常系] 説明が無い案件にも書く", async () => {
   assert.match(read(root, "会議/ingest-config.json")._doc, /\[合図\]/);
 });
 
+test("[正常系] ルート直下に置かれていても見つける", async () => {
+  // 艦隊10案件はすべて深さ1にあるが、探索の候補から静かに落ちても気づけない
+  const root = repo({ "ingest-config.json": JSON.stringify({ _doc: OLD_DOC, enabled: true }) });
+  await apply(root);
+  assert.match(read(root, "ingest-config.json")._doc, /\[合図\]/);
+});
+
 test("[正常系] 設定が深い場所にあっても見つける", async () => {
   // **探索範囲は scripts/fleet-status.mjs の findConfigPath と揃える。**
   // ここだけ浅いと、画面が読んでいるファイルをこちらが直せない

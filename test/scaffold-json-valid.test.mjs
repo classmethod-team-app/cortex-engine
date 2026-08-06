@@ -25,10 +25,11 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 // `.mcp.json` と `.claude/settings.json` を取りこぼす（実測: 8件中5件しか見ていなかった）。
 // `.mcp.json` は「手で書いて全案件に配る JSON」——**まさに今回壊したのと同じ形**なので、
 // ここが抜けているとこのテストの目的を果たさない。`.json.example` も配布物なので含める。
-const files = readdirSync(path.join(ROOT, "plugin/scaffold"), { recursive: true })
-  .map(String)
-  .filter((f) => /\.json(\.example)?$/.test(f))
-  .map((f) => path.join("plugin/scaffold", f));
+// `withFileTypes` を付ける。付けないとディレクトリ名も返るので、`*.json` という名前の
+// ディレクトリがあればフィルタを通り、`EISDIR` という分かりにくい失敗になる
+const files = readdirSync(path.join(ROOT, "plugin/scaffold"), { recursive: true, withFileTypes: true })
+  .filter((d) => d.isFile() && /\.json(\.example)?$/.test(d.name))
+  .map((d) => path.relative(ROOT, path.join(d.parentPath ?? d.path, d.name)));
 
 test("[正常系] scaffold の JSON がすべて parse できる", () => {
   // **件数も見る。** 探索方法を変えて静かに対象が減ると、壊れても緑のままになる
