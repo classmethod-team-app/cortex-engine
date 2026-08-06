@@ -59,6 +59,22 @@ test("[正常系] ディレクトリ名が違う案件でも見つける", async
   assert.match(read(root, "MTG/ingest-config.json")._doc, /\[合図\]/);
 });
 
+test("[正常系] 説明が無い案件にも書く", async () => {
+  // 艦隊に1件、`_doc` ごと消えているものがある。旧文面より害は小さいが、
+  // このファイルを開いた人に手がかりが何も無い状態になる
+  const root = repo({ "会議/ingest-config.json": JSON.stringify({ enabled: true, transcriptDir: "会議" }) });
+  await apply(root);
+  assert.match(read(root, "会議/ingest-config.json")._doc, /\[合図\]/);
+});
+
+test("[正常系] 設定が深い場所にあっても見つける", async () => {
+  // **探索範囲は scripts/fleet-status.mjs の findConfigPath と揃える。**
+  // ここだけ浅いと、画面が読んでいるファイルをこちらが直せない
+  const root = repo({ "a/b/ingest-config.json": JSON.stringify({ _doc: OLD_DOC, enabled: true }) });
+  await apply(root);
+  assert.match(read(root, "a/b/ingest-config.json")._doc, /\[合図\]/);
+});
+
 test("[異常系] 既に新文面なら何もしない", async () => {
   // 再実行やscaffold直後に無駄な差分を出さない（マイグレーションのログも汚れる）
   const body = JSON.stringify({ _doc: "判定は**会議名に [合図] または 【合図】 が入っているか**だけを見る", enabled: false }, null, 2);

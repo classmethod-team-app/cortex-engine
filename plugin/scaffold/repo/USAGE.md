@@ -35,7 +35,7 @@ claude plugin install cortex@cortex-engine
 | --- | --- |
 | この案件に新しく参加した（環境準備＋理解） | 手元で cortex プラグインを入れる（上記2行・マシンごとに1回）。理解は `USAGE.md`・AIS Viewer の「はじめに」チュートリアル・`/catch-up-recent-status` から |
 | MCP（Backlog・Slack・Figma）を繋ぎたい | Backlog はこのリポの `.mcp.json` 同梱（**全環境で効く**。各自の `BACKLOG_API_KEY` だけ用意）。Slack・Figma は cortex プラグイン同梱（**手元のみ**・初回に OAuth 承認）。接続確認は手元なら `/mcp`、クラウド実行はセッションのコネクタ設定から。**GitHub に MCP は不要**（手元は `gh auth login`） |
-| 新しい定例・会議を自動取り込みしたい | **会議名に目印を入れ（例「【kc】定例」。目印はビューアの「操作」タブに出ています）、Google Meet の招待に cortex-notetaker の bot を追加**するだけ（文字起こしが自動で `会議/` に入り議事録も生成される）。※クラスメソッド側が主催する Google Meet のみ。顧客主催・Teams 等はビューアの投入フォーム、または `/create-minute` で手動取り込み |
+| 新しい定例・会議を自動取り込みしたい | **会議名に目印を入れ（例「【kc】定例」。目印はビューアの「操作」タブに出ています。まだ出ていなければ艦隊レジストリのキーを管理者に確認）、Google Meet の招待に cortex-notetaker の bot を追加**するだけ（文字起こしが自動で `会議/` に入り議事録も生成される）。※クラスメソッド側が主催する Google Meet のみ。顧客主催・Teams 等はビューアの投入フォーム、または `/create-minute` で手動取り込み |
 | 会議が終わった（議事録を作りたい） | 自動取り込み済みなら夜間に自動生成される。手元の文字起こしからは `/create-minute`（ビューアの投入フォームでも可） |
 | 顧客とのやり取り（課題）を最新化したい | **何もしなくてよい**（Webhook で数十秒＋平日毎時の自動同期）。手元を最新にするのは `/git-sync` |
 | 課題に返信・更新したい | `/backlog-push`（編集してから実行すると Backlog に反映。個人の API キーが必要） |

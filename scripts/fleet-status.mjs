@@ -525,10 +525,6 @@ function meetingSignal() {
     const cfg = JSON.parse(readText(p) || "");
     if (typeof cfg.meetingKey !== "string") return undefined;
     const v = cfg.meetingKey.trim();
-    // **括弧を剥がす。** 手順書も画面も合図を 【kc】 [kc] と括弧付きで見せているので、
-    // 設定ファイルにも `"meetingKey": "[kc]"` と書かれる。振り分け側（Projects.gs の
-    // normalizeMeetingKey_）は剥がして `kc` として扱うので、**画面もそちらに合わせる**。
-    // 剥がさないと「【[kc]】 を会議名に入れてください」と出て、そのとおり書くと当たらない。
     // **囲みの括弧を、剥がせなくなるまで剥がす。** 手順書も画面も合図を 【kc】 [kc] と
     // 括弧付きで見せているので設定ファイルにもそのまま書かれる。1回だけだと 【［kc］】 は
     // 剥がれるのに ［［kc］］ は残る、という説明できない差が出る（日本語IMEで [ を打つと
@@ -550,10 +546,9 @@ function meetingSignal() {
     // **見えない文字は剥がした後に見る。** ゼロ幅スペース等が混じった合図は画面で kc と
     // 同じに見え、画面を見て打ち直した人（コピペしなかった人）の会議だけが当たらない
     if (/[\u0000-\u001F\u007F\u00AD\u200B-\u200F\u2028\u2029\u2060\uFEFF]/.test(k)) return undefined;
-    // 長さの上限は振り分け側（Projects.gs の MAX_MEETING_KEY_LENGTH）と揃える。
-    // あちらは超過分を艦隊キーへ落とすので、こちらも目印として出さない
     // 途中にある括弧は弾かない（Router は 【値】 を探すので `kc(2026)` は当たる）。
-    // 弾くのは剥がしきれず括弧だけになったものと、会議名に打てないもの
+    // 弾くのは剥がしきれず括弧だけになったものと、会議名に打てないもの。
+    // 長さの上限（64）は振り分け側（Projects.gs の MAX_MEETING_KEY_LENGTH）と揃える
     if (!k || k.length > 64 || /^[[\]\u3010\u3011\uFF3B\uFF3D\u3014\u3015\uFF08\uFF09()]+$/.test(k) || /\s/.test(k) || k.includes("{{")) return undefined;
     return k;
   } catch { return undefined; }

@@ -41,10 +41,19 @@ const STALE = ["meetingNamePatterns", "優先順", "client 名"];
 
 async function findConfig(root) {
   // 置き場は案件で違う（`会議/` のほか `MTG/` にリネームしている案件がある）。
-  // マーカーファイル名で探すのは本体スクリプトと同じ方針
-  for (const entry of await fs.readdir(root, { withFileTypes: true })) {
-    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
-    const p = path.join(root, entry.name, "ingest-config.json");
+  // マーカーファイル名で探すのは本体スクリプトと同じ方針。
+  // **探索範囲は scripts/fleet-status.mjs の findConfigPath と揃える**（ルート・深さ1・深さ2）。
+  // ここだけ浅いと、あちらが読んでいるファイルをこちらが直せない。
+  const candidates = [path.join(root, "ingest-config.json")];
+  for (const a of await fs.readdir(root, { withFileTypes: true })) {
+    if (!a.isDirectory() || a.name.startsWith(".") || a.name === "node_modules") continue;
+    candidates.push(path.join(root, a.name, "ingest-config.json"));
+    for (const b of await fs.readdir(path.join(root, a.name), { withFileTypes: true }).catch(() => [])) {
+      if (!b.isDirectory() || b.name.startsWith(".") || b.name === "node_modules") continue;
+      candidates.push(path.join(root, a.name, b.name, "ingest-config.json"));
+    }
+  }
+  for (const p of candidates) {
     try {
       await fs.stat(p);
       return p;
@@ -69,7 +78,9 @@ export async function run(repoRoot) {
   }
 
   const doc = typeof cfg._doc === "string" ? cfg._doc : "";
-  if (!STALE.some((s) => doc.includes(s))) return; // 既に新文面
+  // **説明が無い案件にも書く。** 艦隊に1件、`_doc` ごと消えているものがある。
+  // 旧文面より害は小さいが、このファイルを開いた人に手がかりが何も無い状態になる
+  if (doc && !STALE.some((s) => doc.includes(s))) return; // 既に新文面
 
   // **キーの順序を保つ。** `_doc` は先頭にある想定だが、案件が足したフィールドの順も崩さない
   cfg._doc = DOC;

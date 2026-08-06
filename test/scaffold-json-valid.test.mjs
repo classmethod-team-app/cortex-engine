@@ -15,16 +15,26 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { globSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const files = globSync("plugin/scaffold/**/*.json", { cwd: ROOT });
+
+// **`globSync` は使わない。** 既定でドットファイル・ドットディレクトリにマッチしないため、
+// `.mcp.json` と `.claude/settings.json` を取りこぼす（実測: 8件中5件しか見ていなかった）。
+// `.mcp.json` は「手で書いて全案件に配る JSON」——**まさに今回壊したのと同じ形**なので、
+// ここが抜けているとこのテストの目的を果たさない。`.json.example` も配布物なので含める。
+const files = readdirSync(path.join(ROOT, "plugin/scaffold"), { recursive: true })
+  .map(String)
+  .filter((f) => /\.json(\.example)?$/.test(f))
+  .map((f) => path.join("plugin/scaffold", f));
 
 test("[正常系] scaffold の JSON がすべて parse できる", () => {
-  assert.ok(files.length >= 3, `scaffold の JSON を見つけられていない（${files.length}件）`);
+  // **件数も見る。** 探索方法を変えて静かに対象が減ると、壊れても緑のままになる
+  assert.ok(files.length >= 8, `scaffold の JSON を取りこぼしている（${files.length}件）: ${files.join(", ")}`);
+  assert.ok(files.some((f) => f.endsWith(".mcp.json")), "ドットファイルを拾えていない");
+  assert.ok(files.some((f) => f.includes(".claude/")), "ドットディレクトリを拾えていない");
   for (const f of files) {
     const raw = readFileSync(path.join(ROOT, f), "utf-8");
     assert.doesNotThrow(() => JSON.parse(raw), `${f} が JSON として壊れている`);
