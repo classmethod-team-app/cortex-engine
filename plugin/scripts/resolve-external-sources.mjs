@@ -131,10 +131,19 @@ function deriveSlackChannels() {
     const platform = (c.platform || "slack").toLowerCase();
     if (platform !== "slack") continue; // teams 等は slack ソースとして導出しない
     const url = c.url || "";
-    const m = url.match(/\/archives\/([A-Z0-9]+)/);
+    // **URL全体の形で検証する。** 以前は `/archives/(...)` の部分一致だけを見ており、
+    // scaffold のプレースホルダ `https://your-workspace.slack.com/archives/CHANNEL_ID` から
+    // **`CHANNEL` というIDを抽出してしまっていた**（`_` の手前で切れる）。
+    // scaffold は `gold: true` のサンプル行を同梱しているので、新規案件が全部
+    // 「存在しないチャンネルを読む対象にしている」状態になり、しかも設定UIでは
+    // **接続済みに見えていた**（実際にそうなった）。
+    //
+    // 実在するワークスペースのホスト名は英数・ハイフン・ドットのみ。IDは大文字英数のみ。
+    // プレースホルダは `CHANNEL_ID`（アンダースコア）なのでこの形で落ちる。
+    const m = /^https:\/\/[A-Za-z0-9.-]+\/archives\/([A-Z0-9]+)$/.exec(url.trim());
     if (!m) {
       const label = c.name || url || "?";
-      warn(`チャンネル '${label}' の url からIDを抽出できません。スキップします。`);
+      warn(`チャンネル '${label}' の url がSlackのチャンネルURLの形ではありません。スキップします: ${url}`);
       continue;
     }
     // **Gold昇格は明示的なopt-in（gold: true）でのみ有効にする。**
