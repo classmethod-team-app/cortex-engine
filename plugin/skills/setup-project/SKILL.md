@@ -262,16 +262,19 @@ git pull
 
 > ⚠️ **ここまでの作業が全て正しくても、GitHub 側でリポジトリ単位の認可が下りていないと一部の機能が無言で止まります。** 症状がどれも「設定ミス」に見えるため原因究明で時間を溶かします。認可はリポジトリ作成やデプロイの副作用では下りないので、セットアップの最後に必ず通してください。
 
-| 認可 | 対象 | 下りていないときの症状 |
+| 認可 | 申請ページ | 下りていないときの症状 |
 | --- | --- | --- |
-| **Claude GitHub App** にこのリポを追加 | 全案件 | Claude Code の Web / デスクトップでリポジトリ選択肢に出てこない |
-| **Amplify GitHub App** にこのリポを追加 | ビューアを配信する案件 | Amplify のビルドが `Unable to assume specified IAM Role` で失敗（IAM とは無関係。実体はリポジトリを読めていない） |
+| **Claude GitHub App** | https://github.com/apps/claude/installations/new | Claude Code の Web / デスクトップでリポジトリ選択肢に出てこない |
+| **Amplify GitHub App** | https://github.com/apps/aws-amplify-ap-northeast-1 | Amplify のビルドが `Unable to assume specified IAM Role` で失敗（IAM とは無関係。実体はリポジトリを読めていない） |
 
-どちらも **案件ごとに毎回必要**（リポジトリ単位の認可のため）。
+どちらも **案件ごとに毎回必要**（リポジトリ単位の認可のため）。**Org 全体ではなくリポジトリ指定**で申請する（組織の承認条件）。
+
+> 既にその組織へインストール済みのアプリにリポジトリを足すだけなら、https://github.com/settings/installations
+> の該当アプリ → **Configure** → **Select repositories** からでも同じ。
 
 ### 手順
 
-1. **Claude Code でこのリポジトリが選べるか確かめる**（Web / デスクトップのリポジトリ選択）。出てこなければ GitHub App への追加をリクエストする
+1. **Claude Code でこのリポジトリが選べるか確かめる**（Web / デスクトップのリポジトリ選択）。出てこなければ上の申請ページから追加をリクエストする（承認制の組織では、ここで**オーナーへの承認リクエストが飛ぶ**）
 2. **組織がリポジトリ単位の承認制なら、承認者へ依頼を出す。** 宛先・依頼文テンプレ・組織の承認条件は fleet 管理者向けの private ドキュメント（`cortex-tools/infra/README.md` の「GitHub 側の認可」節）にある。**Org 一括の事前承認は原則できない**ため、案件を立ち上げるたびに依頼が発生する前提で進める
 3. 依頼をチャットで送るときは、**下書きをユーザーに見せて承認を取ってから送る**（社内他チームへの発信のため。`tools.チャット` が `slack` なら `slack` MCP で送れる）
 4. **承認は即時ではない。** 下りるまでこのリポは Claude Code から見えないことをユーザーに伝え、待たずに他のステップを進める
