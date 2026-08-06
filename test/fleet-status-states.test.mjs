@@ -4,7 +4,7 @@
  * なぜ必要か:
  *   設定UIから ON/OFF を押せるようにする以上、画面が現在値を出せないと
  *   「押したのに変わらない」と読まれる。そして以前の実装は
- *     - 会議: 「OFF」「設定ファイルなし」「照合キーが空」がすべて同じ undefined
+ *     - 会議: 「OFF」「設定ファイルなし」「合図が空」がすべて同じ undefined
  *     - 資料: 「OFF」「設定ファイルなし」「フォルダ未登録」がすべて `driveSync: false`
  *   に潰れていた。`goldState` を三値にしたときと同じ問題（区別できないと
  *   正常なOFFにも警告が出て、警告そのものが無視されるようになる）。
@@ -119,6 +119,37 @@ test("[会議] 廃止した meetingNamePatterns を合図として出さない",
   const r = run({ "会議/ingest-config.json": JSON.stringify({ enabled: true, meetingNamePatterns: ["ハーネス定例"] }) });
   assert.equal(r.meeting.meetingKey, undefined);
   assert.equal(r.meeting.matchKeys, undefined, "廃止したフィールドを載せている");
+});
+
+test("[会議] 宣言された合図の扱いを、振り分け側と同じ表で固定する", () => {
+  // **この規則は cortex-tools/apps-script/src/Projects.gs の normalizeMeetingKey_ と
+  // 同じでなければならない。** 画面が出す目印と、実際に照合される値が食い違うと、
+  // 画面のとおり会議を改名した人の文字起こしが丸ごと未仕分けへ落ちる。
+  // 言語もリポも違うので共有できない——同じ表を両側に置いて突き合わせる。
+  const table = [
+    ["kc", "kc", "そのまま"],
+    ["  kc  ", "kc", "前後の空白は落とす"],
+    ["[kc]", "kc", "括弧付きで書かれたら剥がす（手順書が括弧付きで例示しているので起きる）"],
+    ["【kc】", "kc", "全角も同じ"],
+    ["", undefined, "空は宣言なし扱い"],
+    ["   ", undefined, "空白のみも同じ"],
+    ["[]", undefined, "剥がすと空"],
+    ["[[kc]]", undefined, "剥がしても括弧が残る"],
+    ["a b", undefined, "空白が混じると会議名に打ちにくく、当たらない事故になる"],
+    ["{{案件キー}}", undefined, "scaffold の未置換プレースホルダ"],
+  ];
+  for (const [raw, want, why] of table) {
+    const got = run({ "会議/ingest-config.json": JSON.stringify({ enabled: true, meetingKey: raw }) }).meeting.meetingKey;
+    assert.equal(got, want, `${JSON.stringify(raw)} → ${JSON.stringify(got)}（期待 ${JSON.stringify(want)}）: ${why}`);
+  }
+});
+
+test("[会議] 文字列でない合図で落ちない", () => {
+  for (const bad of [123, true, ["kc"], { a: 1 }, null]) {
+    const r = run({ "会議/ingest-config.json": JSON.stringify({ enabled: true, meetingKey: bad }) });
+    assert.equal(r.meeting.meetingKey, undefined, `${JSON.stringify(bad)} を通している`);
+    assert.equal(r.meeting.ingestState, "on", "他の情報まで巻き添えで落ちている");
+  }
 });
 
 test("[異常系] 同名の設定ファイルが複数あることを検知する", () => {

@@ -491,11 +491,6 @@ function findConfigPath(marker) {
   } catch {}
   return null;
 }
-/** Home.md frontmatter の client 名（会議照合の既定キー）。未記入・空は "" */
-const clientName = (() => {
-  const m = home && home.match(/^client:\s*["']?([^"'\n#]*?)["']?\s*(?:#.*)?$/m);
-  return m ? m[1].trim() : "";
-})();
 /**
  * 会議の取り込み状態。
  *
@@ -527,8 +522,17 @@ function meetingSignal() {
   if (!p) return undefined;
   try {
     const cfg = JSON.parse(readText(p) || "");
-    const k = typeof cfg.meetingKey === "string" ? cfg.meetingKey.trim() : "";
-    return k && !/\{\{/.test(k) ? k : undefined;
+    if (typeof cfg.meetingKey !== "string") return undefined;
+    const v = cfg.meetingKey.trim();
+    // **括弧を剥がす。** 手順書も画面も合図を 【kc】 [kc] と括弧付きで見せているので、
+    // 設定ファイルにも `"meetingKey": "[kc]"` と書かれる。振り分け側（Projects.gs の
+    // normalizeMeetingKey_）は剥がして `kc` として扱うので、**画面もそちらに合わせる**。
+    // 剥がさないと「【[kc]】 を会議名に入れてください」と出て、そのとおり書くと当たらない。
+    const k = v.replace(/^\[([\s\S]+)\]$/, "$1").replace(/^【([\s\S]+)】$/, "$1").trim();
+    // 剥がしても使えないもの（括弧が残る・空白が混じる・未置換のプレースホルダ）は出さない。
+    // 出すと「そのとおり改名しても当たらない目印」を画面に出すことになる
+    if (!k || /[[\]【】\s]/.test(k) || k.includes("{{")) return undefined;
+    return k;
   } catch { return undefined; }
 }
 /**
@@ -605,7 +609,7 @@ function listInternalSources() {
       url: (t) => (t === "backlog" ? backlogProjectUrl() : undefined), pipeline: "sync-backlog" },
     { kind: "会議", def: "google-meet",
       label: (t) => (t === "google-meet" ? "会議の文字起こし・議事録" : `会議の文字起こし・議事録（${toolDisp(t)}）`),
-      // 取り込み対象の会議名の照合キー（ビューアが「この語が会議名に入れば取り込まれる」を表示）
+      // 会議名に入れる合図（ビューアが「【合図】 を会議名に入れると取り込まれる」を表示）
       extra: () => { const k = meetingSignal(); return { ingestState: meetingIngestState(), ...(k ? { meetingKey: k } : {}) }; },
       pipeline: "ingest-minutes" },
     { kind: "共有資料", def: "google-drive",
