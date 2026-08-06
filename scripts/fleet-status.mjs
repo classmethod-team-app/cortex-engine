@@ -529,24 +529,32 @@ function meetingSignal() {
     // 設定ファイルにも `"meetingKey": "[kc]"` と書かれる。振り分け側（Projects.gs の
     // normalizeMeetingKey_）は剥がして `kc` として扱うので、**画面もそちらに合わせる**。
     // 剥がさないと「【[kc]】 を会議名に入れてください」と出て、そのとおり書くと当たらない。
-    // **見えない文字を弾く。** ゼロ幅スペース等が混じった合図は画面で `kc` と同じに見え、
-    // 画面を見て打ち直した人（コピペしなかった人）の会議だけが当たらない。
-    // 振り分け側（Projects.gs の normalizeMeetingKey_）も同じ規則で艦隊キーへ落とす
-    if (/[\u0000-\u001F\u007F\u00AD\u200B-\u200F\u2028\u2029\u2060\uFEFF]/.test(v)) return undefined;
-    // 括弧は半角・全角の両方を剥がす（日本語IMEで `[` を打つと全角の `\uFF3B` になる）
-    const k = v
-      .replace(/^\[([\s\S]+)\]$/, "$1")
-      .replace(/^\u3010([\s\S]+)\u3011$/, "$1")
-      .replace(/^\uFF3B([\s\S]+)\uFF3D$/, "$1")
-      .replace(/^\u3014([\s\S]+)\u3015$/, "$1")
-      .replace(/^\uFF08([\s\S]+)\uFF09$/, "$1")
-      .replace(/^\(([\s\S]+)\)$/, "$1")
-      .trim();
-    // 剥がしても使えないもの（括弧が残る・空白が混じる・未置換のプレースホルダ）は出さない。
-    // 出すと「そのとおり改名しても当たらない目印」を画面に出すことになる
+    // **囲みの括弧を、剥がせなくなるまで剥がす。** 手順書も画面も合図を 【kc】 [kc] と
+    // 括弧付きで見せているので設定ファイルにもそのまま書かれる。1回だけだと 【［kc］】 は
+    // 剥がれるのに ［［kc］］ は残る、という説明できない差が出る（日本語IMEで [ を打つと
+    // 全角の ［ になるので取り合わせは実際に起きる）。振り分け側（Projects.gs の
+    // normalizeMeetingKey_）と同じ規則。
+    let k = v;
+    for (let i = 0; i < 5; i++) {
+      const once = k
+        .replace(/^\[([\s\S]+)\]$/, "$1")
+        .replace(/^\u3010([\s\S]+)\u3011$/, "$1")
+        .replace(/^\uFF3B([\s\S]+)\uFF3D$/, "$1")
+        .replace(/^\u3014([\s\S]+)\u3015$/, "$1")
+        .replace(/^\uFF08([\s\S]+)\uFF09$/, "$1")
+        .replace(/^\(([\s\S]+)\)$/, "$1")
+        .trim();
+      if (once === k) break;
+      k = once;
+    }
+    // **見えない文字は剥がした後に見る。** ゼロ幅スペース等が混じった合図は画面で kc と
+    // 同じに見え、画面を見て打ち直した人（コピペしなかった人）の会議だけが当たらない
+    if (/[\u0000-\u001F\u007F\u00AD\u200B-\u200F\u2028\u2029\u2060\uFEFF]/.test(k)) return undefined;
     // 長さの上限は振り分け側（Projects.gs の MAX_MEETING_KEY_LENGTH）と揃える。
     // あちらは超過分を艦隊キーへ落とすので、こちらも目印として出さない
-    if (!k || k.length > 64 || /[[\]\u3010\u3011\uFF3B\uFF3D\u3014\u3015\uFF08\uFF09()\s]/.test(k) || k.includes("{{")) return undefined;
+    // 途中にある括弧は弾かない（Router は 【値】 を探すので `kc(2026)` は当たる）。
+    // 弾くのは剥がしきれず括弧だけになったものと、会議名に打てないもの
+    if (!k || k.length > 64 || /^[[\]\u3010\u3011\uFF3B\uFF3D\u3014\u3015\uFF08\uFF09()]+$/.test(k) || /\s/.test(k) || k.includes("{{")) return undefined;
     return k;
   } catch { return undefined; }
 }

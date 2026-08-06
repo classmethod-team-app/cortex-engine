@@ -133,8 +133,7 @@ test("[会議] 宣言された合図の扱いを、振り分け側と同じ表�
     ["【kc】", "kc", "全角も同じ"],
     ["", undefined, "空は宣言なし扱い"],
     ["   ", undefined, "空白のみも同じ"],
-    ["[]", undefined, "剥がすと空"],
-    ["[[kc]]", undefined, "剥がしても括弧が残る"],
+    ["[[kc]]", "kc", "剥がせなくなるまで剥がす"],
     ["a b", undefined, "空白が混じると会議名に打ちにくく、当たらない事故になる"],
     ["{{案件キー}}", undefined, "scaffold の未置換プレースホルダ"],
     ["  [kc]  ", "kc", "空白と括弧の組み合わせ（手で書けば普通に起きる。trim を落とすと剥がれなくなる）"],
@@ -144,10 +143,13 @@ test("[会議] 宣言された合図の扱いを、振り分け側と同じ表�
     ["kc\u200B", undefined, "ゼロ幅スペース。画面では kc と同じに見え、打ち直した人だけ当たらない"],
     ["kc\u00AD", undefined, "ソフトハイフン"],
     ["kc\u0000", undefined, "制御文字"],
-    ["\uFF3B\uFF3Bkc\uFF3D\uFF3D", undefined, "剥がしても全角括弧が残るものは使えない（半角と同じ扱い）"],
-    ["\u3010\uFF3Bkc\uFF3D\u3011", "kc", "種類の違う入れ子は2層とも剥がれる（意図は明らかに kc）"],
+    ["[ kc ]", "kc", "括弧の内側の空白（手で書けば普通に起きる。剥がした後の trim を落とすと拒否になる）"],
+    ["\u3010 kc \u3011", "kc", "全角でも同じ"],
+    ["\uFF3B\uFF3Bkc\uFF3D\uFF3D", "kc", "同種の入れ子も剥がせるだけ剥がす"],
+    ["kc(2026)", "kc(2026)", "**途中**にある括弧は弾かない。Router は 【kc(2026)】 を探すので当たる（実測）"],
+    ["[]", undefined, "括弧だけになるものは合図にならない"],
     ["x".repeat(64), "x".repeat(64), "上限ちょうどは通す"],
-    ["x".repeat(65), undefined, "長すぎる値は振り分け側が艦隊キーへ落とすので、目印としても出さない"],
+    ["x".repeat(65), undefined, "長すぎる値は cache.put の100KB上限を超えうるので落とす"],
   ];
   for (const [raw, want, why] of table) {
     const got = run({ "会議/ingest-config.json": JSON.stringify({ enabled: true, meetingKey: raw }) }).meeting.meetingKey;
