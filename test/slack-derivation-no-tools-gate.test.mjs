@@ -118,3 +118,49 @@ test("[正常系] --all は理由まで出す（設定UIの表示が壊れない
   const byRef = Object.fromEntries(got.filter((s) => s.type === "slack").map((s) => [s.ref, s.goldState]));
   assert.deepEqual(byRef, { C0777: "on", C0888: "off", C0999: "undeclared" });
 });
+
+// ---- プレースホルダを実在チャンネルとして扱わない ----
+
+test("[異常系] scaffold のプレースホルダURLからチャンネルを導出しない", () => {
+  // **これが実際に起きた。** scaffold は gold:true のサンプル行を同梱していて、
+  // 部分一致だと `…/archives/CHANNEL_ID` から `CHANNEL` を抽出してしまう（`_` の手前で切れる）。
+  // tools ゲートを外した途端、新規案件が全部「存在しないチャンネルを読む対象」になり、
+  // 設定UIでは接続済みに見えていた
+  const got = resolve({
+    chat: "teams",
+    channels: [
+      { name: "社内議論", url: "https://your-workspace.slack.com/archives/CHANNEL_ID", gold: false },
+      { name: "顧客共有", url: "https://your-workspace.slack.com/archives/CHANNEL_ID", gold: true },
+    ],
+  });
+  assert.deepEqual(slackRefs(got), [], "プレースホルダを実在チャンネルとして導出している");
+});
+
+test("[異常系] URL全体の形で検証する（部分一致で通さない）", () => {
+  for (const url of [
+    "https://x.slack.com/archives/C0AAA/p1700000000123456", // メッセージ単位
+    "https://x.slack.com/archives/C0AAA?foo=1", // クエリ付き
+    "http://x.slack.com/archives/C0AAA", // https でない
+    "メモ: https://x.slack.com/archives/C0AAA を見て", // 文中に埋まっている
+    "",
+  ]) {
+    assert.deepEqual(
+      slackRefs(resolve({ chat: "slack", channels: [{ name: "x", url, gold: true }] })),
+      [],
+      `通してはいけないURLを通している: ${url}`,
+    );
+  }
+});
+
+test("[正常系] 実在するチャンネルURLは通る（判定が厳しすぎない）", () => {
+  for (const url of [
+    "https://classmethod.enterprise.slack.com/archives/C0ATMCUAR8U",
+    "https://tokyuline.slack.com/archives/C02AWDADZGC", // 別ワークスペース（Slack Connect）
+  ]) {
+    assert.equal(
+      slackRefs(resolve({ chat: "teams", channels: [{ name: "x", url, gold: true }] })).length,
+      1,
+      `実在のURLを弾いている: ${url}`,
+    );
+  }
+});
