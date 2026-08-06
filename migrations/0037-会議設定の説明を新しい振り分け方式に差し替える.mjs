@@ -34,7 +34,10 @@ const DOC =
   "（例: sushiro-googlemaps → sushiro）。**meetingKey には括弧を書かない**（会議名の側に付ける。" +
   "「[kc]」のように書かれていた場合は剥がして扱い、警告を出す）。空白を含む値・64文字を超える値は使えない（艦隊キーに戻る）。" +
   "**meetingKey を書いた案件は艦隊キーでは当たらない**（打つものを1つに保つため）。" +
-  "合図が無い会議は中央 inbox（未仕分け）へ入り、データは失われない。詳細: cortex-tools/apps-script/";
+  "合図が無い会議は中央 inbox（未仕分け）へ入り、データは失われない。enabled は既定で true。" +
+  "**取り込むか否かを決めるのは bot を会議に招待したかどうか**であって、このフラグではない" +
+  "（招待しなければ何も起きない）。false にするのは Google Meet 以外（Teams 等）で運用していて" +
+  "自動取り込みを使わない案件だけ。詳細: cortex-tools/apps-script/";
 
 /** 旧文面の目印。どれかを含んでいれば差し替える */
 const STALE = ["meetingNamePatterns", "優先順", "client 名"];

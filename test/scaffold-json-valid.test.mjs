@@ -46,7 +46,13 @@ test("[正常系] 会議の設定が、案件が触るフィールドを持っ�
   // 壊れていないだけでなく、手順書（setup-project ステップ12）が「ここを書き換える」と
   // 言っているフィールドが実在すること。`_doc` の書き直しでフィールドごと消した事故もありうる
   const cfg = JSON.parse(readFileSync(path.join(ROOT, "plugin/scaffold/repo/会議/ingest-config.json"), "utf-8"));
-  assert.equal(cfg.enabled, false, "既定で有効になっている（宣言していない案件が取り込まれる）");
+  // **既定は有効。** 以前は false だったが、**艦隊レジストリへの登録が既に「この案件を
+  // 取り込む」という意思表示**なので、二重の関門になっていて片方を忘れやすかった
+  // （実際に1案件が false のまま残り、招待した会議が案件リポに入らない状態になっていた）。
+  // レジストリに登録していない案件は notetaker がそもそも読まないので、既定を true にしても
+  // 「勝手に取り込まれる」ことは起きない。取り込むか否かは bot を招待したかで決まる。
+  // false にするのは Google Meet 以外（Teams 等）で運用している案件だけ。
+  assert.equal(cfg.enabled, true, "既定が無効（セットアップで有効化を忘れると静かに取り込まれない）");
   assert.equal(typeof cfg.transcriptDir, "string");
   // **廃止したフィールドを配らない。** 「ここに足せば拾われる」と読めるのに何も起きない
   assert.equal(cfg.meetingNamePatterns, undefined);
