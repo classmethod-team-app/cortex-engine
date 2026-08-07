@@ -492,6 +492,28 @@ function findConfigPath(marker) {
   return null;
 }
 /**
+ * 既存の定例を、いまの名前のまま拾うために登録した**別名**。
+ *
+ * **画面に出す。** 設定ファイルにしか無いと「なぜこの会議だけ入るのか」「新しい定例を
+ * どこに足せばよいか」が誰にも分からない。合図（meetingKey）と並べて見せる。
+ */
+function meetingAliases() {
+  const p = findConfigPath("ingest-config.json");
+  if (!p) return [];
+  try {
+    const cfg = JSON.parse(readText(p) || "");
+    if (!Array.isArray(cfg.aliases)) return [];
+    return cfg.aliases
+      .filter((a) => typeof a === "string")
+      .map((a) => a.replace(/\s+/g, " ").trim())
+      // **長さの上限も振り分け側と揃える。** ここだけ無いと、振り分けが捨てた長い別名を
+      // 画面が「取り込む会議」として出す——まさに「画面に出ているのに届かない」形になる
+      .filter((a) => a && a.length <= 100 && !a.includes("{{"))
+      .slice(0, 20); // 件数・長さとも Projects.gs の MAX_ALIASES / MAX_ALIAS_LENGTH と揃える
+  } catch { return []; }
+}
+
+/**
  * 会議の取り込み状態。
  *
  * **「意図的にOFF」と「まだ設置していない」を潰さない。** 設定UIから ON/OFF を押せるように
@@ -636,7 +658,11 @@ function listInternalSources() {
     { kind: "会議", def: "google-meet",
       label: (t) => (t === "google-meet" ? "会議の文字起こし・議事録" : `会議の文字起こし・議事録（${toolDisp(t)}）`),
       // 会議名に入れる合図（ビューアが「【合図】 を会議名に入れると取り込まれる」を表示）
-      extra: () => { const k = meetingSignal(); return { ingestState: meetingIngestState(), ...(k ? { meetingKey: k } : {}) }; },
+      extra: () => {
+        const k = meetingSignal();
+        const a = meetingAliases();
+        return { ingestState: meetingIngestState(), ...(k ? { meetingKey: k } : {}), ...(a.length ? { meetingAliases: a } : {}) };
+      },
       pipeline: "ingest-minutes" },
     { kind: "共有資料", def: "google-drive",
       label: (t) => (t === "google-drive" ? "共有資料（Drive同期・Markdown変換）" : `共有資料（Markdown変換）（${toolDisp(t)}）`),

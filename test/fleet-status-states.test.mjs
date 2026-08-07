@@ -176,6 +176,37 @@ test("[会議] 文字列でない合図で落ちない", () => {
   }
 });
 
+test("[会議] 登録した別名を画面まで出す", () => {
+  // 設定ファイルにしか無いと「なぜこの会議だけ入るのか」「新しい定例をどこに足すのか」が
+  // 誰にも分からない。合図と並べて見せる
+  const cfg = (aliases) => JSON.stringify({ enabled: true, meetingKey: "kc", aliases });
+  assert.deepEqual(run({ "会議/ingest-config.json": cfg(["kc: 定例会", "  拡大版  "]) }).meeting.meetingAliases,
+    ["kc: 定例会", "拡大版"], "前後の空白を落としていない");
+  // 未登録の案件にフィールドごと出さない（艦隊9案件はこの状態）
+  assert.equal(run({ "会議/ingest-config.json": cfg([]) }).meeting.meetingAliases, undefined);
+  assert.equal(run({ "会議/ingest-config.json": JSON.stringify({ enabled: true }) }).meeting.meetingAliases, undefined);
+});
+
+test("[会議] 別名の上限を振り分け側と揃える", () => {
+  // **ここだけ上限が無いと、振り分けが捨てた別名を画面が「取り込む会議」として出す。**
+  // 「画面に出ているのに届かない」——この設計が一番避けたい形
+  const cfg = (aliases) => JSON.stringify({ enabled: true, aliases });
+  assert.equal(run({ "会議/ingest-config.json": cfg(["x".repeat(100)]) }).meeting.meetingAliases.length, 1,
+    "上限ちょうどを弾いている");
+  assert.equal(run({ "会議/ingest-config.json": cfg(["x".repeat(101)]) }).meeting.meetingAliases, undefined,
+    "振り分けが捨てる長さを画面に出している");
+  const many = run({ "会議/ingest-config.json": cfg(Array.from({ length: 25 }, (_, i) => `定例${i}`)) });
+  assert.equal(many.meeting.meetingAliases.length, 20, "件数の上限が振り分け側とズレている");
+});
+
+test("[会議] 別名が壊れていても落ちない", () => {
+  for (const bad of ['"文字列"', "123", "{}", '[1, null, "  ", "{{案件キー}}"]']) {
+    const r = run({ "会議/ingest-config.json": `{"enabled":true,"aliases":${bad}}` });
+    assert.equal(r.meeting.ingestState, "on", `${bad} で他の情報まで巻き添えになっている`);
+    assert.equal(r.meeting.meetingAliases, undefined, `${bad} を通している`);
+  }
+});
+
 test("[異常系] 同名の設定ファイルが複数あることを検知する", () => {
   // 資料の変換が設定ファイルを移動する事故があり、読み手が空の正本を見て
   // 2案件の資料同期が数週間止まった。複数あること自体が異常の兆候なので気づけるようにする。
