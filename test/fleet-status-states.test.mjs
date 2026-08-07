@@ -187,6 +187,18 @@ test("[会議] 登録した別名を画面まで出す", () => {
   assert.equal(run({ "会議/ingest-config.json": JSON.stringify({ enabled: true }) }).meeting.meetingAliases, undefined);
 });
 
+test("[会議] 別名の上限を振り分け側と揃える", () => {
+  // **ここだけ上限が無いと、振り分けが捨てた別名を画面が「取り込む会議」として出す。**
+  // 「画面に出ているのに届かない」——この設計が一番避けたい形
+  const cfg = (aliases) => JSON.stringify({ enabled: true, aliases });
+  assert.equal(run({ "会議/ingest-config.json": cfg(["x".repeat(100)]) }).meeting.meetingAliases.length, 1,
+    "上限ちょうどを弾いている");
+  assert.equal(run({ "会議/ingest-config.json": cfg(["x".repeat(101)]) }).meeting.meetingAliases, undefined,
+    "振り分けが捨てる長さを画面に出している");
+  const many = run({ "会議/ingest-config.json": cfg(Array.from({ length: 25 }, (_, i) => `定例${i}`)) });
+  assert.equal(many.meeting.meetingAliases.length, 20, "件数の上限が振り分け側とズレている");
+});
+
 test("[会議] 別名が壊れていても落ちない", () => {
   for (const bad of ['"文字列"', "123", "{}", '[1, null, "  ", "{{案件キー}}"]']) {
     const r = run({ "会議/ingest-config.json": `{"enabled":true,"aliases":${bad}}` });

@@ -506,8 +506,10 @@ function meetingAliases() {
     return cfg.aliases
       .filter((a) => typeof a === "string")
       .map((a) => a.replace(/\s+/g, " ").trim())
-      .filter((a) => a && !a.includes("{{"))
-      .slice(0, 30); // 振り分け側（Projects.gs の MAX_ALIASES）と揃える
+      // **長さの上限も振り分け側と揃える。** ここだけ無いと、振り分けが捨てた長い別名を
+      // 画面が「取り込む会議」として出す——まさに「画面に出ているのに届かない」形になる
+      .filter((a) => a && a.length <= 100 && !a.includes("{{"))
+      .slice(0, 20); // 件数・長さとも Projects.gs の MAX_ALIASES / MAX_ALIAS_LENGTH と揃える
   } catch { return []; }
 }
 
